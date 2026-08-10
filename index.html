@@ -70,11 +70,12 @@
        오버레이로 바꿨다. 이제 열고 닫아도 #book-stage 크기는 전혀 바뀌지
        않아서 페이지 재구성이 발생하지 않는다.
        💡 화면 크기와 무관하게 항상 가로 풀사이즈 상단바 — 카드/그림자 없이
-       페이지와 같은 배경색으로 이어붙여서 색이 튀지 않고 단순하게 보이도록 한다. */
+       참고 이미지처럼 상단바는 흰 배경으로 페이지 영역과 명확히 구분하고,
+       하단 슬라이더 바는 계속 투명하게 페이지 위에 떠 있는 형태를 유지한다. */
     #sidebar {
       position: fixed; top: 0; left: 0; right: 0;
       width: 100%;
-      background-color: var(--bg-color);
+      background-color: var(--sidebar-bg);
       border-bottom: 1px solid var(--border-color);
       display: flex; z-index: 50;
       transform: translateY(0);
@@ -346,7 +347,21 @@
       }, 2200);
     }
 
-    window.addEventListener('DOMContentLoaded', fetchFileList);
+    // 💡 새로고침해도 이어보기: 지금까진 새로고침하면 무조건 서재 화면으로 돌아가서
+    // "마지막으로 읽던 책이 이어지지 않는다"고 느껴졌다. 마지막으로 연 책 이름을
+    // localStorage에 기억해뒀다가, 페이지가 새로 열릴 때 그 책이 아직 목록에
+    // 있으면 서재를 거치지 않고 곧바로 그 책을 열어서(=Firestore의 최신 위치로) 이어준다.
+    const LAST_OPENED_FILE_KEY = 'txtViewerLastOpenedFile';
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      await fetchFileList();
+
+      const lastFile = localStorage.getItem(LAST_OPENED_FILE_KEY);
+      if (lastFile && Array.from(fileListElement.children).some(li => li.textContent === lastFile)) {
+        showViewerScreen();
+        loadFileFromStorage(lastFile);
+      }
+    });
 
     // 1. Storage 파일 목록 불러오기
     async function fetchFileList() {
@@ -401,6 +416,7 @@
     // 3. Storage에서 파일 다운로드 및 인코딩 자동 처리
     async function loadFileFromStorage(fileName) {
       currentFileName = fileName;
+      localStorage.setItem(LAST_OPENED_FILE_KEY, fileName);
       setStatus("파일 다운로드 중...");
 
       Array.from(fileListElement.children).forEach(li => {
@@ -858,15 +874,58 @@
       jumpToGlobalPage(parseInt(pageSlider.value, 10));
     });
 
-    // 화면을 3등분해서 좌/중/우 클릭에 각각 다른 동작을 배정
+    // 화면을 3등분해서 좌/중/우 탭/클릭에 각각 다른 동작을 배정하고,
+    // 가로로 충분히 빠르게 스와이프하면 그것만으로도 페이지를 넘긴다.
     // (페이지 넘기기는 PageFlip 자체 클릭/드래그를 꺼뒀기 때문에 여기서만 일어난다)
-    // ⚠️ useMouseEvents:false를 줘도 PageFlip이 내부적으로 페이지 요소에 자체
-    // 포인터 핸들러를 계속 붙여서 버블 단계에서 이벤트를 가로채는 경우가 있었다.
-    // 그래서 버블이 아니라 캡처 단계(capture phase)에서 먼저 가로채도록 한다 —
-    // 캡처는 위(stageContainer)에서 아래(실제 클릭된 페이지)로 먼저 흐르기 때문에
-    // 내부 핸들러가 나중에 stopPropagation을 해도 영향을 받지 않는다.
-    stageContainer.addEventListener('click', (e) => {
-      if (!rawTextData || !pageFlip) return;
+    // ⚠️ 'click' 이벤트에 의존했더니 데스크톱에서는 useMouseEvents:false를 줘도
+    // PageFlip이 내부적으로 마우스 포인터 핸들러를 붙여서 버블 단계 이벤트를
+    // 가로채는 경우가 있었고, 실제 휴대폰 터치에서는 (같은 원인으로 추정되는)
+    // 왼쪽(이전 페이지) 탭이 아예 씹히는 문제가 있었다.
+    // → 'click' 대신 pointerdown/pointerup을 window에서 캡처 단계로 직접 잡는다.
+    // 캡처는 window → ... → 실제로 클릭/터치된 요소 순으로 흐르기 때문에,
+    // PageFlip이 자기 내부 요소에 무슨 핸들러를 붙였든 우리가 항상 먼저 본다.
+    let tapStartX = null;
+    let tapStartY = null;
+    let tapStartTime = 0;
+    const TAP_MAX_MOVE = 12;      // 이 이상 움직이면 탭이 아니라 드래그/스와이프로 간주
+    const TAP_MAX_DURATION = 600; // 이보다 오래 누르고 있으면 탭으로 치지 않음
+    const SWIPE_MIN_DISTANCE = 50; // 스와이프로 인정할 최소 가로 이동 거리(px)
+    const SWIPE_MAX_DURATION = 800; // 이보다 오래 걸린 움직임은 스와이프가 아니라 느린 드래그로 간주
+
+    window.addEventListener('pointerdown', (e) => {
+      if (!stageContainer.contains(e.target)) return;
+      tapStartX = e.clientX;
+      tapStartY = e.clientY;
+      tapStartTime = Date.now();
+    }, true);
+
+    window.addEventListener('pointerup', (e) => {
+      if (tapStartX === null || !stageContainer.contains(e.target)) {
+        tapStartX = null;
+        return;
+      }
+      if (!rawTextData || !pageFlip) { tapStartX = null; return; }
+
+      const dx = e.clientX - tapStartX;
+      const dy = e.clientY - tapStartY;
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+      const dt = Date.now() - tapStartTime;
+      tapStartX = null;
+
+      // 1) 가로 스와이프: 세로보다 가로로 뚜렷하게, 충분히 멀리, 너무 느리지 않게 움직였으면
+      //    영역(좌/중/우) 상관없이 스와이프 방향만으로 페이지를 넘긴다 (모바일 습관적 제스처)
+      if (absDx >= SWIPE_MIN_DISTANCE && absDx > absDy * 1.5 && dt <= SWIPE_MAX_DURATION) {
+        if (dx < 0) {
+          pageFlip.flipNext(); // 왼쪽으로 스와이프 → 다음 페이지
+        } else {
+          pageFlip.flipPrev(); // 오른쪽으로 스와이프 → 이전 페이지
+        }
+        return;
+      }
+
+      // 2) 탭(제자리 클릭): 거의 움직이지 않고 짧게 눌렀다 뗀 경우만 좌/중/우 영역으로 반응
+      if (absDx > TAP_MAX_MOVE || absDy > TAP_MAX_MOVE || dt > TAP_MAX_DURATION) return; // 애매한 느린 드래그는 무시
 
       const third = window.innerWidth / 3;
       if (e.clientX < third) {
@@ -1014,7 +1073,9 @@
   <div id="viewer-screen" class="screen-hidden">
     <aside id="sidebar">
       <div class="sidebar-header">
-        <button id="back-to-library" class="icon-btn" title="목록으로">←</button>
+        <button id="back-to-library" class="icon-btn" title="목록으로">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        </button>
         <div class="sidebar-title-row">
           <strong id="current-title">책을 선택하세요</strong>
         </div>
