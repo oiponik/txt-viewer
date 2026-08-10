@@ -62,45 +62,99 @@
     }
 
     /* 화면 0: 로그인/회원가입 — 인증 전에는 서재/뷰어 모두 접근할 수 없다.
-       서재 카드(.library-panel)와 같은 톤의 흰 카드로 통일한다. */
+       참고 이미지("triple" 앱)의 레이아웃을 따른다: 흰 카드로 감싸지 않고
+       브랜드 그라데이션 배경 위에 로고/문구(위)와 입력 영역(아래)을 그대로
+       띄운다. 로고 마크는 흰 도형 + 배경색이 비치는 여백(눈/입)으로
+       이루어져 있어서, 반드시 이 브라운 톤 배경 위에 있어야 얼굴이 보인다
+       (흰 배경 위에 두면 눈/입이 안 보임) — 그래서 로고를 감싸는 뱃지도
+       흰색이 아니라 브라운 톤으로 만든다. */
     #auth-screen {
       position: fixed; inset: 0;
-      display: flex; align-items: center; justify-content: center;
-      background-color: var(--bg-color);
-      padding: 24px; z-index: 10;
+      display: flex; flex-direction: column; align-items: center;
+      background: linear-gradient(165deg, #A88A6C 0%, #8C7259 55%, #6B5642 100%);
+      overflow-y: auto;
+      padding: 0 0 max(24px, env(safe-area-inset-bottom));
+      z-index: 10;
     }
+    .auth-hero {
+      flex-shrink: 0;
+      width: 100%;
+      display: flex; flex-direction: column; align-items: center;
+      padding: max(48px, 8vh) 24px 12px;
+      color: #fff; text-align: center;
+    }
+    .auth-logo-badge {
+      width: 104px; height: 104px; border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #A88A6C, #6B5642);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 14px 30px rgba(0,0,0,0.28);
+      margin-bottom: 18px;
+    }
+    .auth-logo-badge svg { width: 60px; height: auto; }
+    .auth-logo-badge .mark-fill { fill: #fff; }
+    .auth-logo-badge .mark-stroke { stroke: #fff; stroke-miterlimit: 10; }
+    .auth-logo-badge .mark-stroke-only {
+      fill: none; stroke: #fff; stroke-miterlimit: 10; stroke-width: 3;
+    }
+    .auth-brand {
+      margin: 0 0 6px; font-size: 26px; font-weight: 800; letter-spacing: 0.5px;
+    }
+    .auth-tagline { margin: 0; font-size: 13px; opacity: 0.85; }
+
     .auth-panel {
+      flex-shrink: 0;
       width: min(360px, 92vw);
-      background-color: var(--sidebar-bg);
-      border-radius: 16px;
-      box-shadow: 0 12px 40px rgba(0,0,0,0.18);
-      padding: 28px 24px;
+      padding: 8px 4px 0;
       display: flex; flex-direction: column; gap: 14px;
     }
-    .auth-panel h1 { margin: 0; font-size: 19px; }
+    .auth-panel h1 {
+      margin: 0; font-size: 13px; font-weight: 700; text-align: center;
+      color: rgba(255,255,255,0.75); letter-spacing: 0.3px;
+    }
     #auth-form { display: flex; flex-direction: column; gap: 12px; }
     .auth-panel input[type="email"],
     .auth-panel input[type="password"] {
-      width: 100%; padding: 12px 14px; border-radius: 10px;
-      border: 1px solid var(--border-color); background-color: var(--bg-color);
-      color: var(--text-color); font-size: 14px; font-family: inherit;
+      width: 100%; padding: 14px 18px; border-radius: 999px;
+      border: none; background-color: rgba(255,255,255,0.92);
+      color: #4a3624; font-size: 14px; font-family: inherit;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }
-    .auth-panel input:focus { outline: 2px solid var(--accent-color); outline-offset: -1px; }
+    .auth-panel input::placeholder { color: #9b8b7a; }
+    .auth-panel input:focus { outline: 2px solid #fff; outline-offset: 2px; }
     .auth-submit-btn {
-      background-color: var(--accent-color); color: white; border: none;
-      padding: 12px; border-radius: 10px; cursor: pointer;
-      font-weight: bold; font-size: 14px;
-      box-shadow: 0 4px 10px rgba(74, 144, 226, 0.3);
+      background-color: #E3B23C; color: #4a3624; border: none;
+      padding: 14px; border-radius: 999px; cursor: pointer;
+      font-weight: 800; font-size: 15px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.25);
     }
     .auth-submit-btn:disabled { opacity: 0.6; cursor: default; }
     .auth-toggle-link {
-      background: none; border: none; color: var(--accent-color);
+      background: none; border: none; color: rgba(255,255,255,0.92);
       font-size: 13px; cursor: pointer; text-align: center; padding: 4px;
+      text-decoration: underline; text-underline-offset: 2px;
     }
     .auth-error {
-      color: #d64545; font-size: 13px; min-height: 16px; display: none;
+      color: #FFC7B8; font-size: 13px; min-height: 16px; display: none;
+      text-align: center; font-weight: 600;
     }
     .auth-error.visible { display: block; }
+    #dev-login-hint {
+      font-size: 11px; opacity: 0.8; text-align: center; margin: 2px 0 0;
+      color: rgba(255,255,255,0.85);
+    }
+    #dev-login-hint code {
+      background: rgba(255,255,255,0.18); padding: 1px 6px; border-radius: 4px;
+      font-family: ui-monospace, monospace;
+    }
+
+    /* 화면이 낮은 경우(모바일 가로 모드 등) 로고 영역을 줄여서 입력 폼이
+       화면 밖으로 밀려나지 않게 한다 */
+    @media (max-height: 560px) {
+      .auth-hero { padding-top: 24px; }
+      .auth-logo-badge { width: 72px; height: 72px; margin-bottom: 10px; }
+      .auth-logo-badge svg { width: 42px; }
+      .auth-brand { font-size: 21px; }
+    }
 
     /* 화면 2: 뷰어 — 책을 읽는 화면. 파일 업로드/목록은 여기 없고, "← 목록"으로 서재로 돌아간다 */
     #viewer-screen {
@@ -586,7 +640,7 @@
 
     authToggleBtn.addEventListener('click', () => {
       isSignupMode = !isSignupMode;
-      authTitleEl.textContent = isSignupMode ? '📖 회원가입' : '📖 로그인';
+      authTitleEl.textContent = isSignupMode ? '회원가입' : '로그인';
       authSubmitBtn.textContent = isSignupMode ? '가입하기' : '로그인';
       authToggleBtn.textContent = isSignupMode ? '이미 계정이 있으신가요? 로그인' : '계정이 없으신가요? 회원가입';
       authPasswordInput.autocomplete = isSignupMode ? 'new-password' : 'current-password';
@@ -1389,10 +1443,26 @@
   <!-- 상태 메시지: UI 패널과 분리된 화면 하단 중앙 토스트 -->
   <div id="sync-status"></div>
 
-  <!-- 화면 0: 로그인/회원가입 — 인증 전에는 아무 화면도 보이지 않는다 -->
+  <!-- 화면 0: 로그인/회원가입 — 인증 전에는 아무 화면도 보이지 않는다.
+       "triple" 앱 참고: 그라데이션 배경 위에 로고/문구를 위쪽에, 입력 영역을
+       아래쪽에 배치하는 레이아웃. 흰 카드로 감싸지 않고 그라데이션 위에
+       그대로 떠 있는 형태로 통일한다. -->
   <div id="auth-screen" class="screen-hidden">
+    <div class="auth-hero">
+      <div class="auth-logo-badge" aria-hidden="true">
+        <svg viewBox="0 0 190.09 193.41" xmlns="http://www.w3.org/2000/svg">
+          <path class="mark-fill" d="M98.82,129.61c.5,5.72-.59,10.1-3.64,11.11-3.08,1.03-6.96-3.51-7.94-9.06-.98-5.55.81-10.51,4.01-11.08,3.2-.57,7.09,3.41,7.57,9.03Z"/>
+          <path class="mark-fill" d="M61.28,143.37c.2,5.39-.57,9.35-2.49,9.98-1.95.63-4.28-4-4.78-9.28-.5-5.28.72-9.72,2.72-9.91,2.01-.19,4.36,3.92,4.55,9.21Z"/>
+          <path class="mark-fill" d="M66.14,164.34s10.3.69,29.55-9.95c0,0,.78,2.17,3.25,2.77,0,0-.96,8.18-8.96,15.34-8,7.16-19.43,2.95-24.66-4.09,0,0,1.35-2.41.83-4.06Z"/>
+          <path class="mark-fill mark-stroke" d="M187.45,111.08c-9.14,2.95-23.55-16.35-32.18-43.11-7.19-22.27-8.11-42.69-2.94-50.61C136.57,6.76,117.18.5,96.21.5c-10.05,0-19.74,1.44-28.84,4.11,4.84.48,9.27,2.16,12.94,5.15,14.02,11.38,11.75,37.41-5.08,58.13-16.82,20.72-41.83,28.3-55.85,16.91-10.52-8.54-11.87-25.33-4.78-41.93C5.66,56.37.5,72.27.5,89.28c0,3.08.17,6.12.5,9.11,2.56,5.32,4.94,11.26,6.99,17.62,1.74,5.38,3.11,10.65,4.11,15.67,9.69,16.51,24.87,29.85,43.26,37.91-2.25-5.15-3.75-11.04-4.43-17.52-4.75-50.5,41.46-44.27,58.7-41.05,24.73,4.63,38.69,25.91,38.71,41.05,0,4.47-.98,8.98-2.76,13.28,21.58-12.08,37.61-31.84,43.68-55.2-.56.41-1.16.73-1.8.93Z"/>
+          <path class="mark-stroke-only" d="M55.36,169.59c6.31,14.47,18.5,23.17,35,23.17,0,0,13.65.35,18.18,0,16.66-1.29,31.17-13.26,37.03-27.41"/>
+        </svg>
+      </div>
+      <h1 class="auth-brand">kinopio</h1>
+      <p class="auth-tagline">텍스트를 책처럼, 어디서든</p>
+    </div>
     <div class="auth-panel">
-      <h1 id="auth-title">📖 로그인</h1>
+      <h1 id="auth-title">로그인</h1>
       <!-- novalidate: 개발자 로그인("dev" + 빈 비밀번호)이 이메일 형식/필수입력 검사에
            브라우저 단에서 막히지 않도록 우리 JS가 직접 검증한다 (dev-login-hint 참고) -->
       <form id="auth-form" novalidate>
@@ -1401,7 +1471,7 @@
         <div class="auth-error" id="auth-error"></div>
         <button type="submit" class="auth-submit-btn" id="auth-submit-btn">로그인</button>
         <button type="button" class="auth-toggle-link" id="auth-toggle-btn">계정이 없으신가요? 회원가입</button>
-        <p id="dev-login-hint" style="display:none; font-size:12px; opacity:0.6; text-align:center; margin:4px 0 0;">
+        <p id="dev-login-hint" style="display:none;">
           🧪 개발자 테스트: 이메일란에 <code>dev</code> 입력 후 비밀번호 없이 로그인
         </p>
       </form>
