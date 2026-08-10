@@ -382,6 +382,22 @@
     let pageFlip = null;
     let debounceSaveTimer = null;
     let resizeTimer = null;
+
+    // 💡 라이브러리 자체의 flipPrev(corner)는 x좌표를 항상 고정값 10으로 넘기는데,
+    // flipNext(corner)는 render.getRect().left를 더해서 계산한다(page-flip 소스 확인 완료).
+    // 두 페이지 스프레드에서는 left가 0이라 우연히 문제가 없지만, 우리처럼 한 페이지만
+    // 보이는 좁은 화면(portrait 모드)에서는 라이브러리가 left를 -pageWidth로 잡기 때문에
+    // flipPrev의 x:10이 실제 페이지 왼쪽 모서리와 전혀 다른 지점이 되어버려서, 이 좌표를
+    // 시작점으로 쓰는 넘기기 애니메이션이 next와 달리 부자연스럽게 계산된다.
+    // → flipNext와 대칭이 되도록 left 오프셋을 더한 좌표로 직접 flip을 호출한다.
+    function flipToPrevPage(corner = 'top') {
+      if (!pageFlip) return;
+      const rect = pageFlip.getRender().getRect();
+      pageFlip.getFlipController().flip({
+        x: rect.left + 10,
+        y: corner === 'top' ? 1 : rect.height - 2
+      });
+    }
     let buildGeneration = 0; // buildFlipBook 재진입/경합 방지용 세대 번호
     let immersiveTimer = null; // 읽기 몰입 모드(UI 자동 숨김) 타이머
     let isHoveringChrome = false; // 사이드바/헤더 위에 마우스가 있는 동안은 숨기지 않음
@@ -1110,7 +1126,7 @@
         if (dx < 0) {
           pageFlip.flipNext(); // 왼쪽으로 스와이프 → 다음 페이지
         } else {
-          pageFlip.flipPrev(); // 오른쪽으로 스와이프 → 이전 페이지
+          flipToPrevPage(); // 오른쪽으로 스와이프 → 이전 페이지
         }
         return;
       }
@@ -1120,7 +1136,7 @@
 
       const third = window.innerWidth / 3;
       if (e.clientX < third) {
-        pageFlip.flipPrev();
+        flipToPrevPage();
       } else if (e.clientX > third * 2) {
         pageFlip.flipNext();
       } else {
@@ -1240,7 +1256,7 @@
     window.addEventListener('keydown', (e) => {
       if (!pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
       if (e.key === "ArrowRight") pageFlip.flipNext();
-      if (e.key === "ArrowLeft") pageFlip.flipPrev();
+      if (e.key === "ArrowLeft") flipToPrevPage();
     });
 
     // 뷰어 → 서재로 돌아가기
