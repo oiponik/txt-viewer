@@ -84,13 +84,13 @@
       color: #fff; text-align: center;
     }
     .auth-logo-badge {
-      width: 104px; height: 104px; border-radius: 50%;
-      background: radial-gradient(circle at 35% 30%, #A88A6C, #6B5642);
       display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 14px 30px rgba(0,0,0,0.28);
       margin-bottom: 18px;
     }
-    .auth-logo-badge svg { width: 60px; height: auto; }
+    .auth-logo-badge svg {
+      width: 96px; height: auto;
+      filter: drop-shadow(0 8px 16px rgba(0,0,0,0.25));
+    }
     .auth-logo-badge .mark-fill { fill: #fff; }
     .auth-logo-badge .mark-stroke { stroke: #fff; stroke-miterlimit: 10; }
     .auth-logo-badge .mark-stroke-only {
@@ -151,8 +151,8 @@
        화면 밖으로 밀려나지 않게 한다 */
     @media (max-height: 560px) {
       .auth-hero { padding-top: 24px; }
-      .auth-logo-badge { width: 72px; height: 72px; margin-bottom: 10px; }
-      .auth-logo-badge svg { width: 42px; }
+      .auth-logo-badge { margin-bottom: 10px; }
+      .auth-logo-badge svg { width: 56px; }
       .auth-brand { font-size: 21px; }
     }
 
