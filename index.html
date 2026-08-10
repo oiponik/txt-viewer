@@ -382,22 +382,6 @@
     let pageFlip = null;
     let debounceSaveTimer = null;
     let resizeTimer = null;
-
-    // 💡 라이브러리 자체의 flipPrev(corner)는 x좌표를 항상 고정값 10으로 넘기는데,
-    // flipNext(corner)는 render.getRect().left를 더해서 계산한다(page-flip 소스 확인 완료).
-    // 두 페이지 스프레드에서는 left가 0이라 우연히 문제가 없지만, 우리처럼 한 페이지만
-    // 보이는 좁은 화면(portrait 모드)에서는 라이브러리가 left를 -pageWidth로 잡기 때문에
-    // flipPrev의 x:10이 실제 페이지 왼쪽 모서리와 전혀 다른 지점이 되어버려서, 이 좌표를
-    // 시작점으로 쓰는 넘기기 애니메이션이 next와 달리 부자연스럽게 계산된다.
-    // → flipNext와 대칭이 되도록 left 오프셋을 더한 좌표로 직접 flip을 호출한다.
-    function flipToPrevPage(corner = 'top') {
-      if (!pageFlip) return;
-      const rect = pageFlip.getRender().getRect();
-      pageFlip.getFlipController().flip({
-        x: rect.left + 10,
-        y: corner === 'top' ? 1 : rect.height - 2
-      });
-    }
     let buildGeneration = 0; // buildFlipBook 재진입/경합 방지용 세대 번호
     let immersiveTimer = null; // 읽기 몰입 모드(UI 자동 숨김) 타이머
     let isHoveringChrome = false; // 사이드바/헤더 위에 마우스가 있는 동안은 숨기지 않음
@@ -857,6 +841,40 @@
       pageCounter.textContent = `${globalIndex + 1} / ${totalPages}`;
     }
 
+    // 💡 "이전 페이지"는 next와 똑같은 넘기기(curl) 애니메이션을 쓰면 부자연스럽다 —
+    // page-flip 라이브러리의 PageCollection.getFlippingPage/getBottomPage가 portrait(한
+    // 페이지) 모드에서 방향별로 비대칭이기 때문이다(소스 확인 완료). next는 "현재 페이지의
+    // 임시 복사본이 위에서 말려 넘어가고, 그 밑에 진짜 다음 페이지가 고정돼 있다가 드러나는"
+    // 2겹 구조라 자연스럽지만, prev는 flippingPage와 bottomPage가 같은 객체(이전 페이지
+    // 원본)라서 2겹 합성 자체가 안 되고 페이지 한 장이 그냥 회전하며 나타나는 것처럼
+    // 보인다. 이건 앱 코드가 아니라 라이브러리 자체의 설계라 고칠 수 없어서, 아예
+    // 애니메이션 없이 즉시 전환한다 — jumpToGlobalPage(슬라이더 이동)와 같은 패턴으로
+    // turnToPage를 조용히 호출하고, 페이지 인디케이터/진행률 저장/창 재정렬은 우리가
+    // 직접 처리한다.
+    function jumpToPrevPage() {
+      if (!pageFlip || isShiftingWindow) return;
+      const globalIndex = windowStartIndex + pageFlip.getCurrentPageIndex();
+      if (globalIndex <= 0) return; // 이미 첫 페이지
+      const targetGlobal = globalIndex - 1;
+
+      isShiftingWindow = true; // turnToPage가 내부적으로 쏘는 'flip' 이벤트를 무시시키기 위한 가드
+      try {
+        pageFlip.turnToPage(targetGlobal - windowStartIndex);
+      } finally {
+        isShiftingWindow = false;
+      }
+
+      currentLastCharIndex = pageStartIndices[targetGlobal] || 0;
+      updatePageIndicator(targetGlobal);
+
+      clearTimeout(debounceSaveTimer);
+      debounceSaveTimer = setTimeout(() => {
+        saveProgress(currentFileName, currentLastCharIndex);
+      }, 300);
+
+      maybeShiftPageWindow(targetGlobal);
+    }
+
     // 슬라이더로 임의의 페이지로 바로 이동 — maybeShiftPageWindow와 달리 "가장자리 근처"인지
     // 따지지 않고 항상 목표 페이지를 중심으로 창을 새로 구성한다.
     function jumpToGlobalPage(targetPage) {
@@ -1153,7 +1171,7 @@
         if (dx < 0) {
           pageFlip.flipNext(); // 왼쪽으로 스와이프 → 다음 페이지
         } else {
-          flipToPrevPage(); // 오른쪽으로 스와이프 → 이전 페이지
+          jumpToPrevPage(); // 오른쪽으로 스와이프 → 이전 페이지 (애니메이션 없이 즉시 전환)
         }
         return;
       }
@@ -1163,7 +1181,7 @@
 
       const third = window.innerWidth / 3;
       if (e.clientX < third) {
-        flipToPrevPage();
+        jumpToPrevPage();
       } else if (e.clientX > third * 2) {
         pageFlip.flipNext();
       } else {
@@ -1283,7 +1301,7 @@
     window.addEventListener('keydown', (e) => {
       if (!pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
       if (e.key === "ArrowRight") pageFlip.flipNext();
-      if (e.key === "ArrowLeft") flipToPrevPage();
+      if (e.key === "ArrowLeft") jumpToPrevPage();
     });
 
     // 뷰어 → 서재로 돌아가기
