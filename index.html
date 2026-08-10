@@ -420,6 +420,7 @@
     const authSubmitBtn = document.getElementById('auth-submit-btn');
     const authToggleBtn = document.getElementById('auth-toggle-btn');
     const authTitleEl = document.getElementById('auth-title');
+    const uploadBtnLabel = document.getElementById('upload-btn-label');
 
     // 화면 전환: 로그인 ↔ 서재(파일 목록) ↔ 뷰어(책 읽기)
     function showAuthScreen() {
@@ -459,59 +460,108 @@
       return 'txtViewerLastOpenedFile_' + (currentUser ? currentUser.uid : 'anon');
     }
 
-    // 🧪 개발용 뷰어 직행 모드 — Firebase 로그인/Storage 없이 샘플 텍스트로 뷰어 화면을
-    // 바로 열어서 플립 애니메이션 등을 확인할 수 있게 한다. localhost에서 URL에
-    // ?devtest=1 을 붙였을 때만 켜지며, 배포된 실제 서비스(Vercel 도메인)에서는
-    // 호스트명이 localhost/127.0.0.1이 아니므로 절대 켜지지 않는다 — 실사용자 로그인
-    // 게이트에는 영향 없음. (필요 없어지면 이 블록과 generateDevTestText만 지우면 된다.)
-    const isDevTestMode = new URLSearchParams(location.search).has('devtest')
-      && (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
-
-    function generateDevTestText() {
-      const lines = [];
-      for (let i = 1; i <= 80; i++) {
-        lines.push(
-          `【문단 ${i}】 이것은 개발 중 페이지 넘기기 애니메이션을 확인하기 위한 샘플 텍스트입니다. ` +
-          '가나다라마바사아자차카타파하 나비야 나비야 이리 날아오너라. '.repeat(8)
-        );
-      }
-      return lines.join('\n\n');
+    // 🧪 개발자 전용 테스트 계정 — localhost에서만, 로그인 화면에 아이디 "dev"를
+    // 입력하면(비밀번호 불필요) Firebase를 거치지 않고 로컬 더미 계정으로 로그인해서
+    // 서재 → 뷰어까지 실제 사용 흐름 그대로 테스트할 수 있게 한다. 책 목록엔
+    // 로컬 정적 파일 dev-test-book.txt(같은 서버가 서빙) 하나만 뜨고, 진행 상황도
+    // Firestore 대신 localStorage에 저장돼서 실제 사용자 데이터/백엔드를 전혀 건드리지
+    // 않는다. 배포된 실제 서비스(Vercel 도메인)에서는 isLocalDevHost가 false라
+    // 이 경로 자체가 존재하지 않는다 — 실사용자 로그인 게이트에는 영향 없음.
+    const isLocalDevHost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    const DEV_USER_UID = 'dev-local';
+    const DEV_BOOK_FILENAME = 'dev-test-book.txt';
+    if (isLocalDevHost) {
+      document.getElementById('dev-login-hint').style.display = 'block';
     }
 
-    if (isDevTestMode) {
-      currentFileName = 'devtest-sample.txt';
-      rawTextData = generateDevTestText();
-      document.getElementById('current-title').textContent = currentFileName + ' (dev test)';
-      showViewerScreen();
-      buildFlipBook();
-    } else {
-      // 🔐 로그인 상태 게이트: 앱의 모든 화면은 로그인 후에만 보인다.
-      // onAuthStateChanged는 새로고침 직후에도(로컬에 저장된 세션이 있으면) 바로 로그인된
-      // 상태로 한 번 불려서, "로그인 유지"가 저절로 이루어진다.
-      onAuthStateChanged(auth, async (user) => {
-        if (user) {
-          currentUser = user;
-          await fetchFileList();
+    function isDevUser() {
+      return !!currentUser && currentUser.uid === DEV_USER_UID;
+    }
 
-          const lastFile = localStorage.getItem(lastOpenedFileKey());
-          if (lastFile && Array.from(fileListElement.children).some(li => li.textContent === lastFile)) {
-            showViewerScreen();
-            loadFileFromStorage(lastFile);
-          } else {
-            showLibraryScreen();
-          }
-        } else {
-          // 로그아웃 상태 — 읽던 책 정보를 비우고 로그인 화면만 보여준다
-          currentUser = null;
-          currentFileName = "";
-          rawTextData = "";
-          if (pageFlip) { pageFlip.destroy(); pageFlip = null; }
-          authForm.reset();
-          authErrorEl.classList.remove('visible');
-          showAuthScreen();
-        }
+    function populateDevFileList() {
+      fileListElement.innerHTML = '';
+      const li = document.createElement('li');
+      li.textContent = DEV_BOOK_FILENAME;
+      li.onclick = () => {
+        showViewerScreen();
+        loadDevTestFile();
+      };
+      fileListElement.appendChild(li);
+    }
+
+    async function loadDevTestFile() {
+      currentFileName = DEV_BOOK_FILENAME;
+      localStorage.setItem(lastOpenedFileKey(), DEV_BOOK_FILENAME);
+      setStatus("로컬 테스트 파일 불러오는 중...");
+
+      Array.from(fileListElement.children).forEach(li => {
+        li.classList.toggle('active', li.textContent === DEV_BOOK_FILENAME);
       });
+
+      try {
+        const res = await fetch('./' + DEV_BOOK_FILENAME);
+        if (!res.ok) throw new Error('dev-test-book.txt 로드 실패: ' + res.status);
+        rawTextData = await res.text();
+
+        document.getElementById('current-title').textContent = DEV_BOOK_FILENAME + ' (개발자 테스트)';
+
+        lastKnownProgressUpdatedAt = 0;
+        currentLastCharIndex = await loadProgress(DEV_BOOK_FILENAME);
+        await buildFlipBook();
+
+        document.body.classList.add('immersive');
+        clearTimeout(immersiveTimer);
+      } catch (err) {
+        console.error(err);
+        setStatus("파일 열기 실패");
+      }
     }
+
+    function loginAsDevUser() {
+      currentUser = { uid: DEV_USER_UID, email: 'dev@local.test' };
+      authForm.reset();
+      authErrorEl.classList.remove('visible');
+      uploadBtnLabel.style.display = 'none'; // 실제 Storage가 없으므로 업로드는 숨긴다
+
+      const lastFile = localStorage.getItem(lastOpenedFileKey());
+      populateDevFileList();
+      if (lastFile === DEV_BOOK_FILENAME) {
+        showViewerScreen();
+        loadDevTestFile();
+      } else {
+        showLibraryScreen();
+      }
+    }
+
+    // 🔐 로그인 상태 게이트: 앱의 모든 화면은 로그인 후에만 보인다.
+    // onAuthStateChanged는 새로고침 직후에도(로컬에 저장된 세션이 있으면) 바로 로그인된
+    // 상태로 한 번 불려서, "로그인 유지"가 저절로 이루어진다.
+    // ⚠️ 개발자 계정(dev)은 Firebase 세션이 아예 없으므로 이 콜백을 거치지 않는다 —
+    // loginAsDevUser()가 화면 전환까지 직접 처리한다.
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        currentUser = user;
+        await fetchFileList();
+
+        const lastFile = localStorage.getItem(lastOpenedFileKey());
+        if (lastFile && Array.from(fileListElement.children).some(li => li.textContent === lastFile)) {
+          showViewerScreen();
+          loadFileFromStorage(lastFile);
+        } else {
+          showLibraryScreen();
+        }
+      } else if (!isDevUser()) {
+        // 로그아웃 상태 — 읽던 책 정보를 비우고 로그인 화면만 보여준다
+        // (개발자 세션 중엔 currentUser가 dev 로컬 계정이라 이 분기를 타지 않는다)
+        currentUser = null;
+        currentFileName = "";
+        rawTextData = "";
+        if (pageFlip) { pageFlip.destroy(); pageFlip = null; }
+        authForm.reset();
+        authErrorEl.classList.remove('visible');
+        showAuthScreen();
+      }
+    });
 
     // 로그인/회원가입 폼 — 같은 폼을 모드 전환으로 재사용한다
     let isSignupMode = false;
@@ -548,6 +598,14 @@
       const email = authEmailInput.value.trim();
       const password = authPasswordInput.value;
       setAuthError('');
+
+      // 🧪 개발자 전용 로그인 — localhost에서만, 이메일란에 "dev"를 입력하면 비밀번호
+      // 없이 Firebase를 거치지 않고 로컬 더미 계정으로 바로 들어간다.
+      if (isLocalDevHost && email.toLowerCase() === 'dev') {
+        loginAsDevUser();
+        return;
+      }
+
       authSubmitBtn.disabled = true;
       try {
         if (isSignupMode) {
@@ -565,6 +623,16 @@
     });
 
     document.getElementById('logout-btn').addEventListener('click', () => {
+      if (isDevUser()) {
+        // 개발자 세션은 Firebase 로그인 자체가 없었으므로 signOut 대신 직접 정리한다
+        currentUser = null;
+        currentFileName = "";
+        rawTextData = "";
+        if (pageFlip) { pageFlip.destroy(); pageFlip = null; }
+        uploadBtnLabel.style.display = '';
+        showAuthScreen();
+        return;
+      }
       signOut(auth);
     });
 
@@ -1199,6 +1267,12 @@
     // 저장해서, 같은 파일을 읽어도 로그인한 사람마다 각자 자기 위치만 보게 한다.
     async function saveProgress(fileName, charIndex) {
       if (!currentUser) return;
+      if (isDevUser()) {
+        // 개발자 세션은 Firestore를 쓰지 않고 localStorage에만 저장한다 (실제 백엔드 미접촉)
+        localStorage.setItem('devProgress:' + fileName, String(charIndex));
+        setStatus("위치 저장됨 (로컬 개발자 세션)");
+        return;
+      }
       try {
         const fileId = btoa(encodeURIComponent(fileName));
         await setDoc(doc(db, "users", currentUser.uid, "reading_progress", fileId), {
@@ -1216,6 +1290,9 @@
 
     async function loadProgress(fileName) {
       if (!currentUser) return 0;
+      if (isDevUser()) {
+        return parseInt(localStorage.getItem('devProgress:' + fileName) || '0', 10);
+      }
       try {
         const fileId = btoa(encodeURIComponent(fileName));
         const docRef = doc(db, "users", currentUser.uid, "reading_progress", fileId);
@@ -1248,7 +1325,7 @@
     // → 탭이 다시 화면에 보일 때마다 서버 기록을 재확인해서, 우리가 알던 것보다
     // 최신이면(=다른 기기에서 더 나중에 저장했으면) 그 위치로 자동으로 이동한다.
     async function syncProgressFromServer() {
-      if (!currentUser || !currentFileName || !pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
+      if (!currentUser || isDevUser() || !currentFileName || !pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
       try {
         const fileId = btoa(encodeURIComponent(currentFileName));
         const docSnap = await getDoc(doc(db, "users", currentUser.uid, "reading_progress", fileId));
@@ -1316,12 +1393,17 @@
   <div id="auth-screen" class="screen-hidden">
     <div class="auth-panel">
       <h1 id="auth-title">📖 로그인</h1>
-      <form id="auth-form">
+      <!-- novalidate: 개발자 로그인("dev" + 빈 비밀번호)이 이메일 형식/필수입력 검사에
+           브라우저 단에서 막히지 않도록 우리 JS가 직접 검증한다 (dev-login-hint 참고) -->
+      <form id="auth-form" novalidate>
         <input type="email" id="auth-email" placeholder="이메일" autocomplete="email" required>
         <input type="password" id="auth-password" placeholder="비밀번호 (6자 이상)" autocomplete="current-password" required>
         <div class="auth-error" id="auth-error"></div>
         <button type="submit" class="auth-submit-btn" id="auth-submit-btn">로그인</button>
         <button type="button" class="auth-toggle-link" id="auth-toggle-btn">계정이 없으신가요? 회원가입</button>
+        <p id="dev-login-hint" style="display:none; font-size:12px; opacity:0.6; text-align:center; margin:4px 0 0;">
+          🧪 개발자 테스트: 이메일란에 <code>dev</code> 입력 후 비밀번호 없이 로그인
+        </p>
       </form>
     </div>
   </div>
@@ -1336,7 +1418,7 @@
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
           </button>
         </div>
-        <label for="file-input" class="upload-btn">+ 새 TXT 업로드</label>
+        <label for="file-input" class="upload-btn" id="upload-btn-label">+ 새 TXT 업로드</label>
         <input type="file" id="file-input" accept=".txt">
       </div>
       <ul id="file-list"></ul>
