@@ -476,32 +476,59 @@
       return 'txtViewerLastOpenedFile_' + (currentUser ? currentUser.uid : 'anon');
     }
 
-    // 🔐 로그인 상태 게이트: 앱의 모든 화면은 로그인 후에만 보인다.
-    // onAuthStateChanged는 새로고침 직후에도(로컬에 저장된 세션이 있으면) 바로 로그인된
-    // 상태로 한 번 불려서, "로그인 유지"가 저절로 이루어진다.
-    onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        currentUser = user;
-        await fetchFileList();
+    // 🧪 개발용 뷰어 직행 모드 — Firebase 로그인/Storage 없이 샘플 텍스트로 뷰어 화면을
+    // 바로 열어서 플립 애니메이션 등을 확인할 수 있게 한다. localhost에서 URL에
+    // ?devtest=1 을 붙였을 때만 켜지며, 배포된 실제 서비스(Vercel 도메인)에서는
+    // 호스트명이 localhost/127.0.0.1이 아니므로 절대 켜지지 않는다 — 실사용자 로그인
+    // 게이트에는 영향 없음. (필요 없어지면 이 블록과 generateDevTestText만 지우면 된다.)
+    const isDevTestMode = new URLSearchParams(location.search).has('devtest')
+      && (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
 
-        const lastFile = localStorage.getItem(lastOpenedFileKey());
-        if (lastFile && Array.from(fileListElement.children).some(li => li.textContent === lastFile)) {
-          showViewerScreen();
-          loadFileFromStorage(lastFile);
-        } else {
-          showLibraryScreen();
-        }
-      } else {
-        // 로그아웃 상태 — 읽던 책 정보를 비우고 로그인 화면만 보여준다
-        currentUser = null;
-        currentFileName = "";
-        rawTextData = "";
-        if (pageFlip) { pageFlip.destroy(); pageFlip = null; }
-        authForm.reset();
-        authErrorEl.classList.remove('visible');
-        showAuthScreen();
+    function generateDevTestText() {
+      const lines = [];
+      for (let i = 1; i <= 80; i++) {
+        lines.push(
+          `【문단 ${i}】 이것은 개발 중 페이지 넘기기 애니메이션을 확인하기 위한 샘플 텍스트입니다. ` +
+          '가나다라마바사아자차카타파하 나비야 나비야 이리 날아오너라. '.repeat(8)
+        );
       }
-    });
+      return lines.join('\n\n');
+    }
+
+    if (isDevTestMode) {
+      currentFileName = 'devtest-sample.txt';
+      rawTextData = generateDevTestText();
+      document.getElementById('current-title').textContent = currentFileName + ' (dev test)';
+      showViewerScreen();
+      buildFlipBook();
+    } else {
+      // 🔐 로그인 상태 게이트: 앱의 모든 화면은 로그인 후에만 보인다.
+      // onAuthStateChanged는 새로고침 직후에도(로컬에 저장된 세션이 있으면) 바로 로그인된
+      // 상태로 한 번 불려서, "로그인 유지"가 저절로 이루어진다.
+      onAuthStateChanged(auth, async (user) => {
+        if (user) {
+          currentUser = user;
+          await fetchFileList();
+
+          const lastFile = localStorage.getItem(lastOpenedFileKey());
+          if (lastFile && Array.from(fileListElement.children).some(li => li.textContent === lastFile)) {
+            showViewerScreen();
+            loadFileFromStorage(lastFile);
+          } else {
+            showLibraryScreen();
+          }
+        } else {
+          // 로그아웃 상태 — 읽던 책 정보를 비우고 로그인 화면만 보여준다
+          currentUser = null;
+          currentFileName = "";
+          rawTextData = "";
+          if (pageFlip) { pageFlip.destroy(); pageFlip = null; }
+          authForm.reset();
+          authErrorEl.classList.remove('visible');
+          showAuthScreen();
+        }
+      });
+    }
 
     // 로그인/회원가입 폼 — 같은 폼을 모드 전환으로 재사용한다
     let isSignupMode = false;
