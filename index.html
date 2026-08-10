@@ -51,9 +51,56 @@
       padding: 24px; border-bottom: 1px solid var(--border-color);
       display: flex; flex-direction: column; gap: 14px;
     }
+    .library-panel-title-row {
+      display: flex; align-items: center; justify-content: space-between;
+    }
     .library-panel-header h1 {
       margin: 0; font-size: 19px;
     }
+    .library-panel-title-row .icon-btn {
+      width: 32px; height: 32px; font-size: 15px;
+    }
+
+    /* 화면 0: 로그인/회원가입 — 인증 전에는 서재/뷰어 모두 접근할 수 없다.
+       서재 카드(.library-panel)와 같은 톤의 흰 카드로 통일한다. */
+    #auth-screen {
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background-color: var(--bg-color);
+      padding: 24px; z-index: 10;
+    }
+    .auth-panel {
+      width: min(360px, 92vw);
+      background-color: var(--sidebar-bg);
+      border-radius: 16px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.18);
+      padding: 28px 24px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .auth-panel h1 { margin: 0; font-size: 19px; }
+    #auth-form { display: flex; flex-direction: column; gap: 12px; }
+    .auth-panel input[type="email"],
+    .auth-panel input[type="password"] {
+      width: 100%; padding: 12px 14px; border-radius: 10px;
+      border: 1px solid var(--border-color); background-color: var(--bg-color);
+      color: var(--text-color); font-size: 14px; font-family: inherit;
+    }
+    .auth-panel input:focus { outline: 2px solid var(--accent-color); outline-offset: -1px; }
+    .auth-submit-btn {
+      background-color: var(--accent-color); color: white; border: none;
+      padding: 12px; border-radius: 10px; cursor: pointer;
+      font-weight: bold; font-size: 14px;
+      box-shadow: 0 4px 10px rgba(74, 144, 226, 0.3);
+    }
+    .auth-submit-btn:disabled { opacity: 0.6; cursor: default; }
+    .auth-toggle-link {
+      background: none; border: none; color: var(--accent-color);
+      font-size: 13px; cursor: pointer; text-align: center; padding: 4px;
+    }
+    .auth-error {
+      color: #d64545; font-size: 13px; min-height: 16px; display: none;
+    }
+    .auth-error.visible { display: block; }
 
     /* 화면 2: 뷰어 — 책을 읽는 화면. 파일 업로드/목록은 여기 없고, "← 목록"으로 서재로 돌아간다 */
     #viewer-screen {
@@ -111,19 +158,27 @@
       font-size: 14px; font-weight: 600;
     }
 
+    /* 하단 바(#bottom-bar)와 같은 결의 "둥근 카드" 느낌으로 통일 —
+       각지고 줄 구분선으로 나뉜 목록 대신, 버튼/행 각각을 독립된 둥근 블록으로 띄운다. */
     .upload-btn {
       background-color: var(--accent-color); color: white;
-      text-align: center; padding: 10px; border-radius: 6px;
+      text-align: center; padding: 12px; border-radius: 10px;
       cursor: pointer; font-weight: bold; font-size: 14px;
+      box-shadow: 0 4px 10px rgba(74, 144, 226, 0.3);
     }
 
-    #file-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+    #file-list {
+      list-style: none; margin: 0; padding: 12px; overflow-y: auto; flex: 1;
+      display: flex; flex-direction: column; gap: 8px;
+    }
     #file-list li {
-      padding: 14px 16px; border-bottom: 1px solid var(--border-color);
+      padding: 14px 16px; border-radius: 10px;
       cursor: pointer; font-size: 14px; white-space: nowrap;
       overflow: hidden; text-overflow: ellipsis;
+      background-color: var(--bg-color);
+      transition: background-color 0.15s ease;
     }
-    #file-list li:hover { background-color: rgba(0,0,0,0.03); }
+    #file-list li:hover { background-color: var(--border-color); }
     #file-list li.active { background-color: var(--active-item); color: var(--accent-color); font-weight: bold; }
 
     /* 메인 영역 */
@@ -236,26 +291,50 @@
       transform: translate(-50%, 0);
     }
 
-    /* 하단 바 — 참고 이미지처럼 카드/그림자/강조색 없이, 페이지 위에 슬라이더와
-       "현재/전체" 카운터만 떠 있는 단순한 형태. 상단바와 같은 몰입 모드 규칙을
-       따른다(읽는 동안 숨었다가, 활동하면 보임) */
+    /* 하단 바 — 헤더(#sidebar)와 같은 흰 배경의 카드로 슬라이더를 감싸서, 페이지 위에
+       그냥 떠 있는 대신 참고 이미지처럼 하나의 단순한 UI 패널로 보이게 한다.
+       상단바와 같은 몰입 모드 규칙을 따른다(읽는 동안 숨었다가, 활동하면 보임) */
     #bottom-bar {
-      position: fixed; left: 50%; bottom: 0;
+      position: fixed; left: 50%; bottom: 14px;
       transform: translate(-50%, 0);
-      width: min(560px, 94vw);
-      background: transparent;
-      padding: 10px 24px 22px;
+      width: min(560px, 92vw);
+      background-color: var(--sidebar-bg);
+      border-radius: 16px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.14);
+      padding: 12px 20px 10px;
       z-index: 45;
-      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
       transition: transform 0.35s ease;
     }
     body.immersive #bottom-bar {
-      transform: translate(-50%, 100%);
+      transform: translate(-50%, calc(100% + 24px));
       pointer-events: none;
     }
+
+    /* 참고 이미지의 얇은 트랙 + 흰 원형 손잡이 느낌을 내기 위한 커스텀 슬라이더.
+       (OS 기본 슬라이더는 브라우저마다 생김새가 달라 참고 디자인과 맞추기 어렵다) */
     #page-slider {
-      width: 100%; accent-color: var(--text-color);
-      cursor: pointer; margin: 0;
+      width: 100%; margin: 0; cursor: pointer;
+      -webkit-appearance: none; appearance: none;
+      background: transparent;
+    }
+    #page-slider::-webkit-slider-runnable-track {
+      height: 4px; border-radius: 2px; background: var(--border-color);
+    }
+    #page-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #ffffff; border: 1px solid rgba(0,0,0,0.15);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+      margin-top: -7px; cursor: pointer;
+    }
+    #page-slider::-moz-range-track {
+      height: 4px; border-radius: 2px; background: var(--border-color);
+    }
+    #page-slider::-moz-range-thumb {
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #ffffff; border: 1px solid rgba(0,0,0,0.15);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.25); cursor: pointer;
     }
     #page-counter {
       font-size: 12px; color: var(--text-color); opacity: 0.6;
@@ -264,7 +343,7 @@
     /* 좁은 화면(휴대폰): 여백 추가 조정 */
     @media (max-width: 600px) {
       .sidebar-header { padding: 8px 4px; }
-      #bottom-bar { padding: 8px 16px 18px; }
+      #bottom-bar { padding: 10px 16px 8px; bottom: 10px; }
     }
 
     /* 가로가 짧은 화면(모바일 가로 모드 등): 세로 여백 최소화 */
@@ -281,6 +360,10 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
     import { getStorage, ref, uploadBytes, listAll, getBytes } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+    import {
+      getAuth, setPersistence, browserLocalPersistence, onAuthStateChanged,
+      signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut
+    } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
     // 🔑 본인 설정 파일 불러오기
     import { firebaseConfig } from "./firebase-config.js";
@@ -288,7 +371,12 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
     const storage = getStorage(app);
+    const auth = getAuth(app);
+    // 💡 "로그인 유지" — 브라우저를 껐다 켜거나 새로고침해도 다시 로그인하지 않도록,
+    // 세션이 아니라 브라우저 로컬에 인증 상태를 저장한다 (웹 SDK 기본값이지만 명시적으로 고정).
+    setPersistence(auth, browserLocalPersistence).catch((err) => console.error('setPersistence 실패', err));
 
+    let currentUser = null; // 로그인한 사용자 (Firebase Auth User 객체)
     let currentFileName = "";
     let rawTextData = "";
     let pageFlip = null;
@@ -321,17 +409,32 @@
     const fileListElement = document.getElementById('file-list');
     const stageContainer = document.getElementById('book-stage');
     const sidebarElement = document.getElementById('sidebar');
+    const authScreen = document.getElementById('auth-screen');
     const libraryScreen = document.getElementById('library-screen');
     const viewerScreen = document.getElementById('viewer-screen');
     const pageSlider = document.getElementById('page-slider');
     const pageCounter = document.getElementById('page-counter');
+    const authForm = document.getElementById('auth-form');
+    const authEmailInput = document.getElementById('auth-email');
+    const authPasswordInput = document.getElementById('auth-password');
+    const authErrorEl = document.getElementById('auth-error');
+    const authSubmitBtn = document.getElementById('auth-submit-btn');
+    const authToggleBtn = document.getElementById('auth-toggle-btn');
+    const authTitleEl = document.getElementById('auth-title');
 
-    // 화면 전환: 서재(파일 목록) ↔ 뷰어(책 읽기)
+    // 화면 전환: 로그인 ↔ 서재(파일 목록) ↔ 뷰어(책 읽기)
+    function showAuthScreen() {
+      libraryScreen.classList.add('screen-hidden');
+      viewerScreen.classList.add('screen-hidden');
+      authScreen.classList.remove('screen-hidden');
+    }
     function showLibraryScreen() {
+      authScreen.classList.add('screen-hidden');
       viewerScreen.classList.add('screen-hidden');
       libraryScreen.classList.remove('screen-hidden');
     }
     function showViewerScreen() {
+      authScreen.classList.add('screen-hidden');
       libraryScreen.classList.add('screen-hidden');
       viewerScreen.classList.remove('screen-hidden');
     }
@@ -351,16 +454,92 @@
     // "마지막으로 읽던 책이 이어지지 않는다"고 느껴졌다. 마지막으로 연 책 이름을
     // localStorage에 기억해뒀다가, 페이지가 새로 열릴 때 그 책이 아직 목록에
     // 있으면 서재를 거치지 않고 곧바로 그 책을 열어서(=Firestore의 최신 위치로) 이어준다.
-    const LAST_OPENED_FILE_KEY = 'txtViewerLastOpenedFile';
+    // ⚠️ 사용자별로 따로 저장해야 한다 — 같은 기기(브라우저)를 여러 명이 나눠 쓸 때
+    // 다른 사람이 마지막으로 보던 책이 자동으로 열리면 안 되므로 키에 uid를 포함한다.
+    function lastOpenedFileKey() {
+      return 'txtViewerLastOpenedFile_' + (currentUser ? currentUser.uid : 'anon');
+    }
 
-    window.addEventListener('DOMContentLoaded', async () => {
-      await fetchFileList();
+    // 🔐 로그인 상태 게이트: 앱의 모든 화면은 로그인 후에만 보인다.
+    // onAuthStateChanged는 새로고침 직후에도(로컬에 저장된 세션이 있으면) 바로 로그인된
+    // 상태로 한 번 불려서, "로그인 유지"가 저절로 이루어진다.
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        currentUser = user;
+        await fetchFileList();
 
-      const lastFile = localStorage.getItem(LAST_OPENED_FILE_KEY);
-      if (lastFile && Array.from(fileListElement.children).some(li => li.textContent === lastFile)) {
-        showViewerScreen();
-        loadFileFromStorage(lastFile);
+        const lastFile = localStorage.getItem(lastOpenedFileKey());
+        if (lastFile && Array.from(fileListElement.children).some(li => li.textContent === lastFile)) {
+          showViewerScreen();
+          loadFileFromStorage(lastFile);
+        } else {
+          showLibraryScreen();
+        }
+      } else {
+        // 로그아웃 상태 — 읽던 책 정보를 비우고 로그인 화면만 보여준다
+        currentUser = null;
+        currentFileName = "";
+        rawTextData = "";
+        if (pageFlip) { pageFlip.destroy(); pageFlip = null; }
+        authForm.reset();
+        authErrorEl.classList.remove('visible');
+        showAuthScreen();
       }
+    });
+
+    // 로그인/회원가입 폼 — 같은 폼을 모드 전환으로 재사용한다
+    let isSignupMode = false;
+
+    function setAuthError(message) {
+      authErrorEl.textContent = message || '';
+      authErrorEl.classList.toggle('visible', !!message);
+    }
+
+    function authErrorMessage(err) {
+      switch (err.code) {
+        case 'auth/email-already-in-use': return '이미 가입된 이메일입니다.';
+        case 'auth/invalid-email': return '올바른 이메일 형식이 아닙니다.';
+        case 'auth/weak-password': return '비밀번호는 6자 이상이어야 합니다.';
+        case 'auth/user-not-found': return '가입되지 않은 이메일입니다.';
+        case 'auth/wrong-password': return '비밀번호가 일치하지 않습니다.';
+        case 'auth/invalid-credential': return '이메일 또는 비밀번호가 일치하지 않습니다.';
+        case 'auth/too-many-requests': return '너무 많이 시도했습니다. 잠시 후 다시 시도해주세요.';
+        default: return '오류가 발생했습니다. (' + err.code + ')';
+      }
+    }
+
+    authToggleBtn.addEventListener('click', () => {
+      isSignupMode = !isSignupMode;
+      authTitleEl.textContent = isSignupMode ? '📖 회원가입' : '📖 로그인';
+      authSubmitBtn.textContent = isSignupMode ? '가입하기' : '로그인';
+      authToggleBtn.textContent = isSignupMode ? '이미 계정이 있으신가요? 로그인' : '계정이 없으신가요? 회원가입';
+      authPasswordInput.autocomplete = isSignupMode ? 'new-password' : 'current-password';
+      setAuthError('');
+    });
+
+    authForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = authEmailInput.value.trim();
+      const password = authPasswordInput.value;
+      setAuthError('');
+      authSubmitBtn.disabled = true;
+      try {
+        if (isSignupMode) {
+          await createUserWithEmailAndPassword(auth, email, password);
+        } else {
+          await signInWithEmailAndPassword(auth, email, password);
+        }
+        // 성공하면 onAuthStateChanged가 알아서 화면을 넘겨준다
+      } catch (err) {
+        console.error(err);
+        setAuthError(authErrorMessage(err));
+      } finally {
+        authSubmitBtn.disabled = false;
+      }
+    });
+
+    document.getElementById('logout-btn').addEventListener('click', () => {
+      signOut(auth);
     });
 
     // 1. Storage 파일 목록 불러오기
@@ -416,7 +595,7 @@
     // 3. Storage에서 파일 다운로드 및 인코딩 자동 처리
     async function loadFileFromStorage(fileName) {
       currentFileName = fileName;
-      localStorage.setItem(LAST_OPENED_FILE_KEY, fileName);
+      localStorage.setItem(lastOpenedFileKey(), fileName);
       setStatus("파일 다운로드 중...");
 
       Array.from(fileListElement.children).forEach(li => {
@@ -741,8 +920,21 @@
       //
       // 페이지 넘기기는 라이브러리의 기본 클릭/드래그 대신 우리가 만든
       // 좌/중/우 3분할 클릭 영역으로만 제어한다 (아래 #book-stage 클릭 핸들러 참고).
-      // disableFlipByClick + useMouseEvents:false로 라이브러리 자체 반응을 꺼서,
-      // 우리 클릭 핸들러와 겹쳐 한 번 클릭에 두 페이지씩 넘어가는 걸 막는다.
+      // useMouseEvents:false만으로 라이브러리 자체의 mousedown/touchstart 리스너가
+      // 아예 붙지 않으므로, 우리 클릭 핸들러와 겹쳐서 두 페이지씩 넘어가는 문제는 이걸로 충분히 막힌다.
+      //
+      // ⚠️ disableFlipByClick:true는 절대 켜지 마라 — 모바일 "이전 페이지"가 먹통이 되는
+      // 원인이었다. page-flip 라이브러리 내부에서 disableFlipByClick이 true면 flip() 호출마다
+      // isPointOnCorners()로 "페이지 모서리 근처를 클릭했는지"부터 검사하는데, flipNext()는
+      // 좌표 계산에 렌더 사각형의 left 오프셋을 더해서(e.left + 2*pageWidth - 10) 넘기는 반면
+      // flipPrev()는 그 오프셋을 빼먹고 x:10을 그대로 넘긴다. 그런데 우리처럼 좁은 화면이라
+      // 한 페이지만 보이는 "portrait" 모드에서는 이 라이브러리가 내부적으로 boundsRect.left를
+      // -pageWidth만큼 음수로 잡기 때문에(2페이지 스프레드 좌표계를 그대로 쓰면서 왼쪽 페이지를
+      // 화면 밖으로 밀어두는 방식), flipPrev()가 넘기는 x:10은 모서리 판정 범위에서 한참
+      // 벗어나 버려서 isPointOnCorners가 항상 false → flip()이 조용히 아무 일도 안 하고 끝난다.
+      // (flipNext()는 오프셋을 더했기 때문에 우연히 이 문제를 피해간다 — 그래서 다음 페이지는
+      // 되는데 이전 페이지만 안 되는 것처럼 보였다.) useMouseEvents:false로 이미 클릭/터치
+      // 리스너 자체를 꺼뒀으니 disableFlipByClick은 우리에게 아무 이점 없이 이 버그만 유발한다.
       pageFlip = new St.PageFlip(bookElement, {
         width: bookWidth,
         height: bookHeight,
@@ -754,7 +946,6 @@
         maxShadowOpacity: 0.5,
         showCover: false,
         mobileScrollSupport: false,
-        disableFlipByClick: true,
         useMouseEvents: false
       });
 
@@ -944,10 +1135,13 @@
     // 다른 기기에서 더 앞서 읽은 것으로 보고 그 위치로 자동으로 넘어간다.
     let lastKnownProgressUpdatedAt = 0;
 
+    // 💡 사용자별 저장: 진행 상황을 전역 컬렉션이 아니라 users/{uid}/reading_progress/{fileId}에
+    // 저장해서, 같은 파일을 읽어도 로그인한 사람마다 각자 자기 위치만 보게 한다.
     async function saveProgress(fileName, charIndex) {
+      if (!currentUser) return;
       try {
         const fileId = btoa(encodeURIComponent(fileName));
-        await setDoc(doc(db, "reading_progress", fileId), {
+        await setDoc(doc(db, "users", currentUser.uid, "reading_progress", fileId), {
           fileName: fileName,
           charIndex: charIndex,
           updatedAt: new Date()
@@ -961,9 +1155,10 @@
     }
 
     async function loadProgress(fileName) {
+      if (!currentUser) return 0;
       try {
         const fileId = btoa(encodeURIComponent(fileName));
-        const docRef = doc(db, "reading_progress", fileId);
+        const docRef = doc(db, "users", currentUser.uid, "reading_progress", fileId);
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
@@ -993,10 +1188,10 @@
     // → 탭이 다시 화면에 보일 때마다 서버 기록을 재확인해서, 우리가 알던 것보다
     // 최신이면(=다른 기기에서 더 나중에 저장했으면) 그 위치로 자동으로 이동한다.
     async function syncProgressFromServer() {
-      if (!currentFileName || !pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
+      if (!currentUser || !currentFileName || !pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
       try {
         const fileId = btoa(encodeURIComponent(currentFileName));
-        const docSnap = await getDoc(doc(db, "reading_progress", fileId));
+        const docSnap = await getDoc(doc(db, "users", currentUser.uid, "reading_progress", fileId));
         if (!docSnap.exists()) return;
 
         const data = docSnap.data();
@@ -1057,11 +1252,30 @@
   <!-- 상태 메시지: UI 패널과 분리된 화면 하단 중앙 토스트 -->
   <div id="sync-status"></div>
 
+  <!-- 화면 0: 로그인/회원가입 — 인증 전에는 아무 화면도 보이지 않는다 -->
+  <div id="auth-screen" class="screen-hidden">
+    <div class="auth-panel">
+      <h1 id="auth-title">📖 로그인</h1>
+      <form id="auth-form">
+        <input type="email" id="auth-email" placeholder="이메일" autocomplete="email" required>
+        <input type="password" id="auth-password" placeholder="비밀번호 (6자 이상)" autocomplete="current-password" required>
+        <div class="auth-error" id="auth-error"></div>
+        <button type="submit" class="auth-submit-btn" id="auth-submit-btn">로그인</button>
+        <button type="button" class="auth-toggle-link" id="auth-toggle-btn">계정이 없으신가요? 회원가입</button>
+      </form>
+    </div>
+  </div>
+
   <!-- 화면 1: 서재 (파일 업로드 + 목록) -->
-  <div id="library-screen">
+  <div id="library-screen" class="screen-hidden">
     <div class="library-panel">
       <div class="library-panel-header">
-        <h1>📖 내 서재</h1>
+        <div class="library-panel-title-row">
+          <h1>📖 내 서재</h1>
+          <button id="logout-btn" class="icon-btn" title="로그아웃">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+          </button>
+        </div>
         <label for="file-input" class="upload-btn">+ 새 TXT 업로드</label>
         <input type="file" id="file-input" accept=".txt">
       </div>
