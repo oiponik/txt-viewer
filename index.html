@@ -128,6 +128,16 @@
       box-shadow: 0 8px 20px rgba(0,0,0,0.25);
     }
     .auth-submit-btn:disabled { opacity: 0.6; cursor: default; }
+    .auth-remember-hint {
+      margin: -4px 0 0; font-size: 12.5px; text-align: center;
+      color: rgba(255,255,255,0.85);
+    }
+    .auth-remember-hint span { font-weight: 700; color: #fff; }
+    .auth-inline-link {
+      background: none; border: none; padding: 0; font: inherit;
+      color: rgba(255,255,255,0.85); text-decoration: underline;
+      text-underline-offset: 2px; cursor: pointer;
+    }
     .auth-toggle-link {
       background: none; border: none; color: rgba(255,255,255,0.92);
       font-size: 13px; cursor: pointer; text-align: center; padding: 4px;
@@ -476,11 +486,35 @@
     const authTitleEl = document.getElementById('auth-title');
     const uploadBtnLabel = document.getElementById('upload-btn-label');
 
+    // 💡 "한 번 로그인했던 계정은 클릭 한 번으로 다시" — 이메일(비밀번호는 절대 아님)만
+    // localStorage에 기억해뒀다가 로그인 화면을 다시 볼 때 자동으로 채워주고 비밀번호
+    // 칸에 바로 포커스를 준다. 비밀번호를 브라우저에 그대로 저장해서 자동 입력하는 건
+    // 기기를 같이 쓰는 사람이나 XSS에 그대로 노출되는 보안 사고라 절대 하지 않는다 —
+    // 대신 <input autocomplete="current-password">를 정확히 붙여둬서, 브라우저 자체의
+    // 비밀번호 관리자가 이 폼을 기억하고 자동 채움/자동완성 드롭다운을 띄워주게 한다.
+    // 그러면 이메일 자동 채움 + 비밀번호는 브라우저가 제안하는 값 클릭 한 번으로
+    // 사실상 "클릭 한 번 로그인"에 가까워진다.
+    const LAST_EMAIL_KEY = 'txtViewerLastEmail';
+
+    function applyRememberedEmail() {
+      const remembered = localStorage.getItem(LAST_EMAIL_KEY);
+      const hintEl = document.getElementById('remembered-email-hint');
+      if (remembered && !isSignupMode) {
+        authEmailInput.value = remembered;
+        document.getElementById('remembered-email-text').textContent = remembered;
+        hintEl.style.display = 'block';
+        authPasswordInput.focus();
+      } else {
+        hintEl.style.display = 'none';
+      }
+    }
+
     // 화면 전환: 로그인 ↔ 서재(파일 목록) ↔ 뷰어(책 읽기)
     function showAuthScreen() {
       libraryScreen.classList.add('screen-hidden');
       viewerScreen.classList.add('screen-hidden');
       authScreen.classList.remove('screen-hidden');
+      applyRememberedEmail();
     }
     function showLibraryScreen() {
       authScreen.classList.add('screen-hidden');
@@ -595,6 +629,7 @@
     onAuthStateChanged(auth, async (user) => {
       if (user) {
         currentUser = user;
+        if (user.email) localStorage.setItem(LAST_EMAIL_KEY, user.email);
         await fetchFileList();
 
         const lastFile = localStorage.getItem(lastOpenedFileKey());
@@ -645,6 +680,16 @@
       authToggleBtn.textContent = isSignupMode ? '이미 계정이 있으신가요? 로그인' : '계정이 없으신가요? 회원가입';
       authPasswordInput.autocomplete = isSignupMode ? 'new-password' : 'current-password';
       setAuthError('');
+      // 회원가입 모드에선 "OO님, 다시 오셨네요"가 어색하니 숨기고, 로그인 모드로
+      // 돌아오면 다시 채워준다 (이메일 값은 그대로 둬서 입력한 걸 잃지 않는다)
+      applyRememberedEmail();
+    });
+
+    document.getElementById('use-different-account-btn').addEventListener('click', () => {
+      localStorage.removeItem(LAST_EMAIL_KEY);
+      authEmailInput.value = '';
+      document.getElementById('remembered-email-hint').style.display = 'none';
+      authEmailInput.focus();
     });
 
     authForm.addEventListener('submit', async (e) => {
@@ -1463,6 +1508,13 @@
     </div>
     <div class="auth-panel">
       <h1 id="auth-title">로그인</h1>
+      <!-- 마지막으로 로그인했던 이메일을 기억해뒀다가 다음에 로그인 화면을 볼 때
+           자동으로 채워주고 비밀번호 칸에 바로 포커스를 준다. 비밀번호는 절대
+           저장하지 않는다 — applyRememberedEmail() 참고 -->
+      <p id="remembered-email-hint" class="auth-remember-hint" style="display:none;">
+        <span id="remembered-email-text"></span>님, 다시 오셨네요
+        · <button type="button" id="use-different-account-btn" class="auth-inline-link">다른 계정</button>
+      </p>
       <!-- novalidate: 개발자 로그인("dev" + 빈 비밀번호)이 이메일 형식/필수입력 검사에
            브라우저 단에서 막히지 않도록 우리 JS가 직접 검증한다 (dev-login-hint 참고) -->
       <form id="auth-form" novalidate>
