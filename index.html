@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Firebase Storage Flip Book Viewer</title>
+  
+  <style>
+    :root {
+      --bg-color: #cecac0;
+      --text-color: #3a2512;
+      --sidebar-bg: #ffffff;
+      --accent-color: #4a90e2;
+      --border-color: #e1e4e8;
+      --active-item: #e8f0fe;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { height: 100%; }
+
+    body {
+      margin: 0; padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      height: 100vh; height: 100dvh; overflow: hidden;
+    }
+
+    .screen-hidden { display: none !important; }
+
+    /* 화면 1: 서재 — 파일 업로드 + 저장된 파일 목록. 앱을 열면 처음 보이는 화면 */
+    #library-screen {
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background-color: var(--bg-color);
+      padding: 24px; z-index: 5;
+    }
+
+    .library-panel {
+      width: min(480px, 92vw);
+      max-height: 82vh;
+      background-color: var(--sidebar-bg);
+      border-radius: 16px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.18);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+
+    .library-panel-header {
+      padding: 24px; border-bottom: 1px solid var(--border-color);
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .library-panel-header h1 {
+      margin: 0; font-size: 19px;
+    }
+
+    /* 화면 2: 뷰어 — 책을 읽는 화면. 파일 업로드/목록은 여기 없고, "← 목록"으로 서재로 돌아간다 */
+    #viewer-screen {
+      position: fixed; inset: 0;
+      display: flex;
+    }
+
+    /* 뷰어 상단 상태바 (제목 / 테마 버튼 / 목록으로 돌아가기)
+       ⚠️ 예전엔 flex 레이아웃의 일부로 공간을 차지해서, 몰입 모드에서 숨길 때
+       크기를 줄이는 방식이었다. 그러면 #main-content/#book-stage의 실제 크기가
+       같이 바뀌어서 리사이즈로 감지되고, 그때마다 페이지 분할이 처음부터
+       다시 실행되는 문제가 있었다.
+       → 레이아웃 흐름에서 완전히 빼고(position: fixed) 콘텐츠 위에 떠 있는
+       오버레이로 바꿨다. 이제 열고 닫아도 #book-stage 크기는 전혀 바뀌지
+       않아서 페이지 재구성이 발생하지 않는다.
+       💡 화면 크기와 무관하게 항상 가로 풀사이즈 상단바 — 카드/그림자 없이
+       페이지와 같은 배경색으로 이어붙여서 색이 튀지 않고 단순하게 보이도록 한다. */
+    #sidebar {
+      position: fixed; top: 0; left: 0; right: 0;
+      width: 100%;
+      background-color: var(--bg-color);
+      border-bottom: 1px solid var(--border-color);
+      display: flex; z-index: 50;
+      transform: translateY(0);
+      transition: transform 0.35s ease;
+    }
+
+    /* 참고 이미지 스타일 — 뒤로가기 아이콘 / 가운데 제목 / 테마 아이콘을 한 줄에,
+       색 없이 단순하게 배치한다. 텍스트 버튼 대신 아이콘만 쓴다. */
+    .sidebar-header {
+      width: 100%;
+      padding: 10px 8px;
+      display: flex; align-items: center; gap: 4px;
+    }
+
+    .icon-btn {
+      flex-shrink: 0;
+      width: 38px; height: 38px; border-radius: 50%;
+      border: none; background-color: transparent; color: var(--text-color);
+      font-size: 18px; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      transition: background-color 0.15s ease;
+    }
+    .icon-btn:hover { background-color: rgba(128,128,128,0.1); }
+    /* 뒤로가기 아이콘과 균형을 맞추기 위한 빈 공간 (제목을 가운데 고정) */
+    .icon-btn-spacer { flex-shrink: 0; width: 38px; height: 38px; }
+
+    .sidebar-title-row {
+      flex: 1; min-width: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .sidebar-title-row strong {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-size: 14px; font-weight: 600;
+    }
+
+    .upload-btn {
+      background-color: var(--accent-color); color: white;
+      text-align: center; padding: 10px; border-radius: 6px;
+      cursor: pointer; font-weight: bold; font-size: 14px;
+    }
+
+    #file-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+    #file-list li {
+      padding: 14px 16px; border-bottom: 1px solid var(--border-color);
+      cursor: pointer; font-size: 14px; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    #file-list li:hover { background-color: rgba(0,0,0,0.03); }
+    #file-list li.active { background-color: var(--active-item); color: var(--accent-color); font-weight: bold; }
+
+    /* 메인 영역 */
+    #main-content {
+      flex: 1; display: flex; flex-direction: column;
+      min-width: 0; min-height: 0; position: relative;
+    }
+
+    /* 읽기 몰입 모드: 책을 읽는 동안 UI 패널을 숨긴다
+       (위치만 바꾸고 레이아웃 흐름에는 관여하지 않으므로
+       #book-stage 크기는 항상 그대로 유지된다) */
+    body.immersive #sidebar {
+      transform: translateY(-100%);
+      pointer-events: none;
+    }
+
+    /* 무대 영역 — "스크린 위에 놓인 책" 느낌을 없애고 책이 화면 전체를 채운다.
+       좌/중/우 클릭으로 이전 페이지/UI 토글/다음 페이지를 제어한다 */
+    #book-stage {
+      flex: 1; display: flex; justify-content: center; align-items: center;
+      overflow: hidden; position: relative;
+      width: 100%; min-width: 0; min-height: 0;
+      cursor: pointer;
+    }
+
+    #my-book {
+      max-width: 100%; max-height: 100%;
+      position: relative;
+    }
+
+    /* 두 페이지 스프레드일 때 가운데에 은은한 책등(spine) 그림자 — buildFlipBook에서
+       한 페이지 모드일 땐 display:none으로 꺼둔다 */
+    #book-spine {
+      position: absolute; top: 0; bottom: 0; left: 50%;
+      width: 26px; transform: translateX(-50%);
+      background: linear-gradient(to right,
+        transparent 0%,
+        rgba(0,0,0,0.07) 42%,
+        rgba(0,0,0,0.11) 50%,
+        rgba(0,0,0,0.07) 58%,
+        transparent 100%);
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    /* 페이지 스타일 — 배경색을 화면(screen) 배경색과 동일하게 맞춰서
+       "책이 스크린 위에 떠 있다"는 느낌 없이 페이지가 곧 화면이 되도록 한다 */
+    .page {
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      padding: clamp(14px, 2.5vw, 24px) clamp(12px, 2vw, 20px) clamp(10px, 1.5vw, 15px);
+      font-size: clamp(13px, 1.1vw + 0.6rem, 16px);
+      line-height: 1.65;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 100%;
+      box-sizing: border-box;
+      /* 페이지 수가 수천 개에 달하는 대용량 문서에서 넘기기 애니메이션이
+         버벅이지 않도록: 굳이 필요없는 그림자 페인트 비용을 없애고
+         브라우저가 미리 GPU 레이어로 최적화하도록 힌트를 준다. */
+      will-change: transform;
+      backface-visibility: hidden;
+    }
+
+    .page-content {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      word-break: break-all;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+
+    .page-footer {
+      height: 20px;
+      line-height: 20px;
+      text-align: center;
+      font-size: 12px;
+      opacity: 0.5;
+      flex-shrink: 0;
+      margin-top: 5px;
+    }
+
+    input[type="file"] { display: none; }
+    button { cursor: pointer; }
+
+    /* 상태 메시지 — 사이드바/헤더 UI와 분리해서 화면 하단 중앙에 토스트로 잠깐 띄운다.
+       (몰입 모드로 UI가 다 숨어 있어도 이건 그대로 잠깐 보였다가 사라진다) */
+    #sync-status {
+      position: fixed; left: 50%; bottom: 20px;
+      transform: translate(-50%, 10px);
+      z-index: 200;
+      /* 흰 배경이 너무 튀어서, 테마와 무관하게 은은하게 녹아드는 반투명 어두운 톤으로 */
+      background-color: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      color: #f5f5f5;
+      padding: 6px 16px; border-radius: 20px;
+      font-size: 12px; font-weight: 500; letter-spacing: 0.2px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      max-width: min(90vw, 360px);
+      text-align: center; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    #sync-status.visible {
+      opacity: 0.72;
+      transform: translate(-50%, 0);
+    }
+
+    /* 하단 바 — 참고 이미지처럼 카드/그림자/강조색 없이, 페이지 위에 슬라이더와
+       "현재/전체" 카운터만 떠 있는 단순한 형태. 상단바와 같은 몰입 모드 규칙을
+       따른다(읽는 동안 숨었다가, 활동하면 보임) */
+    #bottom-bar {
+      position: fixed; left: 50%; bottom: 0;
+      transform: translate(-50%, 0);
+      width: min(560px, 94vw);
+      background: transparent;
+      padding: 10px 24px 22px;
+      z-index: 45;
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      transition: transform 0.35s ease;
+    }
+    body.immersive #bottom-bar {
+      transform: translate(-50%, 100%);
+      pointer-events: none;
+    }
+    #page-slider {
+      width: 100%; accent-color: var(--text-color);
+      cursor: pointer; margin: 0;
+    }
+    #page-counter {
+      font-size: 12px; color: var(--text-color); opacity: 0.6;
+    }
+
+    /* 좁은 화면(휴대폰): 여백 추가 조정 */
+    @media (max-width: 600px) {
+      .sidebar-header { padding: 8px 4px; }
+      #bottom-bar { padding: 8px 16px 18px; }
+    }
+
+    /* 가로가 짧은 화면(모바일 가로 모드 등): 세로 여백 최소화 */
+    @media (max-height: 480px) {
+      .page { padding-top: 10px; padding-bottom: 8px; }
+    }
+  </style>
+
+  <!-- PageFlip 라이브러리 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/page-flip/dist/js/page-flip.browser.js"></script>
+
+  <!-- Firebase SDK 모듈 -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    import { getStorage, ref, uploadBytes, listAll, getBytes } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+
+    // 🔑 본인 설정 파일 불러오기
+    import { firebaseConfig } from "./firebase-config.js";
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const storage = getStorage(app);
+
+    let currentFileName = "";
+    let rawTextData = "";
+    let pageFlip = null;
+    let debounceSaveTimer = null;
+    let resizeTimer = null;
+    let buildGeneration = 0; // buildFlipBook 재진입/경합 방지용 세대 번호
+    let immersiveTimer = null; // 읽기 몰입 모드(UI 자동 숨김) 타이머
+    let isHoveringChrome = false; // 사이드바/헤더 위에 마우스가 있는 동안은 숨기지 않음
+    let statusHideTimer = null; // 하단 상태 토스트 자동 숨김 타이머
+
+    // 💡 페이지 가상화(windowing): 전체 페이지를 다 DOM에 그리지 않고,
+    // 현재 읽는 위치 근처만 실제로 그려서 PageFlip에 올린다.
+    const PAGE_WINDOW_RADIUS = 15;   // 현재 페이지 기준 앞/뒤로 미리 그려둘 페이지 수
+    const PAGE_WINDOW_EDGE_MARGIN = 3; // 창 가장자리에서 이만큼 남으면 다음 구간을 미리 당겨온다
+    let allTextPages = [];   // 문서 전체를 나눈 페이지 텍스트 배열 (DOM 없이 문자열만 보관)
+    let totalPages = 0;
+    let windowStartIndex = 0; // 지금 PageFlip에 실제로 로드되어 있는 구간의 전역 시작 페이지
+    let windowEndIndex = 0;   // (미포함) 끝 페이지
+    let isShiftingWindow = false; // 창 재정렬 도중 중복 실행 방지 가드
+
+    // 페이지별 시작 글자 인덱스를 기록하는 배열
+    let pageStartIndices = [];
+    let currentLastCharIndex = 0; // 읽던 글자의 시작 위치
+
+    // 💡 페이지 분할 결과 캐시: (파일명 + 창 크기) 조합이 같으면 다시 계산하지 않고 재사용한다.
+    // 같은 책을 다시 열거나, 창 크기를 예전 크기로 되돌릴 때 즉시 로딩되게 해준다.
+    const paginationCache = new Map();
+
+    const statusText = document.getElementById('sync-status');
+    const fileListElement = document.getElementById('file-list');
+    const stageContainer = document.getElementById('book-stage');
+    const sidebarElement = document.getElementById('sidebar');
+    const libraryScreen = document.getElementById('library-screen');
+    const viewerScreen = document.getElementById('viewer-screen');
+    const pageSlider = document.getElementById('page-slider');
+    const pageCounter = document.getElementById('page-counter');
+
+    // 화면 전환: 서재(파일 목록) ↔ 뷰어(책 읽기)
+    function showLibraryScreen() {
+      viewerScreen.classList.add('screen-hidden');
+      libraryScreen.classList.remove('screen-hidden');
+    }
+    function showViewerScreen() {
+      libraryScreen.classList.add('screen-hidden');
+      viewerScreen.classList.remove('screen-hidden');
+    }
+
+    // 화면 하단 중앙 상태 토스트: 텍스트를 바꾸면 잠깐 나타났다가 2.2초 뒤 조용히 사라진다.
+    // (UI 패널과는 완전히 분리되어 있어서 몰입 모드로 UI가 숨어 있어도 이건 보인다)
+    function setStatus(text) {
+      statusText.textContent = text;
+      statusText.classList.add('visible');
+      clearTimeout(statusHideTimer);
+      statusHideTimer = setTimeout(() => {
+        statusText.classList.remove('visible');
+      }, 2200);
+    }
+
+    window.addEventListener('DOMContentLoaded', fetchFileList);
+
+    // 1. Storage 파일 목록 불러오기
+    async function fetchFileList() {
+      fileListElement.innerHTML = '<li style="color:#888;">Storage 목록 불러오는 중...</li>';
+      const listRef = ref(storage, 'books/');
+      
+      try {
+        const res = await listAll(listRef);
+        fileListElement.innerHTML = '';
+        
+        if (res.items.length === 0) {
+          fileListElement.innerHTML = '<li style="color:#888;">업로드된 파일이 없습니다.</li>';
+          return;
+        }
+
+        res.items.forEach((itemRef) => {
+          const li = document.createElement('li');
+          li.textContent = itemRef.name;
+          li.onclick = () => {
+            // #book-stage가 실제 크기를 가지려면 뷰어 화면이 먼저 보여야 한다
+            // (숨겨진 상태에서 페이지 크기를 재면 0으로 계산되어 버림)
+            showViewerScreen();
+            loadFileFromStorage(itemRef.name);
+          };
+          fileListElement.appendChild(li);
+        });
+      } catch (err) {
+        console.error(err);
+        fileListElement.innerHTML = '<li style="color:red;">목록 로드 실패</li>';
+      }
+    }
+
+    // 2. 파일 업로드
+    document.getElementById('file-input').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      setStatus("Storage 업로드 중...");
+      const storageRef = ref(storage, 'books/' + file.name);
+
+      try {
+        await uploadBytes(storageRef, file);
+        setStatus("업로드 완료!");
+        await fetchFileList();
+        showViewerScreen();
+        loadFileFromStorage(file.name);
+      } catch (err) {
+        setStatus("업로드 실패");
+      }
+    });
+
+    // 3. Storage에서 파일 다운로드 및 인코딩 자동 처리
+    async function loadFileFromStorage(fileName) {
+      currentFileName = fileName;
+      setStatus("파일 다운로드 중...");
+
+      Array.from(fileListElement.children).forEach(li => {
+        li.classList.toggle('active', li.textContent === fileName);
+      });
+
+      try {
+        const fileRef = ref(storage, 'books/' + fileName);
+        const arrayBuffer = await getBytes(fileRef);
+        const uint8Array = new Uint8Array(arrayBuffer);
+
+        if (uint8Array.length >= 2 && uint8Array[0] === 0xFF && uint8Array[1] === 0xFE) {
+          rawTextData = new TextDecoder("utf-16le").decode(arrayBuffer);
+        } else if (uint8Array.length >= 2 && uint8Array[0] === 0xFE && uint8Array[1] === 0xFF) {
+          rawTextData = new TextDecoder("utf-16be").decode(arrayBuffer);
+        } else {
+          try {
+            rawTextData = new TextDecoder("utf-8", { fatal: true }).decode(arrayBuffer);
+          } catch (e) {
+            try {
+              rawTextData = new TextDecoder("euc-kr", { fatal: true }).decode(arrayBuffer);
+            } catch (e2) {
+              rawTextData = new TextDecoder("utf-16le").decode(arrayBuffer);
+            }
+          }
+        }
+
+        document.getElementById('current-title').textContent = fileName;
+
+        // 다른 책(파일)의 기록 기준 시각이 남아있지 않도록 새로 여는 책마다 초기화
+        lastKnownProgressUpdatedAt = 0;
+        currentLastCharIndex = await loadProgress(fileName);
+        await buildFlipBook();
+
+        // 책이 열리면 바로 읽기 몰입 모드로: 마우스를 움직이기 전까진 UI를 띄우지 않는다
+        document.body.classList.add('immersive');
+        clearTimeout(immersiveTimer);
+
+      } catch (err) {
+        console.error(err);
+        setStatus("파일 열기 실패");
+      }
+    }
+
+    // 💡 4. DOM 높이 실측 + 갤로핑 탐색(Galloping Search) 기반 정밀 분할 함수
+    //
+    // 예전 방식은 매 페이지마다 "문서 전체 남은 길이"를 기준으로 이진 탐색을 했기 때문에,
+    // 대용량 텍스트(수백 KB~수 MB짜리 소설 등)에서는 페이지 하나 찾는 데도
+    // 거대한 문자열을 DOM에 반복해서 밀어넣고 레이아웃을 재계산하게 되어
+    // 브라우저 탭이 통째로 멈추는 문제가 있었다.
+    // → 필요한 구간만 작게 시작해서 2배씩 넓혀가며(갤로핑) 대략적인 범위를 잡고,
+    //   그 좁은 범위 안에서만 이진 탐색하도록 바꿔서 문서 크기와 무관하게 빠르게 동작한다.
+    // 또한 대용량 문서에서도 브라우저가 "응답 없음" 상태가 되지 않도록 주기적으로
+    // 메인 스레드를 양보(yield)한다.
+    async function splitTextIntoPagesDOM(text, containerWidth, containerHeight) {
+      // 높이 측정을 위한 보이지 않는 임시 DOM 생성
+      const dummy = document.createElement('div');
+      dummy.className = 'page';
+      dummy.style.visibility = 'hidden';
+      dummy.style.position = 'absolute';
+      dummy.style.left = '-9999px';
+      dummy.style.top = '-9999px';
+      dummy.style.width = containerWidth + 'px';
+      dummy.style.height = containerHeight + 'px';
+
+      const dummyContent = document.createElement('div');
+      dummyContent.className = 'page-content';
+
+      const dummyFooter = document.createElement('div');
+      dummyFooter.className = 'page-footer';
+      dummyFooter.textContent = '- 0 / 0 -';
+
+      dummy.appendChild(dummyContent);
+      dummy.appendChild(dummyFooter);
+      document.body.appendChild(dummy);
+
+      // 실제 텍스트 영역의 가용 최대 높이 측정을 위해 렌더링
+      const maxHeight = dummyContent.clientHeight;
+
+      const pages = [];
+      // ⚠️ 전역 pageStartIndices를 직접 건드리지 않고 지역 배열에 모은다 — 리사이즈가
+      // 연달아 일어나 이 함수가 겹쳐 실행될 때(비동기 yield 구간에서) 서로 다른 실행이
+      // 같은 전역 배열에 뒤섞여 쓰는 걸 방지한다. 결과는 buildFlipBook이 최신 빌드일
+      // 때만 전역에 반영한다.
+      const localPageStarts = [];
+      let currentIndex = 0;
+      let pagesSinceYield = 0;
+      const textLength = text.length;
+
+      while (currentIndex < textLength) {
+        localPageStarts.push(currentIndex);
+
+        // 1단계: 갤로핑 탐색 — 문서 전체가 아니라 작은 구간에서 시작해 2배씩 넓혀가며
+        // "안 들어가는 지점"을 빠르게 찾는다.
+        let fitsIndex = currentIndex; // 여기까지는 확실히 들어감
+        let step = 300;
+        let probeIndex = Math.min(currentIndex + step, textLength);
+        dummyContent.textContent = text.substring(currentIndex, probeIndex);
+
+        while (dummyContent.scrollHeight <= maxHeight && probeIndex < textLength) {
+          fitsIndex = probeIndex;
+          step *= 2;
+          probeIndex = Math.min(probeIndex + step, textLength);
+          dummyContent.textContent = text.substring(currentIndex, probeIndex);
+        }
+
+        let bestFitIndex;
+        if (dummyContent.scrollHeight <= maxHeight) {
+          // 남은 텍스트 전부가 한 페이지에 들어감 (문서 끝)
+          bestFitIndex = probeIndex;
+        } else {
+          // 2단계: [fitsIndex(들어감), probeIndex(안 들어감)] 좁은 구간 안에서만 이진 탐색
+          let low = fitsIndex + 1;
+          let high = probeIndex;
+          bestFitIndex = fitsIndex;
+
+          while (low <= high) {
+            const mid = Math.floor((low + high) / 2);
+            dummyContent.textContent = text.substring(currentIndex, mid);
+
+            if (dummyContent.scrollHeight <= maxHeight) {
+              bestFitIndex = mid;
+              low = mid + 1;
+            } else {
+              high = mid - 1;
+            }
+          }
+        }
+
+        // 최소 1글자 진행 보장
+        if (bestFitIndex === currentIndex) bestFitIndex = currentIndex + 1;
+
+        pages.push(text.substring(currentIndex, bestFitIndex));
+        currentIndex = bestFitIndex;
+
+        // 대용량 문서에서도 브라우저가 멈추지 않도록 주기적으로 렌더링 프레임을 양보
+        pagesSinceYield++;
+        if (pagesSinceYield >= 30) {
+          pagesSinceYield = 0;
+          setStatus(`페이지 나누는 중... (${pages.length}p, ${Math.round(currentIndex / textLength * 100)}%)`);
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+
+      document.body.removeChild(dummy);
+      return { pages, pageStartIndices: localPageStarts };
+    }
+
+    // 5. 페이지 창(window) 요소 생성 헬퍼
+    // [start, end) 구간(전역 페이지 번호 기준)의 페이지 DOM 요소를 "만들기만" 하고 배열로 반환한다.
+    // ⚠️ 여기서 어디에도 append하지 않는다 — PageFlip은 초기 구성 시 내부에 자기만의 래퍼
+    // (ui.getDistElement())를 만들어서 페이지를 관리하는데, 우리가 #my-book의 innerHTML을
+    // 직접 비우면 그 래퍼까지 같이 지워져서 updateFromHtml이 있는데도 화면이 빈 채로 남는
+    // 버그가 있었다. 그래서 요소만 만들어 넘기고, 어디에 붙일지는 호출부(초기 로드 vs
+    // updateFromHtml)에 맡긴다.
+    // 쪽 번호(footer)는 전역 번호/전역 총 페이지 수를 그대로 쓰기 때문에,
+    // 일부만 그려져 있어도 사용자에게는 "- 1234 / 5000 -" 처럼 항상 정확하게 보인다.
+    function createPageElements(start, end, total) {
+      const elements = [];
+      for (let i = start; i < end; i++) {
+        const pageDiv = document.createElement('div');
+        pageDiv.className = 'page';
+
+        const pageContent = document.createElement('div');
+        pageContent.className = 'page-content';
+        pageContent.textContent = allTextPages[i];
+
+        const pageFooter = document.createElement('div');
+        pageFooter.className = 'page-footer';
+        pageFooter.textContent = `- ${i + 1} / ${total} -`;
+
+        pageDiv.appendChild(pageContent);
+        pageDiv.appendChild(pageFooter);
+        elements.push(pageDiv);
+      }
+      return elements;
+    }
+
+    // 특정 전역 페이지를 중심으로 앞뒤 PAGE_WINDOW_RADIUS만큼의 구간을 계산
+    function computeWindowRange(centerIndex, total) {
+      const start = Math.max(0, centerIndex - PAGE_WINDOW_RADIUS);
+      const end = Math.min(total, centerIndex + PAGE_WINDOW_RADIUS + 1);
+      return { start, end };
+    }
+
+    // 사용자가 현재 로드된 창의 가장자리 근처까지 넘겼으면, 그 다음 구간을 중심으로
+    // 새 페이지 요소들을 만들어서 pageFlip.updateFromHtml로 조용히 교체한다
+    // (문서 전체를 다시 쓰지 않고, #my-book의 기존 내부 구조도 건드리지 않는다).
+    function maybeShiftPageWindow(globalIndex) {
+      if (isShiftingWindow || !pageFlip) return;
+
+      const nearStart = windowStartIndex > 0 && (globalIndex - windowStartIndex) <= PAGE_WINDOW_EDGE_MARGIN;
+      const nearEnd = windowEndIndex < totalPages && (windowEndIndex - 1 - globalIndex) <= PAGE_WINDOW_EDGE_MARGIN;
+      if (!nearStart && !nearEnd) return;
+
+      isShiftingWindow = true;
+      try {
+        const { start, end } = computeWindowRange(globalIndex, totalPages);
+        windowStartIndex = start;
+        windowEndIndex = end;
+
+        const newElements = createPageElements(start, end, totalPages);
+        pageFlip.updateFromHtml(newElements);
+        // 창이 바뀌어도 지금 보고 있던 전역 페이지는 그대로 유지 (애니메이션 없이 재정렬)
+        pageFlip.turnToPage(globalIndex - windowStartIndex);
+      } finally {
+        isShiftingWindow = false;
+      }
+    }
+
+    // 하단 슬라이더/카운터를 현재 전역 페이지 번호에 맞춰 갱신
+    function updatePageIndicator(globalIndex) {
+      pageSlider.min = 0;
+      pageSlider.max = Math.max(0, totalPages - 1);
+      pageSlider.value = globalIndex;
+      pageCounter.textContent = `${globalIndex + 1} / ${totalPages}`;
+    }
+
+    // 슬라이더로 임의의 페이지로 바로 이동 — maybeShiftPageWindow와 달리 "가장자리 근처"인지
+    // 따지지 않고 항상 목표 페이지를 중심으로 창을 새로 구성한다.
+    function jumpToGlobalPage(targetPage) {
+      if (!pageFlip || isShiftingWindow || totalPages === 0) return;
+      targetPage = Math.max(0, Math.min(targetPage, totalPages - 1));
+
+      isShiftingWindow = true;
+      try {
+        const { start, end } = computeWindowRange(targetPage, totalPages);
+        windowStartIndex = start;
+        windowEndIndex = end;
+
+        const newElements = createPageElements(start, end, totalPages);
+        pageFlip.updateFromHtml(newElements);
+        pageFlip.turnToPage(targetPage - windowStartIndex);
+      } finally {
+        isShiftingWindow = false;
+      }
+
+      currentLastCharIndex = pageStartIndices[targetPage] || 0;
+      updatePageIndicator(targetPage);
+
+      clearTimeout(debounceSaveTimer);
+      debounceSaveTimer = setTimeout(() => {
+        saveProgress(currentFileName, currentLastCharIndex);
+      }, 300);
+    }
+
+    // 6. 플립북 재빌드
+    // 대용량 텍스트는 페이지 분할(splitTextIntoPagesDOM)이 비동기로 오래 걸릴 수 있어서,
+    // 리사이즈 등으로 재빌드가 연속으로 호출되면 먼저 시작된(느린) 빌드가 나중에 끝나면서
+    // 최신 빌드 결과를 덮어쓰는 경합이 생길 수 있다. 세대(generation) 번호로 그걸 막는다.
+    //
+    // 💡 페이지 가상화: 전체 페이지 텍스트는 한 번에 계산해두지만(빠름), 실제로 DOM에
+    // 그려서 PageFlip에 올리는 건 현재 위치 근처(창)뿐이다. 문서가 수천 페이지여도
+    // 항상 최대 (PAGE_WINDOW_RADIUS*2+1)개 정도의 DOM만 다루기 때문에 초기 로딩과
+    // 넘기기 애니메이션 모두 문서 크기와 무관하게 가볍다.
+    async function buildFlipBook() {
+      if (!rawTextData) return;
+      // 뷰어 화면이 숨겨져 있으면(서재로 돌아간 상태) #book-stage 크기가 0이 되므로
+      // 여기서 계산을 시도하면 안 된다 — 초소형 크기로 페이지를 재분할하려다
+      // 멈춰버리는 문제로 이어질 수 있다.
+      if (viewerScreen.classList.contains('screen-hidden')) return;
+
+      const myBuildGeneration = ++buildGeneration;
+
+      if (pageFlip) {
+        pageFlip.destroy();
+        pageFlip = null;
+      }
+
+      // #book-stage에 더 이상 여백(padding)이 없으므로 책이 화면 전체를 그대로 채운다
+      const stageRect = stageContainer.getBoundingClientRect();
+      const stageWidth = Math.max(stageRect.width, 100);
+      const stageHeight = Math.max(stageRect.height, 100);
+
+      let isSinglePage = stageWidth < 900;
+      let bookWidth = Math.floor(isSinglePage ? stageWidth : stageWidth / 2);
+      let bookHeight = Math.floor(stageHeight);
+
+      // 💡 같은 파일을 같은 창 크기로 다시 열면(책 재방문, 창 크기 원복 등) 페이지 분할을
+      // 다시 계산하지 않고 캐시에서 즉시 가져온다.
+      const cacheKey = currentFileName + '::' + bookWidth + '::' + bookHeight;
+      let paginationResult = paginationCache.get(cacheKey);
+
+      if (!paginationResult) {
+        // DOM 실측으로 글자 텍스트 분할 (실제 렌더링될 크기와 반드시 동일해야 잘림이 없음)
+        paginationResult = await splitTextIntoPagesDOM(rawTextData, bookWidth, bookHeight);
+
+        // 분할하는 동안 더 최신 재빌드가 시작됐다면, 이 낡은 결과는 버린다 (캐시에도 안 남긴다).
+        if (myBuildGeneration !== buildGeneration) return;
+
+        paginationCache.set(cacheKey, paginationResult);
+      }
+
+      allTextPages = paginationResult.pages;
+      pageStartIndices = paginationResult.pageStartIndices;
+      totalPages = allTextPages.length;
+
+      stageContainer.innerHTML = '<div id="my-book"></div>';
+      const bookElement = document.getElementById('my-book');
+
+      // 💡 현재 저장된 글자 위치(currentLastCharIndex)에 가장 가까운 전역 페이지 번호 찾기
+      let targetGlobalPage = 0;
+      for (let i = pageStartIndices.length - 1; i >= 0; i--) {
+        if (currentLastCharIndex >= pageStartIndices[i]) {
+          targetGlobalPage = i;
+          break;
+        }
+      }
+      targetGlobalPage = Math.max(0, Math.min(targetGlobalPage, totalPages - 1));
+
+      // 전체가 아니라 그 위치 근처만 미리 그려서 창을 구성한다
+      const initialWindow = computeWindowRange(targetGlobalPage, totalPages);
+      windowStartIndex = initialWindow.start;
+      windowEndIndex = initialWindow.end;
+      createPageElements(windowStartIndex, windowEndIndex, totalPages)
+        .forEach(el => bookElement.appendChild(el));
+
+      // PageFlip 인스턴스 생성
+      // ⚠️ minWidth/minHeight가 실제 계산된 bookWidth/bookHeight보다 크면
+      // PageFlip이 그보다 크게 강제 렌더링하면서 #book-stage(overflow:hidden)에
+      // 텍스트가 잘리는 문제가 생긴다. 그래서 min 값은 항상 실제 크기 이하로 클램프한다.
+      //
+      // 페이지 넘기기는 라이브러리의 기본 클릭/드래그 대신 우리가 만든
+      // 좌/중/우 3분할 클릭 영역으로만 제어한다 (아래 #book-stage 클릭 핸들러 참고).
+      // disableFlipByClick + useMouseEvents:false로 라이브러리 자체 반응을 꺼서,
+      // 우리 클릭 핸들러와 겹쳐 한 번 클릭에 두 페이지씩 넘어가는 걸 막는다.
+      pageFlip = new St.PageFlip(bookElement, {
+        width: bookWidth,
+        height: bookHeight,
+        size: "fixed",
+        minWidth: Math.min(200, bookWidth),
+        maxWidth: Math.max(2000, bookWidth),
+        minHeight: Math.min(250, bookHeight),
+        maxHeight: Math.max(2500, bookHeight),
+        maxShadowOpacity: 0.5,
+        showCover: false,
+        mobileScrollSupport: false,
+        disableFlipByClick: true,
+        useMouseEvents: false
+      });
+
+      pageFlip.loadFromHTML(document.querySelectorAll('#my-book .page'));
+      pageFlip.turnToPage(targetGlobalPage - windowStartIndex);
+      updatePageIndicator(targetGlobalPage);
+
+      // 두 페이지 스프레드일 때만 가운데 책등 그림자를 보여준다.
+      // ⚠️ loadFromHTML 이후에 붙인다 — PageFlip이 초기화하면서 bookElement 안에
+      // 자기만의 래퍼로 페이지들을 옮기는데, 그 전에 넣으면 이 요소까지 페이지로
+      // 취급되거나 위치가 꼬일 수 있어서, 이미 자리 잡은 다음 위에 겹쳐 올린다.
+      const spineElement = document.createElement('div');
+      spineElement.id = 'book-spine';
+      spineElement.style.display = isSinglePage ? 'none' : 'block';
+      bookElement.appendChild(spineElement);
+
+      // 페이지 넘길 때 글자 인덱스 저장 + 창 가장자리 근처면 다음 구간 미리 당겨오기
+      pageFlip.on('flip', (e) => {
+        if (isShiftingWindow) return; // 창 재정렬 중 발생하는 합성 이벤트는 무시
+
+        const globalIndex = windowStartIndex + e.data;
+        currentLastCharIndex = pageStartIndices[globalIndex] || 0;
+        updatePageIndicator(globalIndex);
+
+        clearTimeout(debounceSaveTimer);
+        debounceSaveTimer = setTimeout(() => {
+          saveProgress(currentFileName, currentLastCharIndex);
+        }, 300);
+
+        maybeShiftPageWindow(globalIndex);
+      });
+    }
+
+    // 7. 화면/무대 크기 변경 시 자동 정밀 재구축
+    // window resize뿐 아니라 사이드바 크기 변화, 브라우저 확대/축소, 미디어쿼리 전환 등
+    // #book-stage 자체의 실제 크기 변화를 직접 감지해서 항상 실측값과 렌더링 크기를 일치시킨다.
+    function scheduleFlipbookRebuild() {
+      if (!rawTextData) return;
+      // 서재 화면으로 돌아가 뷰어가 숨겨진 동안의 크기 변화(0으로 수축 등)는 무시한다
+      if (viewerScreen.classList.contains('screen-hidden')) return;
+
+      setStatus("화면 맞춤 조절 중...");
+
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(async () => {
+        await buildFlipBook();
+        setStatus("화면 맞춤 완료!");
+      }, 400);
+    }
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const stageResizeObserver = new ResizeObserver(() => scheduleFlipbookRebuild());
+      stageResizeObserver.observe(stageContainer);
+    } else {
+      // 구형 브라우저 폴백
+      window.addEventListener('resize', scheduleFlipbookRebuild);
+    }
+
+    window.addEventListener('orientationchange', scheduleFlipbookRebuild);
+
+    // 7-1. 읽기 몰입 모드 + 3분할 클릭 내비게이션
+    // - 책이 열리면 즉시 숨김 상태로 시작한다 (loadFileFromStorage에서 처리)
+    // - 화면(book-stage)을 좌/중/우로 3등분: 좌측 클릭 = 이전 페이지, 우측 클릭 = 다음 페이지,
+    //   가운데 클릭 = UI 보이기/숨기기 토글. 방향키(←/→)로도 페이지를 넘길 수 있다.
+    // - 사이드바/헤더 위에 마우스가 있는 동안은 숨기지 않는다 (파일 고를 때 방해 안 되게)
+    // - UI가 보이는 상태로 2.5초간 별다른 동작이 없으면 다시 조용히 숨는다
+    function showChrome() {
+      if (!rawTextData) return; // 아직 책을 안 열었으면 UI는 항상 보임
+      document.body.classList.remove('immersive');
+      scheduleImmersiveHide();
+    }
+
+    function hideChrome() {
+      if (!rawTextData) return;
+      clearTimeout(immersiveTimer);
+      document.body.classList.add('immersive');
+    }
+
+    function toggleChrome() {
+      if (document.body.classList.contains('immersive')) {
+        showChrome();
+      } else {
+        hideChrome();
+      }
+    }
+
+    function scheduleImmersiveHide() {
+      clearTimeout(immersiveTimer);
+      if (!rawTextData) return;
+      immersiveTimer = setTimeout(() => {
+        if (!isHoveringChrome) {
+          document.body.classList.add('immersive');
+        }
+      }, 2500);
+    }
+
+    const bottomBarElement = document.getElementById('bottom-bar');
+    [sidebarElement, bottomBarElement].forEach((el) => {
+      el.addEventListener('mouseenter', () => {
+        isHoveringChrome = true;
+        clearTimeout(immersiveTimer);
+        document.body.classList.remove('immersive');
+      });
+      el.addEventListener('mouseleave', () => {
+        isHoveringChrome = false;
+        scheduleImmersiveHide();
+      });
+    });
+
+    // 하단 슬라이더: 드래그 중엔 카운터 텍스트만 가볍게 갱신하고, 손을 뗐을 때(change)만
+    // 실제로 페이지를 이동한다 — 매 픽셀마다 창을 다시 그리면 버벅이기 때문
+    pageSlider.addEventListener('input', () => {
+      const target = parseInt(pageSlider.value, 10);
+      pageCounter.textContent = `${target + 1} / ${totalPages}`;
+    });
+    pageSlider.addEventListener('change', () => {
+      jumpToGlobalPage(parseInt(pageSlider.value, 10));
+    });
+
+    // 화면을 3등분해서 좌/중/우 클릭에 각각 다른 동작을 배정
+    // (페이지 넘기기는 PageFlip 자체 클릭/드래그를 꺼뒀기 때문에 여기서만 일어난다)
+    // ⚠️ useMouseEvents:false를 줘도 PageFlip이 내부적으로 페이지 요소에 자체
+    // 포인터 핸들러를 계속 붙여서 버블 단계에서 이벤트를 가로채는 경우가 있었다.
+    // 그래서 버블이 아니라 캡처 단계(capture phase)에서 먼저 가로채도록 한다 —
+    // 캡처는 위(stageContainer)에서 아래(실제 클릭된 페이지)로 먼저 흐르기 때문에
+    // 내부 핸들러가 나중에 stopPropagation을 해도 영향을 받지 않는다.
+    stageContainer.addEventListener('click', (e) => {
+      if (!rawTextData || !pageFlip) return;
+
+      const third = window.innerWidth / 3;
+      if (e.clientX < third) {
+        pageFlip.flipPrev();
+      } else if (e.clientX > third * 2) {
+        pageFlip.flipNext();
+      } else {
+        toggleChrome();
+      }
+    }, true);
+
+    // 8. 위치 저장/로드
+    // 💡 기기 간 이어보기의 기준 시각. 이 기기가 "지금 화면에 보여주고 있는 위치가
+    // 서버 기준 몇 시에 저장된 것까지 반영한 상태인지"를 기록해둔다.
+    // 탭이 다시 화면에 보일 때(visibilitychange) 서버 값의 updatedAt이 이보다 최신이면
+    // 다른 기기에서 더 앞서 읽은 것으로 보고 그 위치로 자동으로 넘어간다.
+    let lastKnownProgressUpdatedAt = 0;
+
+    async function saveProgress(fileName, charIndex) {
+      try {
+        const fileId = btoa(encodeURIComponent(fileName));
+        await setDoc(doc(db, "reading_progress", fileId), {
+          fileName: fileName,
+          charIndex: charIndex,
+          updatedAt: new Date()
+        });
+        // 서버에 방금 우리가 쓴 시각을 기준점으로 삼는다 (거의 지금 시각과 같음)
+        lastKnownProgressUpdatedAt = Date.now();
+        setStatus("위치 자동 저장됨");
+      } catch (err) {
+        setStatus("저장 실패");
+      }
+    }
+
+    async function loadProgress(fileName) {
+      try {
+        const fileId = btoa(encodeURIComponent(fileName));
+        const docRef = doc(db, "reading_progress", fileId);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          lastKnownProgressUpdatedAt = (data.updatedAt && data.updatedAt.toMillis) ? data.updatedAt.toMillis() : Date.now();
+          return data.charIndex || 0;
+        }
+      } catch (err) {
+        console.error(err);
+      }
+      return 0;
+    }
+
+    // 저장된 글자 위치(charIndex)가 현재 문서 분할 기준으로 몇 번째 전역 페이지인지 찾는다
+    function findPageForCharIndex(charIndex) {
+      let page = 0;
+      for (let i = pageStartIndices.length - 1; i >= 0; i--) {
+        if (charIndex >= pageStartIndices[i]) { page = i; break; }
+      }
+      return Math.max(0, Math.min(page, totalPages - 1));
+    }
+
+    // 💡 다른 기기에서 더 최근에 읽은 기록이 있으면 그 위치로 자동으로 이어준다.
+    // 폰 탭을 완전히 닫지 않고 배경으로만 보냈다가 다시 열면(브라우저가 새로고침 없이
+    // 메모리 상태를 그대로 복원) 이 기기는 PC에서 새로 저장된 위치를 전혀 모른 채
+    // 자기가 마지막으로 보던 옛날 페이지를 계속 보여주는 문제가 있었다.
+    // → 탭이 다시 화면에 보일 때마다 서버 기록을 재확인해서, 우리가 알던 것보다
+    // 최신이면(=다른 기기에서 더 나중에 저장했으면) 그 위치로 자동으로 이동한다.
+    async function syncProgressFromServer() {
+      if (!currentFileName || !pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
+      try {
+        const fileId = btoa(encodeURIComponent(currentFileName));
+        const docSnap = await getDoc(doc(db, "reading_progress", fileId));
+        if (!docSnap.exists()) return;
+
+        const data = docSnap.data();
+        const serverUpdatedAt = (data.updatedAt && data.updatedAt.toMillis) ? data.updatedAt.toMillis() : 0;
+
+        // 서버가 우리보다 최신 기록을 갖고 있으면 (다른 기기에서 더 나중에 읽었으면)
+        if (serverUpdatedAt > lastKnownProgressUpdatedAt) {
+          lastKnownProgressUpdatedAt = serverUpdatedAt;
+          const targetPage = findPageForCharIndex(data.charIndex || 0);
+          const currentPage = windowStartIndex + pageFlip.getCurrentPageIndex();
+          if (targetPage !== currentPage) {
+            jumpToGlobalPage(targetPage);
+            setStatus("다른 기기에서 이어보던 위치로 이동했습니다");
+          }
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    // 💡 기기 간 위치 동기화 안정화: 페이지를 넘길 때마다 300ms 기다렸다가 저장하는데,
+    // 모바일에서는 그 사이에 앱을 벗어나면(화면 끄기, 다른 앱 전환 등) 브라우저가
+    // 곧바로 실행을 멈춰버려서 마지막 몇 페이지의 저장이 아예 유실될 수 있다.
+    // (예: 폰에서 2페이지까지 저장된 채로 남아있는데, PC에서 5페이지까지 읽고
+    // 폰으로 다시 열면 여전히 2페이지로 보이는 문제 — 5페이지 저장 자체가 씹혔을 가능성)
+    // → 탭이 백그라운드로 가는 순간(visibilitychange/pagehide)을 감지해서, 대기 중인
+    // 저장을 debounce 없이 즉시 실행한다. 100% 보장은 아니지만 훨씬 안정적이다.
+    function flushProgressSave() {
+      if (!currentFileName || !pageFlip) return;
+      clearTimeout(debounceSaveTimer);
+      saveProgress(currentFileName, currentLastCharIndex);
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        flushProgressSave();
+      } else {
+        // 탭이 백그라운드에 있다가 다시 보이는 순간 — 새로고침 없이 메모리 상태 그대로
+        // 복귀하는 경우가 많아서, 그 사이 다른 기기에서 더 앞서 읽었을 수 있는
+        // 최신 위치를 서버에서 다시 확인한다.
+        syncProgressFromServer();
+      }
+    });
+    window.addEventListener('pagehide', flushProgressSave);
+
+    // 방향키 제어 (서재 화면에서는 무시 — 뷰어가 보일 때만 동작)
+    window.addEventListener('keydown', (e) => {
+      if (!pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
+      if (e.key === "ArrowRight") pageFlip.flipNext();
+      if (e.key === "ArrowLeft") pageFlip.flipPrev();
+    });
+
+    // 뷰어 → 서재로 돌아가기
+    document.getElementById('back-to-library').addEventListener('click', showLibraryScreen);
+  </script>
+</head>
+<body>
+
+  <!-- 상태 메시지: UI 패널과 분리된 화면 하단 중앙 토스트 -->
+  <div id="sync-status"></div>
+
+  <!-- 화면 1: 서재 (파일 업로드 + 목록) -->
+  <div id="library-screen">
+    <div class="library-panel">
+      <div class="library-panel-header">
+        <h1>📖 내 서재</h1>
+        <label for="file-input" class="upload-btn">+ 새 TXT 업로드</label>
+        <input type="file" id="file-input" accept=".txt">
+      </div>
+      <ul id="file-list"></ul>
+    </div>
+  </div>
+
+  <!-- 화면 2: 뷰어 (책 읽기) -->
+  <div id="viewer-screen" class="screen-hidden">
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <button id="back-to-library" class="icon-btn" title="목록으로">←</button>
+        <div class="sidebar-title-row">
+          <strong id="current-title">책을 선택하세요</strong>
+        </div>
+        <span class="icon-btn-spacer" aria-hidden="true"></span>
+      </div>
+    </aside>
+
+    <main id="main-content">
+      <div id="book-stage">
+        <div style="text-align: center; color: #888;">
+          책을 불러오는 중입니다...
+        </div>
+      </div>
+    </main>
+
+    <!-- 하단 바: 페이지 슬라이더 + 카운터 (드래그해서 원하는 페이지로 바로 이동) -->
+    <div id="bottom-bar">
+      <input type="range" id="page-slider" min="0" max="0" value="0">
+      <span id="page-counter">- / -</span>
+    </div>
+  </div>
+
+</body>
+</html>
