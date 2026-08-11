@@ -1806,6 +1806,9 @@
           const updated = loadBookmarks(currentFileName).filter((b) => b.page !== bm.page);
           saveBookmarks(currentFileName, updated);
           renderBookmarkList();
+          // 지금 보고 있는 페이지의 책갈피를 목록에서 지웠다면, 상단바 🔖 아이콘도
+          // 바로 비워줘야 한다 — toggleBookmark를 안 거치는 경로라 따로 챙겨야 한다.
+          updateBookmarkToggleButton();
         });
 
         li.appendChild(jumpBtn);
