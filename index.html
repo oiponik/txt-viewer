@@ -6,13 +6,24 @@
   <title>Firebase Storage Flip Book Viewer</title>
   
   <style>
+    /* 🎨 "Night sands" 팔레트로 전체 색상 통일: #CBBD93(밝은 카키) / #FAE8B4(연한 크림,
+       가장 밝은 톤 — 카드·바 표면·강조에 씀) / #80775C(중간 올리브 — 보더·hover) /
+       #574A24(가장 어두운 올리브 — 본문 텍스트·강조 버튼). 순수 흰/검정은 로고 마크
+       원본 색(흰색 고정)과 그림자(빛의 표현이라 브랜드 색과 무관)에만 남겨뒀다. */
     :root {
-      --bg-color: #cecac0;
-      --text-color: #3a2512;
-      --sidebar-bg: #ffffff;
-      --accent-color: #4a90e2;
-      --border-color: #e1e4e8;
-      --active-item: #e8f0fe;
+      --bg-color: #CBBD93;
+      --text-color: #574A24;
+      --sidebar-bg: #FAE8B4;
+      --accent-color: #574A24;
+      --border-color: #80775C;
+      --active-item: #FAE8B4;
+
+      /* 📌 뷰어(책 읽기 화면)의 글자색/배경색은 고정 — 사용자가 명시적으로
+         이 색을 바꿔달라고 하기 전까지는, 전역 팔레트를 바꾸는 요청(예: 이번
+         Night sands 적용)이 와도 이 두 값은 건드리지 않는다. .page와
+         #book-stage에서 --bg-color/--text-color 대신 이걸 쓴다. */
+      --reading-bg: #cecac0;
+      --reading-text: #3a2512;
     }
 
     * { box-sizing: border-box; }
@@ -71,7 +82,7 @@
     #auth-screen {
       position: fixed; inset: 0;
       display: flex; flex-direction: column; align-items: center;
-      background: linear-gradient(165deg, #A88A6C 0%, #8C7259 55%, #6B5642 100%);
+      background: linear-gradient(165deg, #CBBD93 0%, #80775C 55%, #574A24 100%);
       overflow-y: auto;
       padding: 0 0 max(24px, env(safe-area-inset-bottom));
       z-index: 10;
@@ -81,7 +92,7 @@
       width: 100%;
       display: flex; flex-direction: column; align-items: center;
       padding: max(48px, 8vh) 24px 12px;
-      color: #fff; text-align: center;
+      color: #FAE8B4; text-align: center;
     }
     .auth-logo-badge {
       display: flex; align-items: center; justify-content: center;
@@ -109,20 +120,20 @@
     }
     .auth-panel h1 {
       margin: 0; font-size: 13px; font-weight: 700; text-align: center;
-      color: rgba(255,255,255,0.75); letter-spacing: 0.3px;
+      color: rgba(250,232,180,0.75); letter-spacing: 0.3px;
     }
     #auth-form { display: flex; flex-direction: column; gap: 12px; }
     .auth-panel input[type="email"],
     .auth-panel input[type="password"] {
       width: 100%; padding: 14px 18px; border-radius: 999px;
-      border: none; background-color: rgba(255,255,255,0.92);
-      color: #4a3624; font-size: 14px; font-family: inherit;
+      border: none; background-color: rgba(250,232,180,0.95);
+      color: #574A24; font-size: 14px; font-family: inherit;
       box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }
-    .auth-panel input::placeholder { color: #9b8b7a; }
-    .auth-panel input:focus { outline: 2px solid #fff; outline-offset: 2px; }
+    .auth-panel input::placeholder { color: #80775C; }
+    .auth-panel input:focus { outline: 2px solid #FAE8B4; outline-offset: 2px; }
     .auth-submit-btn {
-      background-color: #E3B23C; color: #4a3624; border: none;
+      background-color: #FAE8B4; color: #574A24; border: none;
       padding: 14px; border-radius: 999px; cursor: pointer;
       font-weight: 800; font-size: 15px;
       box-shadow: 0 8px 20px rgba(0,0,0,0.25);
@@ -130,30 +141,31 @@
     .auth-submit-btn:disabled { opacity: 0.6; cursor: default; }
     .auth-remember-hint {
       margin: -4px 0 0; font-size: 12.5px; text-align: center;
-      color: rgba(255,255,255,0.85);
+      color: rgba(250,232,180,0.85);
     }
-    .auth-remember-hint span { font-weight: 700; color: #fff; }
+    .auth-remember-hint span { font-weight: 700; color: #FAE8B4; }
     .auth-inline-link {
       background: none; border: none; padding: 0; font: inherit;
-      color: rgba(255,255,255,0.85); text-decoration: underline;
+      color: rgba(250,232,180,0.85); text-decoration: underline;
       text-underline-offset: 2px; cursor: pointer;
     }
     .auth-toggle-link {
-      background: none; border: none; color: rgba(255,255,255,0.92);
+      background: none; border: none; color: rgba(250,232,180,0.92);
       font-size: 13px; cursor: pointer; text-align: center; padding: 4px;
       text-decoration: underline; text-underline-offset: 2px;
     }
     .auth-error {
+      /* 오류 메시지는 팔레트와 별개로 눈에 띄는 경고색을 유지한다(접근성) */
       color: #FFC7B8; font-size: 13px; min-height: 16px; display: none;
       text-align: center; font-weight: 600;
     }
     .auth-error.visible { display: block; }
     #dev-login-hint {
       font-size: 11px; opacity: 0.8; text-align: center; margin: 2px 0 0;
-      color: rgba(255,255,255,0.85);
+      color: rgba(250,232,180,0.85);
     }
     #dev-login-hint code {
-      background: rgba(255,255,255,0.18); padding: 1px 6px; border-radius: 4px;
+      background: rgba(250,232,180,0.18); padding: 1px 6px; border-radius: 4px;
       font-family: ui-monospace, monospace;
     }
 
@@ -209,7 +221,7 @@
       display: flex; align-items: center; justify-content: center;
       transition: background-color 0.15s ease;
     }
-    .icon-btn:hover { background-color: rgba(128,128,128,0.1); }
+    .icon-btn:hover { background-color: rgba(87,74,36,0.1); }
     /* 뒤로가기 아이콘과 균형을 맞추기 위한 빈 공간 (제목을 가운데 고정) */
     .icon-btn-spacer { flex-shrink: 0; width: 38px; height: 38px; }
 
@@ -225,10 +237,10 @@
     /* 하단 바(#bottom-bar)와 같은 결의 "둥근 카드" 느낌으로 통일 —
        각지고 줄 구분선으로 나뉜 목록 대신, 버튼/행 각각을 독립된 둥근 블록으로 띄운다. */
     .upload-btn {
-      background-color: var(--accent-color); color: white;
+      background-color: var(--accent-color); color: #FAE8B4;
       text-align: center; padding: 12px; border-radius: 10px;
       cursor: pointer; font-weight: bold; font-size: 14px;
-      box-shadow: 0 4px 10px rgba(74, 144, 226, 0.3);
+      box-shadow: 0 4px 10px rgba(87, 74, 36, 0.3);
     }
 
     #file-list {
@@ -266,6 +278,7 @@
       overflow: hidden; position: relative;
       width: 100%; min-width: 0; min-height: 0;
       cursor: pointer;
+      background-color: var(--reading-bg); /* 고정색 — 위 :root 주석 참고 */
     }
 
     #my-book {
@@ -289,10 +302,12 @@
     }
 
     /* 페이지 스타일 — 배경색을 화면(screen) 배경색과 동일하게 맞춰서
-       "책이 스크린 위에 떠 있다"는 느낌 없이 페이지가 곧 화면이 되도록 한다 */
+       "책이 스크린 위에 떠 있다"는 느낌 없이 페이지가 곧 화면이 되도록 한다.
+       ⚠️ --bg-color/--text-color(전역 테마)가 아니라 --reading-bg/--reading-text
+       (고정색)를 쓴다 — 사용자가 명시적으로 요청하기 전까진 절대 바꾸지 않는다. */
     .page {
-      background-color: var(--bg-color);
-      color: var(--text-color);
+      background-color: var(--reading-bg);
+      color: var(--reading-text);
       padding: clamp(14px, 2.5vw, 24px) clamp(12px, 2vw, 20px) clamp(10px, 1.5vw, 15px);
       font-size: clamp(13px, 1.1vw + 0.6rem, 16px);
       line-height: 1.65;
@@ -336,11 +351,11 @@
       position: fixed; left: 50%; bottom: 20px;
       transform: translate(-50%, 10px);
       z-index: 200;
-      /* 흰 배경이 너무 튀어서, 테마와 무관하게 은은하게 녹아드는 반투명 어두운 톤으로 */
-      background-color: rgba(0, 0, 0, 0.6);
+      /* 흰 배경이 너무 튀어서, 은은하게 녹아드는 반투명 어두운 올리브 톤으로 */
+      background-color: rgba(87, 74, 36, 0.85);
       backdrop-filter: blur(6px);
       -webkit-backdrop-filter: blur(6px);
-      color: #f5f5f5;
+      color: #FAE8B4;
       padding: 6px 16px; border-radius: 20px;
       font-size: 12px; font-weight: 500; letter-spacing: 0.2px;
       box-shadow: 0 2px 10px rgba(0,0,0,0.12);
@@ -387,7 +402,7 @@
     #page-slider::-webkit-slider-thumb {
       -webkit-appearance: none; appearance: none;
       width: 18px; height: 18px; border-radius: 50%;
-      background: #ffffff; border: 1px solid rgba(0,0,0,0.15);
+      background: #FAE8B4; border: 1px solid rgba(87,74,36,0.25);
       box-shadow: 0 1px 3px rgba(0,0,0,0.25);
       margin-top: -7px; cursor: pointer;
     }
@@ -396,7 +411,7 @@
     }
     #page-slider::-moz-range-thumb {
       width: 18px; height: 18px; border-radius: 50%;
-      background: #ffffff; border: 1px solid rgba(0,0,0,0.15);
+      background: #FAE8B4; border: 1px solid rgba(87,74,36,0.25);
       box-shadow: 0 1px 3px rgba(0,0,0,0.25); cursor: pointer;
     }
     #page-counter {
@@ -737,7 +752,7 @@
 
     // 1. Storage 파일 목록 불러오기
     async function fetchFileList() {
-      fileListElement.innerHTML = '<li style="color:#888;">Storage 목록 불러오는 중...</li>';
+      fileListElement.innerHTML = '<li style="color:#80775C;">Storage 목록 불러오는 중...</li>';
       const listRef = ref(storage, 'books/');
       
       try {
@@ -745,7 +760,7 @@
         fileListElement.innerHTML = '';
         
         if (res.items.length === 0) {
-          fileListElement.innerHTML = '<li style="color:#888;">업로드된 파일이 없습니다.</li>';
+          fileListElement.innerHTML = '<li style="color:#80775C;">업로드된 파일이 없습니다.</li>';
           return;
         }
 
