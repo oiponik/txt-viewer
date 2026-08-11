@@ -228,8 +228,6 @@
       transition: background-color 0.15s ease;
     }
     .icon-btn:hover { background-color: rgba(58,42,24,0.1); }
-    /* 뒤로가기 아이콘과 균형을 맞추기 위한 빈 공간 (제목을 가운데 고정) */
-    .icon-btn-spacer { flex-shrink: 0; width: 38px; height: 38px; }
 
     .sidebar-title-row {
       flex: 1; min-width: 0;
@@ -285,6 +283,9 @@
       width: 100%; min-width: 0; min-height: 0;
       cursor: pointer;
       background-color: var(--reading-bg); /* 뷰어 설정 테마 색 — 위 :root 주석 참고 */
+      /* 위/아래 드래그를 우리 밝기 조절 제스처로 직접 처리하므로, 모바일에서 브라우저가
+         같은 손짓을 당겨서-새로고침/스크롤로 가로채지 않도록 막는다 */
+      touch-action: none;
     }
 
     /* 밝기 오버레이 — 브라우저는 실제 기기 화면 밝기를 제어할 수 없어서, 읽기
@@ -300,6 +301,18 @@
       z-index: 6;
       transition: opacity 0.15s ease;
     }
+
+    /* 밝기 드래그 중에만 잠깐 뜨는 "☀️ 밝기 NN%" 안내 — 손을 떼면 바로 사라진다 */
+    #brightness-drag-indicator {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      z-index: 8; pointer-events: none;
+      background-color: rgba(0,0,0,0.65); color: #fff;
+      padding: 10px 20px; border-radius: 999px;
+      font-size: 14px; font-weight: 600;
+      opacity: 0; transition: opacity 0.15s ease;
+      white-space: nowrap;
+    }
+    #brightness-drag-indicator.visible { opacity: 1; }
 
     #my-book {
       max-width: 100%; max-height: 100%;
@@ -606,19 +619,14 @@
       border-radius: 3px; padding: 0 2px; font-style: normal;
     }
 
-    /* 페이지 우측 상단 책갈피 아이콘 — 탭하면 그 페이지를 책갈피에 추가/해제하고,
-       등록된 페이지는 채워진 아이콘으로 바로 표시된다. */
-    .page-bookmark-btn {
-      position: absolute; top: 6px; right: 6px; z-index: 3;
-      width: 34px; height: 34px; border-radius: 50%; border: none;
-      background: rgba(0,0,0,0.06); color: var(--reading-text);
-      display: flex; align-items: center; justify-content: center;
-      cursor: pointer; padding: 0;
+    /* 상단바 책갈피 토글 — 지금 보고 있는 페이지를 책갈피에 추가/해제한다.
+       등록된 상태면 채워진 아이콘(브랜드 코럴색)으로 바로 표시된다. */
+    #page-bookmark-toggle-btn svg path {
+      fill-opacity: 0;
+      transition: fill-opacity 0.15s ease, color 0.15s ease;
     }
-    .page-bookmark-btn svg { width: 17px; height: 17px; }
-    .page-bookmark-btn svg path { fill-opacity: 0; transition: fill-opacity 0.15s ease, color 0.15s ease; }
-    .page-bookmark-btn.active { color: #E85B6C; background: rgba(0,0,0,0.1); }
-    .page-bookmark-btn.active svg path { fill-opacity: 1; }
+    #page-bookmark-toggle-btn.active { color: #E85B6C; }
+    #page-bookmark-toggle-btn.active svg path { fill-opacity: 1; }
   </style>
 
   <!-- PageFlip 라이브러리 CDN -->
@@ -1267,10 +1275,6 @@
     // 일부만 그려져 있어도 사용자에게는 "- 1234 / 5000 -" 처럼 항상 정확하게 보인다.
     function createPageElements(start, end, total) {
       const elements = [];
-      // 지금 이 창(window)에 들어올 페이지들 중 책갈피된 게 있는지 한 번만 조회해둔다
-      // (페이지마다 매번 localStorage를 다시 읽지 않도록)
-      const bookmarkedPages = new Set(loadBookmarks(currentFileName).map(b => b.page));
-
       for (let i = start; i < end; i++) {
         const pageDiv = document.createElement('div');
         pageDiv.className = 'page';
@@ -1283,22 +1287,8 @@
         pageFooter.className = 'page-footer';
         pageFooter.textContent = `- ${i + 1} / ${total} -`;
 
-        // 우측 상단 책갈피 아이콘 — 탭하면 "이 페이지"를 즉시 책갈피에 추가/해제한다
-        // (등록 방식: 패널의 + 버튼이 아니라 페이지 코너를 직접 탭)
-        const bookmarkBtn = document.createElement('button');
-        bookmarkBtn.type = 'button';
-        bookmarkBtn.className = 'page-bookmark-btn' + (bookmarkedPages.has(i) ? ' active' : '');
-        bookmarkBtn.title = '책갈피';
-        bookmarkBtn.innerHTML = '<svg viewBox="0 0 120 120"><path d="M86.6,103L60,83.5L33.4,103c-1.7,1.3-4.2,0-4.2-2.1V19.5c0-1.7,1.4-3.1,3.1-3.1h55.3c1.7,0,3.1,1.4,3.1,3.1v81.4C90.7,103.1,88.3,104.3,86.6,103z" fill="currentColor" stroke="currentColor" stroke-width="6" stroke-linejoin="round"></path></svg>';
-        const pageIndexForBtn = i; // 클로저로 이 버튼이 어느 전역 페이지 것인지 고정
-        bookmarkBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          toggleBookmark(pageIndexForBtn, bookmarkBtn);
-        });
-
         pageDiv.appendChild(pageContent);
         pageDiv.appendChild(pageFooter);
-        pageDiv.appendChild(bookmarkBtn);
         elements.push(pageDiv);
       }
       return elements;
@@ -1336,12 +1326,25 @@
       }
     }
 
-    // 하단 슬라이더/카운터를 현재 전역 페이지 번호에 맞춰 갱신
+    // 하단 슬라이더/카운터 + 상단 책갈피 토글 버튼을 현재 전역 페이지 번호에 맞춰 갱신
+    // (호출되는 곳 전부 — jumpToPrevPage/jumpToGlobalPage/buildFlipBook 초기화/'flip' 이벤트 —
+    // 가 곧 "지금 보고 있는 페이지가 바뀌는 모든 순간"이라 여기 한 곳에서 같이 처리한다)
+    let currentDisplayedGlobalPage = 0;
     function updatePageIndicator(globalIndex) {
       pageSlider.min = 0;
       pageSlider.max = Math.max(0, totalPages - 1);
       pageSlider.value = globalIndex;
       pageCounter.textContent = `${globalIndex + 1} / ${totalPages}`;
+      currentDisplayedGlobalPage = globalIndex;
+      updateBookmarkToggleButton();
+    }
+
+    // 상단바 🔖 버튼을 "지금 페이지가 책갈피됐는지"에 맞춰 채움/테두리로 표시
+    function updateBookmarkToggleButton() {
+      const btn = document.getElementById('page-bookmark-toggle-btn');
+      if (!btn) return;
+      const bookmarked = !!currentFileName && isPageBookmarked(currentFileName, currentDisplayedGlobalPage);
+      btn.classList.toggle('active', bookmarked);
     }
 
     // 💡 "이전 페이지"는 next와 똑같은 넘기기(curl) 애니메이션을 쓰면 부자연스럽다 —
@@ -1613,6 +1616,12 @@
     document.getElementById('open-bookmark-btn').addEventListener('click', () => {
       renderBookmarkList();
       openSheet('bookmark-panel');
+    });
+
+    // 상단바 🔖 — 페이지 위에 따로 표시하지 않고, 지금 보고 있는 페이지를 여기서 바로 토글한다
+    document.getElementById('page-bookmark-toggle-btn').addEventListener('click', () => {
+      if (!currentFileName) return;
+      toggleBookmark(currentDisplayedGlobalPage, document.getElementById('page-bookmark-toggle-btn'));
     });
 
     // 검색 — allTextPages(전체 페이지 텍스트, 가상화와 무관하게 항상 메모리에 있음) 안에서
@@ -2072,6 +2081,8 @@
     let tapStartX = null;
     let tapStartY = null;
     let tapStartTime = 0;
+    let isDraggingBrightness = false; // 지금 이 드래그가 밝기 조절로 판정됐는지
+    let brightnessDragStartValue = 100; // 밝기 드래그를 시작한 시점의 밝기값(기준점)
     const TAP_MAX_MOVE = 12;      // 이 이상 움직이면 탭이 아니라 드래그/스와이프로 간주
     const TAP_MAX_DURATION = 600; // 이보다 오래 누르고 있으면 탭으로 치지 않음
     const SWIPE_MIN_DISTANCE = 50; // 스와이프로 인정할 최소 가로 이동 거리(px)
@@ -2079,13 +2090,44 @@
 
     window.addEventListener('pointerdown', (e) => {
       if (!stageContainer.contains(e.target)) return;
-      // 책갈피 아이콘 위에서 시작한 탭은 페이지 넘기기/UI 토글 로직을 아예 타지 않게 한다 —
-      // tapStartX를 null로 유지하면 pointerup 쪽의 기존 가드가 알아서 무시해준다.
-      if (e.target.closest('.page-bookmark-btn')) return;
       tapStartX = e.clientX;
       tapStartY = e.clientY;
       tapStartTime = Date.now();
+      isDraggingBrightness = false;
     }, true);
+
+    // 💡 위/아래로 드래그하면 밝기 조절 — 가로 스와이프(페이지 넘기기)와 같은 손짓 체계 안에
+    // 있어야 해서, 별도 영역을 나누지 않고 "이 드래그가 가로보다 세로로 뚜렷한지"로 구분한다
+    // (가로 스와이프 판정 기준 dx>dy*1.5와 자연스럽게 안 겹친다). 손을 떼기 전까지 실시간으로
+    // 반영해야 자연스러워서 pointerup이 아니라 pointermove에서 처리한다.
+    const BRIGHTNESS_DRAG_ENGAGE_PX = 15; // 이만큼은 세로로 움직여야 "밝기 조절 중"으로 본다
+    const BRIGHTNESS_DRAG_RANGE_PX = 220; // 이 거리를 다 드래그하면 밝기 범위(40~100) 끝까지
+    window.addEventListener('pointermove', (e) => {
+      if (tapStartX === null || !stageContainer.contains(e.target)) return;
+      if (!rawTextData || !pageFlip) return;
+
+      const dx = e.clientX - tapStartX;
+      const dy = e.clientY - tapStartY;
+
+      if (!isDraggingBrightness) {
+        // 아직 "탭인지 스와이프인지 밝기조절인지" 판가름 나기 전 — 세로 움직임이 가로보다
+        // 뚜렷하게 커지는 순간에만 밝기 조절 모드로 들어간다. 가로 스와이프 쪽으로 이미
+        // 판정 났으면(다음 pointerup에서 처리) 여기서 손대지 않는다.
+        if (Math.abs(dy) < BRIGHTNESS_DRAG_ENGAGE_PX || Math.abs(dy) <= Math.abs(dx)) return;
+        isDraggingBrightness = true;
+        brightnessDragStartValue = readerPrefs.brightness;
+        document.getElementById('brightness-drag-indicator').classList.add('visible');
+      }
+
+      e.preventDefault();
+      // 위로 드래그(dy 음수) → 밝게, 아래로 드래그(dy 양수) → 어둡게
+      const delta = (-dy / BRIGHTNESS_DRAG_RANGE_PX) * (100 - 40);
+      const nextBrightness = Math.max(40, Math.min(100, Math.round(brightnessDragStartValue + delta)));
+      readerPrefs.brightness = nextBrightness;
+      applyReaderPrefs();
+      const indicator = document.getElementById('brightness-drag-indicator');
+      indicator.textContent = `☀️ 밝기 ${nextBrightness}%`;
+    }, { capture: true, passive: false });
 
     window.addEventListener('pointerup', (e) => {
       if (tapStartX === null || !stageContainer.contains(e.target)) {
@@ -2093,6 +2135,16 @@
         return;
       }
       if (!rawTextData || !pageFlip) { tapStartX = null; return; }
+
+      // 밝기 드래그 중이었다면 여기서 마무리(저장)만 하고 끝낸다 — 페이지 넘기기/UI 토글
+      // 판정으로 넘어가지 않는다. 손을 뗀 그 순간의 밝기가 이미 pointermove에서 반영돼 있다.
+      if (isDraggingBrightness) {
+        isDraggingBrightness = false;
+        document.getElementById('brightness-drag-indicator').classList.remove('visible');
+        saveReaderPrefsDebounced();
+        tapStartX = null;
+        return;
+      }
 
       const dx = e.clientX - tapStartX;
       const dy = e.clientY - tapStartY;
@@ -2353,7 +2405,9 @@
         <div class="sidebar-title-row">
           <strong id="current-title">책을 선택하세요</strong>
         </div>
-        <span class="icon-btn-spacer" aria-hidden="true"></span>
+        <button id="page-bookmark-toggle-btn" class="icon-btn" title="이 페이지 책갈피 추가/해제">
+          <svg viewBox="0 0 120 120" width="19" height="19"><path d="M86.6,103L60,83.5L33.4,103c-1.7,1.3-4.2,0-4.2-2.1V19.5c0-1.7,1.4-3.1,3.1-3.1h55.3c1.7,0,3.1,1.4,3.1,3.1v81.4C90.7,103.1,88.3,104.3,86.6,103z" fill="currentColor" stroke="currentColor" stroke-width="6" stroke-linejoin="round"></path></svg>
+        </button>
       </div>
     </aside>
 
@@ -2364,6 +2418,7 @@
         </div>
       </div>
       <div id="brightness-overlay" aria-hidden="true"></div>
+      <div id="brightness-drag-indicator" aria-hidden="true"></div>
     </main>
 
     <!-- 하단 바: 페이지 슬라이더 + 카운터, 그 아래 검색/뷰어 설정/책갈피 아이콘 3개 -->
@@ -2412,7 +2467,7 @@
           <strong>책갈피</strong>
           <button type="button" class="icon-btn" data-close-panel title="닫기">✕</button>
         </div>
-        <p class="sheet-hint">페이지 오른쪽 위 <span aria-hidden="true">🔖</span> 아이콘을 눌러 책갈피를 추가/해제할 수 있어요.</p>
+        <p class="sheet-hint">화면 상단의 <span aria-hidden="true">🔖</span> 아이콘을 눌러 지금 보는 페이지를 책갈피에 추가/해제할 수 있어요.</p>
         <ul id="bookmark-list"></ul>
       </div>
     </div>
