@@ -1588,10 +1588,14 @@
     window.addEventListener('keydown', (e) => {
       if (!pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
       if (e.key === "ArrowRight") pageFlip.flipNext();
-      if (e.key === "Space") pageFlip.flipNext();
-      if (e.key === "NumpadEnter") pageFlip.flipNext();
+      if (e.key === " " || e.code === "Space") {
+        e.preventDefault(); // 스페이스바 클릭 시 기본 스크롤 동작 방지
+        pageFlip.flipNext();
+      }
+      if (e.code === "NumpadEnter" || e.key === "Enter") pageFlip.flipNext();
       if (e.key === "ArrowLeft") jumpToPrevPage();
-    });
+      }
+    );
 
     // 뷰어 → 서재로 돌아가기
     document.getElementById('back-to-library').addEventListener('click', showLibraryScreen);
