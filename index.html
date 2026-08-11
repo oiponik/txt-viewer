@@ -19,12 +19,14 @@
       --border-color: #6B5D48;
       --active-item: #F2EEE4;
 
-      /* 📌 뷰어(책 읽기 화면)의 글자색/배경색은 고정 — 사용자가 명시적으로
-         이 색을 바꿔달라고 하기 전까지는, 전역 팔레트를 바꾸는 요청(예: 이번
-         Night sands 적용)이 와도 이 두 값은 건드리지 않는다. .page와
-         #book-stage에서 --bg-color/--text-color 대신 이걸 쓴다. */
+      /* 📌 뷰어(책 읽기 화면)의 글자색/배경색/글꼴/글자크기 — 이제 "뷰어 설정" 패널에서
+         사용자가 직접 바꿀 수 있다(applyReaderPrefs() 참고). 아래 값은 그 전까지의
+         기본값(테마 "기본")이자, prefs 로드 전 깜빡임을 막는 폴백이다. .page와
+         #book-stage는 전역 팔레트(--bg-color/--text-color)가 아니라 항상 이 변수들을 쓴다.*/
       --reading-bg: #cecac0;
       --reading-text: #3a2512;
+      --reading-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Malgun Gothic", sans-serif;
+      --reading-font-scale: 1;
     }
 
     * { box-sizing: border-box; }
@@ -282,7 +284,21 @@
       overflow: hidden; position: relative;
       width: 100%; min-width: 0; min-height: 0;
       cursor: pointer;
-      background-color: var(--reading-bg); /* 고정색 — 위 :root 주석 참고 */
+      background-color: var(--reading-bg); /* 뷰어 설정 테마 색 — 위 :root 주석 참고 */
+    }
+
+    /* 밝기 오버레이 — 브라우저는 실제 기기 화면 밝기를 제어할 수 없어서, 읽기
+       영역(book-stage) 위에 반투명 검은 막을 씌워 어둡게 보이도록 흉내낸다.
+       #main-content가 position:relative라 여기 기준으로 book-stage 영역만 덮는다.
+       ⚠️ book-stage 밖(사이드바/하단바)에 두면 안 된다 — buildFlipBook이
+       #book-stage.innerHTML을 통째로 갈아끼우므로 book-stage "안"에 두면 사라진다. */
+    #brightness-overlay {
+      position: absolute; inset: 0;
+      background: #000;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 6;
+      transition: opacity 0.15s ease;
     }
 
     #my-book {
@@ -310,10 +326,14 @@
        ⚠️ --bg-color/--text-color(전역 테마)가 아니라 --reading-bg/--reading-text
        (고정색)를 쓴다 — 사용자가 명시적으로 요청하기 전까진 절대 바꾸지 않는다. */
     .page {
+      position: relative; /* 우측 상단 책갈피 아이콘 절대배치 기준 */
       background-color: var(--reading-bg);
       color: var(--reading-text);
+      font-family: var(--reading-font-family);
       padding: clamp(14px, 2.5vw, 24px) clamp(12px, 2vw, 20px) clamp(10px, 1.5vw, 15px);
-      font-size: clamp(13px, 1.1vw + 0.6rem, 16px);
+      /* 뷰어 설정의 "글자 크기"는 이 반응형 기준 크기에 배율(--reading-font-scale)을
+         곱하는 방식이라, 화면 크기별 반응형 스케일링은 그대로 유지된다 */
+      font-size: calc(var(--reading-font-scale) * clamp(13px, 1.1vw + 0.6rem, 16px));
       line-height: 1.65;
       display: flex;
       flex-direction: column;
@@ -388,9 +408,9 @@
       width: 100%;
       background-color: var(--sidebar-bg);
       border-top: 1px solid var(--border-color);
-      padding: 10px 20px 12px;
+      padding: 10px 20px max(8px, env(safe-area-inset-bottom));
       z-index: 45;
-      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      display: flex; flex-direction: column; align-items: stretch; gap: 2px;
       transform: translateY(0);
       transition: transform 0.35s ease;
     }
@@ -398,6 +418,24 @@
       transform: translateY(100%);
       pointer-events: none;
     }
+    .slider-row {
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+    }
+    /* 참고 이미지의 하단 아이콘 행 — 검색/뷰어 설정/책갈피를 균등 배치한다 */
+    .bottom-actions {
+      display: flex; align-items: stretch; justify-content: space-around;
+      margin-top: 6px; padding-top: 8px;
+      border-top: 1px solid var(--border-color);
+    }
+    .bottom-action-btn {
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      background: none; border: none; cursor: pointer;
+      color: var(--text-color); padding: 4px 16px; border-radius: 10px;
+      transition: background-color 0.15s ease;
+    }
+    .bottom-action-btn:hover { background-color: rgba(58,42,24,0.08); }
+    .bottom-action-btn svg { width: 20px; height: 20px; }
+    .bottom-action-btn span { font-size: 10.5px; opacity: 0.85; }
 
     /* 참고 이미지의 얇은 트랙 + 흰 원형 손잡이 느낌을 내기 위한 커스텀 슬라이더.
        (OS 기본 슬라이더는 브라우저마다 생김새가 달라 참고 디자인과 맞추기 어렵다) */
@@ -431,13 +469,156 @@
     /* 좁은 화면(휴대폰): 여백 추가 조정 */
     @media (max-width: 600px) {
       .sidebar-header { padding: 8px 4px; }
-      #bottom-bar { padding: 8px 16px 10px; }
+      #bottom-bar { padding: 8px 16px max(8px, env(safe-area-inset-bottom)); }
     }
 
     /* 가로가 짧은 화면(모바일 가로 모드 등): 세로 여백 최소화 */
     @media (max-height: 480px) {
       .page { padding-top: 10px; padding-bottom: 8px; }
     }
+
+    /* 검색/책갈피/뷰어 설정 — 하단에서 올라오는 시트(바텀시트) 공통 스타일.
+       셋 다 같은 구조(.sheet-panel > .sheet-backdrop + .sheet-content)를 재사용한다. */
+    .sheet-panel {
+      position: fixed; inset: 0; z-index: 300;
+      display: flex; align-items: flex-end; justify-content: center;
+    }
+    .sheet-backdrop {
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,0.42);
+    }
+    .sheet-content {
+      position: relative; width: 100%; max-width: 480px;
+      background-color: var(--sidebar-bg); color: var(--text-color);
+      border-radius: 20px 20px 0 0;
+      padding: 18px 22px max(18px, env(safe-area-inset-bottom));
+      max-height: 82vh; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 20px;
+      box-shadow: 0 -10px 30px rgba(0,0,0,0.25);
+      animation: sheet-slide-up 0.22s ease;
+    }
+    @keyframes sheet-slide-up {
+      from { transform: translateY(24px); opacity: 0.4; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .sheet-header {
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .sheet-header strong { font-size: 16px; }
+    .sheet-header-actions { display: flex; align-items: center; gap: 4px; }
+    .sheet-hint { margin: 0; font-size: 13px; color: var(--text-color); opacity: 0.75; }
+
+    /* 검색 */
+    #search-form { display: flex; gap: 8px; }
+    #search-input {
+      flex: 1; padding: 11px 14px; border-radius: 10px;
+      border: 1px solid var(--border-color); background-color: var(--bg-color);
+      color: var(--text-color); font-size: 14px; font-family: inherit;
+    }
+    #search-input:focus { outline: 2px solid var(--accent-color); outline-offset: -1px; }
+    .sheet-primary-btn {
+      background-color: var(--accent-color); color: var(--sidebar-bg); border: none;
+      padding: 0 18px; border-radius: 10px; cursor: pointer;
+      font-weight: 700; font-size: 14px;
+    }
+
+    /* 뷰어 설정 */
+    .settings-row { display: flex; flex-direction: column; gap: 10px; }
+    .settings-label { font-size: 13px; font-weight: 700; opacity: 0.8; }
+    .swatch-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .theme-swatch {
+      width: 36px; height: 36px; border-radius: 50%;
+      border: 2px solid var(--border-color); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700;
+      padding: 0;
+    }
+    .theme-swatch.active { border-color: var(--accent-color); box-shadow: 0 0 0 2px var(--sidebar-bg) inset; }
+    .chip-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .font-chip {
+      padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border-color);
+      background: transparent; cursor: pointer; font-size: 13px; color: var(--text-color);
+    }
+    .font-chip.active { background: var(--accent-color); color: var(--sidebar-bg); border-color: var(--accent-color); }
+    .stepper { display: flex; align-items: center; gap: 16px; }
+    .stepper-btn {
+      width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+      border: 1px solid var(--border-color); background: transparent;
+      font-size: 18px; line-height: 1; cursor: pointer; color: var(--text-color);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .stepper-btn:disabled { opacity: 0.35; cursor: default; }
+    #font-size-label { font-size: 14px; min-width: 70px; text-align: center; }
+    #brightness-slider {
+      width: 100%; margin: 0; cursor: pointer;
+      -webkit-appearance: none; appearance: none; background: transparent;
+    }
+    #brightness-slider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--border-color); }
+    #brightness-slider::-moz-range-track { height: 4px; border-radius: 2px; background: var(--border-color); }
+    #brightness-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 18px; height: 18px; border-radius: 50%; margin-top: -7px;
+      background: var(--accent-color); cursor: pointer;
+    }
+    #brightness-slider::-moz-range-thumb {
+      width: 18px; height: 18px; border-radius: 50%; border: none;
+      background: var(--accent-color); cursor: pointer;
+    }
+
+    /* 책갈피 */
+    #bookmark-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .bookmark-empty { font-size: 13px; opacity: 0.7; padding: 12px 4px; }
+    .bookmark-item { display: flex; align-items: stretch; gap: 6px; }
+    .bookmark-jump-btn {
+      flex: 1; min-width: 0; text-align: left; cursor: pointer;
+      background-color: var(--bg-color); color: var(--text-color); border: none;
+      border-radius: 10px; padding: 10px 12px;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .bookmark-page { font-size: 12px; font-weight: 700; opacity: 0.75; }
+    .bookmark-snippet {
+      font-size: 13px; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .bookmark-delete-btn {
+      flex-shrink: 0; background: none; border: none; cursor: pointer;
+      color: var(--text-color); opacity: 0.6; font-size: 12px; padding: 0 10px;
+    }
+    .bookmark-delete-btn:hover { opacity: 1; }
+
+    /* 검색 결과 리스트 — 책갈피 리스트와 같은 결이지만, 매치 단어 앞뒤 문맥을 보여준다 */
+    #search-result-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .search-empty { font-size: 13px; opacity: 0.7; padding: 12px 4px; }
+    .search-result-btn {
+      width: 100%; text-align: left; cursor: pointer;
+      background-color: var(--bg-color); color: var(--text-color); border: none;
+      border-radius: 10px; padding: 10px 12px;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .search-result-page { font-size: 12px; font-weight: 700; opacity: 0.75; }
+    .search-result-snippet {
+      font-size: 13px; line-height: 1.5;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .search-match-highlight {
+      background-color: var(--accent-color); color: var(--sidebar-bg);
+      border-radius: 3px; padding: 0 2px; font-style: normal;
+    }
+
+    /* 페이지 우측 상단 책갈피 아이콘 — 탭하면 그 페이지를 책갈피에 추가/해제하고,
+       등록된 페이지는 채워진 아이콘으로 바로 표시된다. */
+    .page-bookmark-btn {
+      position: absolute; top: 6px; right: 6px; z-index: 3;
+      width: 34px; height: 34px; border-radius: 50%; border: none;
+      background: rgba(0,0,0,0.06); color: var(--reading-text);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; padding: 0;
+    }
+    .page-bookmark-btn svg { width: 17px; height: 17px; }
+    .page-bookmark-btn svg path { fill-opacity: 0; transition: fill-opacity 0.15s ease, color 0.15s ease; }
+    .page-bookmark-btn.active { color: #E85B6C; background: rgba(0,0,0,0.1); }
+    .page-bookmark-btn.active svg path { fill-opacity: 1; }
   </style>
 
   <!-- PageFlip 라이브러리 CDN -->
@@ -480,6 +661,39 @@
     let isHoveringChrome = false; // 사이드바/헤더 위에 마우스가 있는 동안은 숨기지 않음
     let statusHideTimer = null; // 하단 상태 토스트 자동 숨김 타이머
 
+    // 💡 뷰어 설정(테마/글꼴/글자크기/밝기) — "책 자체"가 아니라 "이 사람이 어떻게
+    // 읽고 싶은지"에 대한 설정이라, 파일별이 아니라 기기(모바일/PC) 단위로 기억한다.
+    // 모바일/PC 구분은 이미 있는 한 페이지·두 페이지 보기 기준(가로 900px)을 그대로
+    // 재사용한다 — 새 기준을 또 만들지 않고 기존 로직과 일관되게 유지하기 위함.
+    const READING_THEMES = [
+      { id: 'default',  name: '기본',      bg: '#cecac0', text: '#3a2512' },
+      { id: 'white',    name: '화이트',    bg: '#ffffff', text: '#2b2b2b' },
+      { id: 'cream',    name: '크림',      bg: '#f7ecd8', text: '#4a3520' },
+      { id: 'gray',     name: '그레이',    bg: '#8c8c8c', text: '#f5f5f5' },
+      { id: 'darkgray', name: '다크그레이', bg: '#3a3a3a', text: '#eaeaea' },
+      { id: 'green',    name: '그린',      bg: '#1f3d2f', text: '#dfe8de' },
+      { id: 'black',    name: '블랙',      bg: '#101010', text: '#c9c9c9' },
+    ];
+    const READING_FONTS = [
+      { id: 'system',  name: '기본',     stack: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Malgun Gothic', sans-serif" },
+      { id: 'gothic',  name: '고딕',     stack: "'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif" },
+      { id: 'myeongjo',name: '명조',     stack: "'Nanum Myeongjo', Batang, 'Times New Roman', serif" },
+      { id: 'rounded', name: '둥근모양', stack: "'Apple SD Gothic Neo', 'Segoe UI Rounded', 'Noto Sans KR', sans-serif" },
+    ];
+    // 배율 — 기본은 인덱스 2(1.0배). .page의 font-size가 이 값을 곱해 쓴다.
+    const FONT_SIZE_SCALES = [0.8, 0.9, 1.0, 1.15, 1.3, 1.5];
+    const FONT_SIZE_LABELS = ['아주 작게', '작게', '보통', '크게', '더 크게', '아주 크게'];
+    const DEFAULT_FONT_SIZE_STEP = 2;
+
+    let readerPrefs = {
+      themeId: 'default',
+      fontId: 'system',
+      fontSizeStep: DEFAULT_FONT_SIZE_STEP,
+      brightness: 100, // 100 = 정상 밝기, 낮을수록 화면 위에 어두운 막을 씌운다
+    };
+    let readerPrefsLoaded = false; // Firestore/localStorage에서 아직 못 불러온 동안은
+    // 기본값으로 잘못 저장해버리지 않도록 저장을 잠깐 막아둔다 (아래 saveReaderPrefsDebounced 참고)
+
     // 💡 페이지 가상화(windowing): 전체 페이지를 다 DOM에 그리지 않고,
     // 현재 읽는 위치 근처만 실제로 그려서 PageFlip에 올린다.
     const PAGE_WINDOW_RADIUS = 15;   // 현재 페이지 기준 앞/뒤로 미리 그려둘 페이지 수
@@ -507,13 +721,16 @@
     // 저장 용량이 페이지 수 × 숫자 하나 수준이라 아주 작다(수천 페이지짜리 책도 수십 KB).
     // textLength를 같이 저장해서, 파일 내용이 바뀌었으면(같은 이름으로 다른 파일을 올린 경우
     // 등) 캐시를 무효로 친다.
-    function persistedPaginationKey(fileName, width, height) {
-      return 'txtViewerPagination:' + fileName + '::' + width + '::' + height;
+    // fontKey: 글꼴/글자크기도 텍스트가 줄바꿈되는 위치(=페이지가 나뉘는 위치)에 영향을
+    // 주므로, 화면 크기와 마찬가지로 캐시 키에 포함시킨다 — 안 그러면 글꼴을 바꿨는데
+    // 이전 글꼴 기준으로 나뉜 캐시를 그대로 써서 페이지 끝이 잘려 보이는 문제가 생긴다.
+    function persistedPaginationKey(fileName, width, height, fontKey) {
+      return 'txtViewerPagination:' + fileName + '::' + width + '::' + height + '::' + fontKey;
     }
 
-    function loadPersistedPagination(fileName, width, height, text) {
+    function loadPersistedPagination(fileName, width, height, text, fontKey) {
       try {
-        const raw = localStorage.getItem(persistedPaginationKey(fileName, width, height));
+        const raw = localStorage.getItem(persistedPaginationKey(fileName, width, height, fontKey));
         if (!raw) return null;
         const data = JSON.parse(raw);
         if (data.textLength !== text.length || !Array.isArray(data.pageStartIndices)) return null;
@@ -527,9 +744,9 @@
       }
     }
 
-    function savePersistedPagination(fileName, width, height, text, pageStartIndices) {
+    function savePersistedPagination(fileName, width, height, text, pageStartIndices, fontKey) {
       try {
-        localStorage.setItem(persistedPaginationKey(fileName, width, height), JSON.stringify({
+        localStorage.setItem(persistedPaginationKey(fileName, width, height, fontKey), JSON.stringify({
           textLength: text.length,
           pageStartIndices
         }));
@@ -681,13 +898,17 @@
       }
     }
 
-    function loginAsDevUser() {
+    async function loginAsDevUser() {
       currentUser = { uid: DEV_USER_UID, email: 'dev@local.test' };
       authForm.reset();
       authErrorEl.classList.remove('visible');
       // 업로드 버튼은 실사용자 화면과 동일하게 그대로 보여준다 — 실제 Storage가 없어서
       // 눌러도 업로드는 안 되지만(file-input change 핸들러의 isDevUser() 가드 참고),
       // 개발/디자인 확인 목적으로는 버튼이 실제 화면처럼 보이는 게 더 중요하다.
+
+      // 뷰어 설정(테마/글꼴/글자크기/밝기)을 책을 열기 전에 먼저 불러온다 — 그래야
+      // buildFlipBook이 처음부터 올바른 글꼴/크기 기준으로 페이지를 나눈다.
+      await loadReaderPrefs();
 
       const lastFile = localStorage.getItem(lastOpenedFileKey());
       populateDevFileList();
@@ -708,7 +929,9 @@
       if (user) {
         currentUser = user;
         if (user.email) localStorage.setItem(LAST_EMAIL_KEY, user.email);
-        await fetchFileList();
+        // 파일 목록과 뷰어 설정(테마/글꼴/글자크기/밝기)을 동시에 불러온다 — 서로
+        // 독립적인 요청이라 순서대로 기다릴 필요 없이 병렬로 처리해서 로그인을 늦추지 않는다.
+        await Promise.all([fetchFileList(), loadReaderPrefs()]);
 
         const lastFile = localStorage.getItem(lastOpenedFileKey());
         if (lastFile && Array.from(fileListElement.children).some(li => li.textContent === lastFile)) {
@@ -1044,6 +1267,10 @@
     // 일부만 그려져 있어도 사용자에게는 "- 1234 / 5000 -" 처럼 항상 정확하게 보인다.
     function createPageElements(start, end, total) {
       const elements = [];
+      // 지금 이 창(window)에 들어올 페이지들 중 책갈피된 게 있는지 한 번만 조회해둔다
+      // (페이지마다 매번 localStorage를 다시 읽지 않도록)
+      const bookmarkedPages = new Set(loadBookmarks(currentFileName).map(b => b.page));
+
       for (let i = start; i < end; i++) {
         const pageDiv = document.createElement('div');
         pageDiv.className = 'page';
@@ -1056,8 +1283,22 @@
         pageFooter.className = 'page-footer';
         pageFooter.textContent = `- ${i + 1} / ${total} -`;
 
+        // 우측 상단 책갈피 아이콘 — 탭하면 "이 페이지"를 즉시 책갈피에 추가/해제한다
+        // (등록 방식: 패널의 + 버튼이 아니라 페이지 코너를 직접 탭)
+        const bookmarkBtn = document.createElement('button');
+        bookmarkBtn.type = 'button';
+        bookmarkBtn.className = 'page-bookmark-btn' + (bookmarkedPages.has(i) ? ' active' : '');
+        bookmarkBtn.title = '책갈피';
+        bookmarkBtn.innerHTML = '<svg viewBox="0 0 120 120"><path d="M86.6,103L60,83.5L33.4,103c-1.7,1.3-4.2,0-4.2-2.1V19.5c0-1.7,1.4-3.1,3.1-3.1h55.3c1.7,0,3.1,1.4,3.1,3.1v81.4C90.7,103.1,88.3,104.3,86.6,103z" fill="currentColor" stroke="currentColor" stroke-width="6" stroke-linejoin="round"></path></svg>';
+        const pageIndexForBtn = i; // 클로저로 이 버튼이 어느 전역 페이지 것인지 고정
+        bookmarkBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          toggleBookmark(pageIndexForBtn, bookmarkBtn);
+        });
+
         pageDiv.appendChild(pageContent);
         pageDiv.appendChild(pageFooter);
+        pageDiv.appendChild(bookmarkBtn);
         elements.push(pageDiv);
       }
       return elements;
@@ -1165,6 +1406,405 @@
       }, 300);
     }
 
+    // 💡 뷰어 설정 저장/적용 — "책 자체"가 아니라 "이 사람이 어떻게 읽고 싶은지"에 대한
+    // 설정이라 파일별이 아니라 계정+기기 단위로 저장한다. 실제 사용자는 Firestore
+    // users/{uid}/settings/readerPrefs 문서에 {mobile:{...}, pc:{...}} 두 프로필을
+    // 나눠서 저장하고, 개발자(dev) 세션은 실제 계정이 없으니 localStorage로 대신한다.
+    const READER_PREFS_LOCAL_KEY = 'txtViewerReaderPrefs';
+
+    // 지금 이 화면이 "모바일 프로필"인지 "PC 프로필"인지 — 새 기준을 만들지 않고
+    // 한 페이지/두 페이지 스프레드를 가르는 기존 900px 기준을 그대로 재사용한다.
+    function getDeviceCategory() {
+      return window.innerWidth < 900 ? 'mobile' : 'pc';
+    }
+
+    async function loadReaderPrefs() {
+      const category = getDeviceCategory();
+      let profile = null;
+      try {
+        if (isDevUser()) {
+          const raw = localStorage.getItem(READER_PREFS_LOCAL_KEY);
+          const all = raw ? JSON.parse(raw) : null;
+          profile = all && all[category];
+        } else if (currentUser) {
+          const snap = await getDoc(doc(db, "users", currentUser.uid, "settings", "readerPrefs"));
+          profile = snap.exists() ? snap.data()[category] : null;
+        }
+      } catch (err) {
+        console.error(err);
+      }
+
+      readerPrefs = {
+        themeId: (profile && profile.themeId) || 'default',
+        fontId: (profile && profile.fontId) || 'system',
+        fontSizeStep: (profile && typeof profile.fontSizeStep === 'number') ? profile.fontSizeStep : DEFAULT_FONT_SIZE_STEP,
+        brightness: (profile && typeof profile.brightness === 'number') ? profile.brightness : 100,
+      };
+      readerPrefsLoaded = true;
+      applyReaderPrefs();
+    }
+
+    let saveReaderPrefsTimer = null;
+    function saveReaderPrefsDebounced() {
+      if (!readerPrefsLoaded) return; // 아직 원래 값도 못 읽어온 상태에서 기본값으로 덮어쓰지 않는다
+      clearTimeout(saveReaderPrefsTimer);
+      saveReaderPrefsTimer = setTimeout(async () => {
+        const category = getDeviceCategory();
+        const snapshot = { ...readerPrefs };
+        try {
+          if (isDevUser()) {
+            const raw = localStorage.getItem(READER_PREFS_LOCAL_KEY);
+            const all = raw ? JSON.parse(raw) : {};
+            all[category] = snapshot;
+            localStorage.setItem(READER_PREFS_LOCAL_KEY, JSON.stringify(all));
+          } else if (currentUser) {
+            // merge:true — 지금 안 쓰는 쪽(PC에서 저장하면 mobile) 프로필을 덮어쓰지 않는다
+            await setDoc(doc(db, "users", currentUser.uid, "settings", "readerPrefs"), {
+              [category]: snapshot
+            }, { merge: true });
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }, 500);
+    }
+
+    // 뷰어 설정을 실제 CSS에 반영 — .page/#book-stage는 --reading-* 변수만 참조하므로
+    // 여기서 :root에 세팅해두면 이미 그려진 페이지에도 즉시 반영된다.
+    function applyReaderPrefs() {
+      const theme = READING_THEMES.find(t => t.id === readerPrefs.themeId) || READING_THEMES[0];
+      const font = READING_FONTS.find(f => f.id === readerPrefs.fontId) || READING_FONTS[0];
+      const scale = FONT_SIZE_SCALES[readerPrefs.fontSizeStep] ?? 1;
+
+      const root = document.documentElement.style;
+      root.setProperty('--reading-bg', theme.bg);
+      root.setProperty('--reading-text', theme.text);
+      root.setProperty('--reading-font-family', font.stack);
+      root.setProperty('--reading-font-scale', String(scale));
+
+      const overlay = document.getElementById('brightness-overlay');
+      if (overlay) {
+        // 밝기 100 → 오버레이 없음, 40(최소) → 최대 45% 정도까지 어둡게
+        const dimAmount = Math.max(0, (100 - readerPrefs.brightness) / 100) * 0.75;
+        overlay.style.opacity = String(dimAmount);
+      }
+
+      updateSettingsPanelUI();
+    }
+
+    // 뷰어 설정 패널 안의 스와치/칩/스텝퍼를 현재 readerPrefs에 맞게 다시 그린다
+    // (패널을 열 때, 그리고 값이 바뀔 때마다 호출)
+    function updateSettingsPanelUI() {
+      document.querySelectorAll('#theme-swatches .theme-swatch').forEach((el) => {
+        el.classList.toggle('active', el.dataset.themeId === readerPrefs.themeId);
+      });
+      document.querySelectorAll('#font-options .font-chip').forEach((el) => {
+        el.classList.toggle('active', el.dataset.fontId === readerPrefs.fontId);
+      });
+      const brightnessSlider = document.getElementById('brightness-slider');
+      if (brightnessSlider) brightnessSlider.value = String(readerPrefs.brightness);
+
+      const label = document.getElementById('font-size-label');
+      if (label) label.textContent = FONT_SIZE_LABELS[readerPrefs.fontSizeStep] || '보통';
+      const minusBtn = document.getElementById('font-size-minus');
+      const plusBtn = document.getElementById('font-size-plus');
+      if (minusBtn) minusBtn.disabled = readerPrefs.fontSizeStep <= 0;
+      if (plusBtn) plusBtn.disabled = readerPrefs.fontSizeStep >= FONT_SIZE_SCALES.length - 1;
+    }
+
+    // 테마 스와치/글꼴 칩을 (한 번만) 그린다 — 위 배열이 그대로 UI가 된다
+    function renderThemeSwatches() {
+      const container = document.getElementById('theme-swatches');
+      if (!container) return;
+      container.innerHTML = '';
+      READING_THEMES.forEach((theme) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'theme-swatch';
+        btn.dataset.themeId = theme.id;
+        btn.title = theme.name;
+        btn.style.backgroundColor = theme.bg;
+        btn.style.color = theme.text;
+        btn.textContent = '가';
+        btn.addEventListener('click', () => {
+          readerPrefs.themeId = theme.id;
+          applyReaderPrefs();
+          saveReaderPrefsDebounced();
+        });
+        container.appendChild(btn);
+      });
+    }
+
+    function renderFontOptions() {
+      const container = document.getElementById('font-options');
+      if (!container) return;
+      container.innerHTML = '';
+      READING_FONTS.forEach((font) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'font-chip';
+        btn.dataset.fontId = font.id;
+        btn.style.fontFamily = font.stack;
+        btn.textContent = font.name;
+        btn.addEventListener('click', () => {
+          if (readerPrefs.fontId === font.id) return;
+          readerPrefs.fontId = font.id;
+          applyReaderPrefs();
+          saveReaderPrefsDebounced();
+          requestRepaginationForReaderPrefsChange();
+        });
+        container.appendChild(btn);
+      });
+    }
+
+    // 글꼴/글자크기는 줄바꿈 위치를 바꾸므로 다시 나눠야 한다 (테마색/밝기는 그럴 필요 없음 —
+    // applyReaderPrefs가 CSS 변수만 바꿔서 이미 그려진 페이지에도 바로 반영되기 때문)
+    function requestRepaginationForReaderPrefsChange() {
+      if (!rawTextData || viewerScreen.classList.contains('screen-hidden')) return;
+      setStatus("글꼴 반영 중...");
+      buildFlipBook();
+    }
+
+    document.getElementById('brightness-slider').addEventListener('input', (e) => {
+      readerPrefs.brightness = parseInt(e.target.value, 10);
+      applyReaderPrefs();
+      saveReaderPrefsDebounced();
+    });
+    document.getElementById('font-size-minus').addEventListener('click', () => {
+      if (readerPrefs.fontSizeStep <= 0) return;
+      readerPrefs.fontSizeStep -= 1;
+      applyReaderPrefs();
+      saveReaderPrefsDebounced();
+      requestRepaginationForReaderPrefsChange();
+    });
+    document.getElementById('font-size-plus').addEventListener('click', () => {
+      if (readerPrefs.fontSizeStep >= FONT_SIZE_SCALES.length - 1) return;
+      readerPrefs.fontSizeStep += 1;
+      applyReaderPrefs();
+      saveReaderPrefsDebounced();
+      requestRepaginationForReaderPrefsChange();
+    });
+
+    renderThemeSwatches();
+    renderFontOptions();
+
+    // 검색/책갈피/뷰어설정 시트 공통 열기/닫기
+    function openSheet(id) {
+      document.getElementById(id).classList.remove('screen-hidden');
+    }
+    function closeSheet(id) {
+      document.getElementById(id).classList.add('screen-hidden');
+    }
+    document.querySelectorAll('[data-close-panel]').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        const panel = e.target.closest('.sheet-panel');
+        if (panel) closeSheet(panel.id);
+      });
+    });
+
+    document.getElementById('open-viewer-settings-btn').addEventListener('click', () => {
+      updateSettingsPanelUI();
+      openSheet('viewer-settings-panel');
+    });
+    document.getElementById('open-search-btn').addEventListener('click', () => {
+      openSheet('search-panel');
+      document.getElementById('search-input').focus();
+    });
+    document.getElementById('open-bookmark-btn').addEventListener('click', () => {
+      renderBookmarkList();
+      openSheet('bookmark-panel');
+    });
+
+    // 검색 — allTextPages(전체 페이지 텍스트, 가상화와 무관하게 항상 메모리에 있음) 안에서
+    // 검색어가 포함된 모든 페이지를 찾아 앞뒤 문맥과 함께 리스트로 보여준다.
+    // (페이지 하나에 같은 단어가 여러 번 나와도 페이지당 첫 매치 하나만 대표로 보여준다 —
+    // 흔한 단어를 검색하면 결과가 너무 많아지는 걸 막기 위함)
+    function buildSearchResults(query) {
+      const lowerQuery = query.toLowerCase();
+      const CONTEXT_CHARS = 16;
+      const results = [];
+      for (let i = 0; i < allTextPages.length; i++) {
+        const pageText = allTextPages[i] || '';
+        const idx = pageText.toLowerCase().indexOf(lowerQuery);
+        if (idx === -1) continue;
+        const start = Math.max(0, idx - CONTEXT_CHARS);
+        const end = Math.min(pageText.length, idx + query.length + CONTEXT_CHARS);
+        results.push({
+          page: i,
+          before: (start > 0 ? '…' : '') + pageText.slice(start, idx),
+          match: pageText.slice(idx, idx + query.length),
+          after: pageText.slice(idx + query.length, end) + (end < pageText.length ? '…' : ''),
+        });
+      }
+      return results;
+    }
+
+    function renderSearchResults(query) {
+      const listEl = document.getElementById('search-result-list');
+      listEl.innerHTML = '';
+      if (!query) return;
+
+      if (!allTextPages.length) {
+        const li = document.createElement('li');
+        li.className = 'search-empty';
+        li.textContent = '책을 먼저 열어주세요.';
+        listEl.appendChild(li);
+        return;
+      }
+
+      const results = buildSearchResults(query);
+      if (results.length === 0) {
+        const li = document.createElement('li');
+        li.className = 'search-empty';
+        li.textContent = `"${query}" 검색 결과가 없습니다.`;
+        listEl.appendChild(li);
+        return;
+      }
+
+      results.forEach((r) => {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'search-result-btn';
+
+        const pageLabel = document.createElement('span');
+        pageLabel.className = 'search-result-page';
+        pageLabel.textContent = `${r.page + 1}페이지`;
+
+        const snippet = document.createElement('span');
+        snippet.className = 'search-result-snippet';
+        snippet.appendChild(document.createTextNode(r.before));
+        const mark = document.createElement('mark');
+        mark.className = 'search-match-highlight';
+        mark.textContent = r.match;
+        snippet.appendChild(mark);
+        snippet.appendChild(document.createTextNode(r.after));
+
+        btn.appendChild(pageLabel);
+        btn.appendChild(snippet);
+        btn.addEventListener('click', () => {
+          closeSheet('search-panel');
+          jumpToGlobalPage(r.page);
+        });
+        li.appendChild(btn);
+        listEl.appendChild(li);
+      });
+    }
+
+    let searchDebounceTimer = null;
+    document.getElementById('search-input').addEventListener('input', (e) => {
+      clearTimeout(searchDebounceTimer);
+      const query = e.target.value.trim();
+      searchDebounceTimer = setTimeout(() => renderSearchResults(query), 250);
+    });
+    document.getElementById('search-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      clearTimeout(searchDebounceTimer);
+      renderSearchResults(document.getElementById('search-input').value.trim());
+    });
+
+    // 책갈피 — localStorage에 파일+계정 단위로 저장한다 (기기 로컬. 등록은 페이지 우측
+    // 상단 🔖 아이콘으로, 여기 함수들은 등록/해제/목록 렌더링을 맡는다)
+    function bookmarksStorageKey(fileName) {
+      return 'txtViewerBookmarks_' + (currentUser ? currentUser.uid : 'anon') + '_' + fileName;
+    }
+    function loadBookmarks(fileName) {
+      try {
+        const raw = localStorage.getItem(bookmarksStorageKey(fileName));
+        const list = raw ? JSON.parse(raw) : [];
+        return Array.isArray(list) ? list : [];
+      } catch (err) {
+        return [];
+      }
+    }
+    function saveBookmarks(fileName, bookmarks) {
+      try {
+        localStorage.setItem(bookmarksStorageKey(fileName), JSON.stringify(bookmarks));
+      } catch (err) {
+        // 저장 실패해도(용량 초과 등) 책갈피 없이 계속 읽을 수 있으니 조용히 무시
+      }
+    }
+    function isPageBookmarked(fileName, page) {
+      return loadBookmarks(fileName).some((b) => b.page === page);
+    }
+
+    // 페이지 우측 상단 🔖 아이콘 클릭 시 호출 — 그 페이지를 책갈피에 추가/해제하고
+    // 아이콘 자신의 채움 상태도 바로 갱신한다 (목록을 다시 그릴 필요 없음)
+    function toggleBookmark(page, buttonEl) {
+      if (!currentFileName) return;
+      const bookmarks = loadBookmarks(currentFileName);
+      const existingIndex = bookmarks.findIndex((b) => b.page === page);
+
+      if (existingIndex !== -1) {
+        bookmarks.splice(existingIndex, 1);
+        saveBookmarks(currentFileName, bookmarks);
+        if (buttonEl) buttonEl.classList.remove('active');
+        setStatus('책갈피를 해제했어요');
+      } else {
+        const snippet = (allTextPages[page] || '').trim().slice(0, 40);
+        bookmarks.push({ page, snippet, addedAt: Date.now() });
+        saveBookmarks(currentFileName, bookmarks);
+        if (buttonEl) buttonEl.classList.add('active');
+        setStatus('책갈피에 추가했어요');
+      }
+    }
+
+    function renderBookmarkList() {
+      const listEl = document.getElementById('bookmark-list');
+      listEl.innerHTML = '';
+      if (!currentFileName) {
+        const li = document.createElement('li');
+        li.className = 'bookmark-empty';
+        li.textContent = '책을 먼저 열어주세요.';
+        listEl.appendChild(li);
+        return;
+      }
+
+      const bookmarks = loadBookmarks(currentFileName).slice().sort((a, b) => a.page - b.page);
+      if (bookmarks.length === 0) {
+        const li = document.createElement('li');
+        li.className = 'bookmark-empty';
+        li.textContent = '저장된 책갈피가 없습니다.';
+        listEl.appendChild(li);
+        return;
+      }
+
+      bookmarks.forEach((bm) => {
+        const li = document.createElement('li');
+        li.className = 'bookmark-item';
+
+        const jumpBtn = document.createElement('button');
+        jumpBtn.type = 'button';
+        jumpBtn.className = 'bookmark-jump-btn';
+        const pageLabel = document.createElement('span');
+        pageLabel.className = 'bookmark-page';
+        pageLabel.textContent = `${bm.page + 1}페이지`;
+        const snippet = document.createElement('span');
+        snippet.className = 'bookmark-snippet';
+        snippet.textContent = bm.snippet;
+        jumpBtn.appendChild(pageLabel);
+        jumpBtn.appendChild(snippet);
+        jumpBtn.addEventListener('click', () => {
+          closeSheet('bookmark-panel');
+          jumpToGlobalPage(bm.page);
+        });
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'bookmark-delete-btn';
+        delBtn.textContent = '삭제';
+        delBtn.addEventListener('click', () => {
+          const updated = loadBookmarks(currentFileName).filter((b) => b.page !== bm.page);
+          saveBookmarks(currentFileName, updated);
+          renderBookmarkList();
+        });
+
+        li.appendChild(jumpBtn);
+        li.appendChild(delBtn);
+        listEl.appendChild(li);
+      });
+    }
+
     // 6. 플립북 재빌드
     // 대용량 텍스트는 페이지 분할(splitTextIntoPagesDOM)이 비동기로 오래 걸릴 수 있어서,
     // 리사이즈 등으로 재빌드가 연속으로 호출되면 먼저 시작된(느린) 빌드가 나중에 끝나면서
@@ -1200,9 +1840,11 @@
       // 💡 같은 파일을 같은 창 크기로 다시 열면(책 재방문, 창 크기 원복 등) 페이지 분할을
       // 다시 계산하지 않고 캐시에서 즉시 가져온다. 순서: 메모리 캐시 → localStorage(다른
       // 세션에서 이미 계산해둔 값) → 그래도 없으면 DOM 실측.
-      const cacheKey = currentFileName + '::' + bookWidth + '::' + bookHeight;
+      // fontKey: 글꼴/글자크기도 줄바꿈 위치에 영향을 주므로 캐시 키에 포함한다.
+      const fontKey = readerPrefs.fontId + ':' + readerPrefs.fontSizeStep;
+      const cacheKey = currentFileName + '::' + bookWidth + '::' + bookHeight + '::' + fontKey;
       let paginationResult = paginationCache.get(cacheKey)
-        || loadPersistedPagination(currentFileName, bookWidth, bookHeight, rawTextData);
+        || loadPersistedPagination(currentFileName, bookWidth, bookHeight, rawTextData, fontKey);
 
       if (!paginationResult) {
         // DOM 실측으로 글자 텍스트 분할 (실제 렌더링될 크기와 반드시 동일해야 잘림이 없음)
@@ -1214,7 +1856,7 @@
         // 이 낡은 결과는 버린다 (캐시에도 안 남긴다).
         if (!paginationResult || myBuildGeneration !== buildGeneration) return;
 
-        savePersistedPagination(currentFileName, bookWidth, bookHeight, rawTextData, paginationResult.pageStartIndices);
+        savePersistedPagination(currentFileName, bookWidth, bookHeight, rawTextData, paginationResult.pageStartIndices, fontKey);
       }
       paginationCache.set(cacheKey, paginationResult);
 
@@ -1437,6 +2079,9 @@
 
     window.addEventListener('pointerdown', (e) => {
       if (!stageContainer.contains(e.target)) return;
+      // 책갈피 아이콘 위에서 시작한 탭은 페이지 넘기기/UI 토글 로직을 아예 타지 않게 한다 —
+      // tapStartX를 null로 유지하면 pointerup 쪽의 기존 가드가 알아서 무시해준다.
+      if (e.target.closest('.page-bookmark-btn')) return;
       tapStartX = e.clientX;
       tapStartY = e.clientY;
       tapStartTime = Date.now();
@@ -1718,12 +2363,89 @@
           책을 불러오는 중입니다...
         </div>
       </div>
+      <div id="brightness-overlay" aria-hidden="true"></div>
     </main>
 
-    <!-- 하단 바: 페이지 슬라이더 + 카운터 (드래그해서 원하는 페이지로 바로 이동) -->
+    <!-- 하단 바: 페이지 슬라이더 + 카운터, 그 아래 검색/뷰어 설정/책갈피 아이콘 3개 -->
     <div id="bottom-bar">
-      <input type="range" id="page-slider" min="0" max="0" value="0">
-      <span id="page-counter">- / -</span>
+      <div class="slider-row">
+        <input type="range" id="page-slider" min="0" max="0" value="0">
+        <span id="page-counter">- / -</span>
+      </div>
+      <div class="bottom-actions">
+        <button class="bottom-action-btn" id="open-search-btn" title="검색">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <span>검색</span>
+        </button>
+        <button class="bottom-action-btn" id="open-bookmark-btn" title="책갈피">
+          <svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M86.6,103L60,83.5L33.4,103c-1.7,1.3-4.2,0-4.2-2.1V19.5c0-1.7,1.4-3.1,3.1-3.1h55.3c1.7,0,3.1,1.4,3.1,3.1  v81.4C90.7,103.1,88.3,104.3,86.6,103z"></path></svg>
+          <span>책갈피</span>
+        </button>
+        <button class="bottom-action-btn" id="open-viewer-settings-btn" title="뷰어 설정">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          <span>뷰어 설정</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 검색 시트: 검색어 입력 → 매치된 모든 페이지를 앞뒤 문맥과 함께 리스트로, 클릭하면 이동 -->
+    <div id="search-panel" class="sheet-panel screen-hidden">
+      <div class="sheet-backdrop" data-close-panel></div>
+      <div class="sheet-content">
+        <div class="sheet-header">
+          <strong>검색</strong>
+          <button type="button" class="icon-btn" data-close-panel title="닫기">✕</button>
+        </div>
+        <form id="search-form">
+          <input type="text" id="search-input" placeholder="찾을 내용을 입력하세요" autocomplete="off">
+          <button type="submit" class="sheet-primary-btn">찾기</button>
+        </form>
+        <ul id="search-result-list"></ul>
+      </div>
+    </div>
+
+    <!-- 책갈피 시트: 등록은 페이지 우측 상단 아이콘으로, 여기서는 목록만 보여주고 클릭하면 이동 -->
+    <div id="bookmark-panel" class="sheet-panel screen-hidden">
+      <div class="sheet-backdrop" data-close-panel></div>
+      <div class="sheet-content">
+        <div class="sheet-header">
+          <strong>책갈피</strong>
+          <button type="button" class="icon-btn" data-close-panel title="닫기">✕</button>
+        </div>
+        <p class="sheet-hint">페이지 오른쪽 위 <span aria-hidden="true">🔖</span> 아이콘을 눌러 책갈피를 추가/해제할 수 있어요.</p>
+        <ul id="bookmark-list"></ul>
+      </div>
+    </div>
+
+    <!-- 뷰어 설정 시트: 테마(배경+글자색) / 밝기 / 글꼴 / 글자 크기 -->
+    <div id="viewer-settings-panel" class="sheet-panel screen-hidden">
+      <div class="sheet-backdrop" data-close-panel></div>
+      <div class="sheet-content">
+        <div class="sheet-header">
+          <strong>뷰어 설정</strong>
+          <button type="button" class="icon-btn" data-close-panel title="닫기">✕</button>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">테마</span>
+          <div id="theme-swatches" class="swatch-row"></div>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">☀️ 밝기</span>
+          <input type="range" id="brightness-slider" min="40" max="100" value="100">
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">글꼴</span>
+          <div id="font-options" class="chip-row"></div>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">글자 크기</span>
+          <div class="stepper">
+            <button type="button" class="stepper-btn" id="font-size-minus" title="작게">−</button>
+            <span id="font-size-label">보통</span>
+            <button type="button" class="stepper-btn" id="font-size-plus" title="크게">+</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
