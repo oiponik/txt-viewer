@@ -1480,6 +1480,27 @@
       }
     }, true);
 
+    // 마우스 휠로 페이지 넘기기: 아래로 굴리면 다음 페이지, 위로 굴리면 이전 페이지.
+    // 휠(특히 트랙패드)은 한 번 굴릴 때 이벤트가 짧은 시간에 여러 번 발생하므로,
+    // 쿨다운 없이 그대로 받으면 한 번 스크롤했는데 페이지가 여러 장 넘어가 버린다 —
+    // 그래서 마지막으로 페이지를 넘긴 뒤 일정 시간은 추가 휠 이벤트를 무시한다.
+    let wheelCooldownUntil = 0;
+    stageContainer.addEventListener('wheel', (e) => {
+      if (!pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
+      if (Math.abs(e.deltaY) < 10) return; // 아주 미세한 휠 움직임(관성 스크롤 꼬리 등)은 무시
+
+      const now = Date.now();
+      if (now < wheelCooldownUntil) return;
+      wheelCooldownUntil = now + 500;
+
+      e.preventDefault();
+      if (e.deltaY > 0) {
+        pageFlip.flipNext(); // 아래로 스크롤 → 다음 페이지
+      } else {
+        jumpToPrevPage(); // 위로 스크롤 → 이전 페이지 (애니메이션 없이 즉시 전환)
+      }
+    }, { passive: false });
+
     // 8. 위치 저장/로드
     // 💡 기기 간 이어보기의 기준 시각. 이 기기가 "지금 화면에 보여주고 있는 위치가
     // 서버 기준 몇 시에 저장된 것까지 반영한 상태인지"를 기록해둔다.
