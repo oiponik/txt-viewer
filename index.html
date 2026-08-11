@@ -1588,6 +1588,8 @@
     window.addEventListener('keydown', (e) => {
       if (!pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
       if (e.key === "ArrowRight") pageFlip.flipNext();
+      if (e.key === "Space") pageFlip.flipNext();
+      if (e.key === "NumpadEnter") pageFlip.flipNext();
       if (e.key === "ArrowLeft") jumpToPrevPage();
     });
 
@@ -1615,7 +1617,7 @@
           <path class="mark-stroke-only" d="M55.36,169.59c6.31,14.47,18.5,23.17,35,23.17,0,0,13.65.35,18.18,0,16.66-1.29,31.17-13.26,37.03-27.41"/>
         </svg>
       </div>
-      <h1 class="auth-brand">kinopio</h1>
+      <h1 class="auth-brand">Bookify</h1>
       <p class="auth-tagline">텍스트를 책처럼, 어디서든</p>
     </div>
     <div class="auth-panel">
