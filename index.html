@@ -929,7 +929,7 @@
     //   그 좁은 범위 안에서만 이진 탐색하도록 바꿔서 문서 크기와 무관하게 빠르게 동작한다.
     // 또한 대용량 문서에서도 브라우저가 "응답 없음" 상태가 되지 않도록 주기적으로
     // 메인 스레드를 양보(yield)한다.
-    async function splitTextIntoPagesDOM(text, containerWidth, containerHeight) {
+    async function splitTextIntoPagesDOM(text, containerWidth, containerHeight, myGeneration) {
       // 높이 측정을 위한 보이지 않는 임시 DOM 생성
       const dummy = document.createElement('div');
       dummy.className = 'page';
@@ -1016,6 +1016,16 @@
           pagesSinceYield = 0;
           setStatus(`페이지 나누는 중... (${pages.length}p, ${Math.round(currentIndex / textLength * 100)}%)`);
           await new Promise(resolve => setTimeout(resolve, 0));
+
+          // 💡 기다리는 사이 화면 크기가 또 바뀌어서 더 최신 재빌드(buildGeneration 증가)가
+          // 이미 시작됐다면, 이 결과는 buildFlipBook에서 결국 버려질 게 뻔하다 — 그런데도
+          // 끝까지 계속 돌면, 새로 시작된 분할과 이 낡은 분할이 동시에 돌면서 DOM 실측을
+          // 두 배로 반복하는 문제가 있었다(리사이즈가 연달아 일어나는 모바일에서 특히
+          // 체감됨). 여기서 바로 멈추고 자신의 임시 DOM만 정리한 뒤 null을 반환한다.
+          if (myGeneration !== buildGeneration) {
+            document.body.removeChild(dummy);
+            return null;
+          }
         }
       }
 
@@ -1196,10 +1206,13 @@
 
       if (!paginationResult) {
         // DOM 실측으로 글자 텍스트 분할 (실제 렌더링될 크기와 반드시 동일해야 잘림이 없음)
-        paginationResult = await splitTextIntoPagesDOM(rawTextData, bookWidth, bookHeight);
+        // myBuildGeneration을 넘겨서, 쪼개는 도중 더 최신 재빌드가 시작되면 끝까지
+        // 다 돌지 않고 중간에 스스로 멈추게 한다 (아래 splitTextIntoPagesDOM 참고).
+        paginationResult = await splitTextIntoPagesDOM(rawTextData, bookWidth, bookHeight, myBuildGeneration);
 
-        // 분할하는 동안 더 최신 재빌드가 시작됐다면, 이 낡은 결과는 버린다 (캐시에도 안 남긴다).
-        if (myBuildGeneration !== buildGeneration) return;
+        // 분할 도중 취소됐거나(null), 다 끝났어도 그 사이 더 최신 재빌드가 시작됐다면
+        // 이 낡은 결과는 버린다 (캐시에도 안 남긴다).
+        if (!paginationResult || myBuildGeneration !== buildGeneration) return;
 
         savePersistedPagination(currentFileName, bookWidth, bookHeight, rawTextData, paginationResult.pageStartIndices);
       }
