@@ -544,7 +544,6 @@
     const authSubmitBtn = document.getElementById('auth-submit-btn');
     const authToggleBtn = document.getElementById('auth-toggle-btn');
     const authTitleEl = document.getElementById('auth-title');
-    const uploadBtnLabel = document.getElementById('upload-btn-label');
 
     // 💡 "한 번 로그인했던 계정은 클릭 한 번으로 다시" — 이메일(비밀번호는 절대 아님)만
     // localStorage에 기억해뒀다가 로그인 화면을 다시 볼 때 자동으로 채워주고 비밀번호
@@ -669,7 +668,9 @@
       currentUser = { uid: DEV_USER_UID, email: 'dev@local.test' };
       authForm.reset();
       authErrorEl.classList.remove('visible');
-      uploadBtnLabel.style.display = 'none'; // 실제 Storage가 없으므로 업로드는 숨긴다
+      // 업로드 버튼은 실사용자 화면과 동일하게 그대로 보여준다 — 실제 Storage가 없어서
+      // 눌러도 업로드는 안 되지만(file-input change 핸들러의 isDevUser() 가드 참고),
+      // 개발/디자인 확인 목적으로는 버튼이 실제 화면처럼 보이는 게 더 중요하다.
 
       const lastFile = localStorage.getItem(lastOpenedFileKey());
       populateDevFileList();
@@ -788,7 +789,6 @@
         currentFileName = "";
         rawTextData = "";
         if (pageFlip) { pageFlip.destroy(); pageFlip = null; }
-        uploadBtnLabel.style.display = '';
         showAuthScreen();
         return;
       }
@@ -830,6 +830,15 @@
     document.getElementById('file-input').addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
+
+      // 개발자 세션은 실제 Storage 계정이 없어서 업로드가 될 수 없다 — 버튼 자체는
+      // 실사용자 화면과 똑같이 보여주되(요청사항), 시도하면 실패할 real 네트워크
+      // 요청을 굳이 보내는 대신 조용히 안내만 하고 끝낸다.
+      if (isDevUser()) {
+        setStatus("개발자 모드에서는 업로드를 지원하지 않아요");
+        e.target.value = '';
+        return;
+      }
 
       setStatus("Storage 업로드 중...");
       const storageRef = ref(storage, 'books/' + file.name);
