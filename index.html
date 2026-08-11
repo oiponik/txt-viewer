@@ -325,6 +325,12 @@
          브라우저가 미리 GPU 레이어로 최적화하도록 힌트를 준다. */
       will-change: transform;
       backface-visibility: hidden;
+      /* 좌/우로 드래그해서 페이지를 넘기다 보면 손가락/마우스가 글자 위를 지나가면서
+         텍스트가 파랗게 블록 선택되기 쉽다 — 읽는 페이지는 선택할 일이 없으니
+         아예 막는다. (입력창 등 다른 화면 요소에는 영향 없음, .page 안에서만 적용) */
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      user-select: none;
     }
 
     .page-content {
