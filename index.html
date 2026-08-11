@@ -1594,8 +1594,7 @@
       }
       if (e.code === "NumpadEnter" || e.key === "Enter") pageFlip.flipNext();
       if (e.key === "ArrowLeft") jumpToPrevPage();
-      }
-    );
+    });
 
     // 뷰어 → 서재로 돌아가기
     document.getElementById('back-to-library').addEventListener('click', showLibraryScreen);
