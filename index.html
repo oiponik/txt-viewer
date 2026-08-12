@@ -1358,8 +1358,21 @@
     }
 
     // 특정 전역 페이지를 중심으로 앞뒤 PAGE_WINDOW_RADIUS만큼의 구간을 계산
+    //
+    // ⚠️ start는 항상 짝수여야 한다 — PageFlip 라이브러리는 두 쪽 스프레드를 "이 창에
+    // 로드된 요소들의 로컬 인덱스" (0,1)/(2,3)/(4,5)... 기준으로 고정 짝짓기 한다
+    // (page-flip 소스의 createSpread: 로컬 e부터 2씩 증가하며 [e,e+1] 페어링, 전역
+    // 페이지 번호는 전혀 모른다). 책 전체의 첫 창은 항상 0(짝수)부터 시작해서 전역
+    // 짝수=왼쪽/홀수=오른쪽으로 스프레드가 정해지는데, PAGE_WINDOW_RADIUS(15)가 홀수라
+    // start를 그대로 쓰면 센터 페이지 홀짝에 따라 창이 홀수로 시작해버리는 경우가 생기고,
+    // 그러면 로컬 (0,1) 페어링이 실제로는 전역 (홀수,짝수)를 묶어버려서 스프레드 좌우가
+    // 한 칸씩 밀린다 — 페이지를 넘기면 방금 봤던 오른쪽 페이지가 새 왼쪽 페이지 자리에
+    // 다시 나타나는 버그로 보였던 게 이것. start를 항상 짝수로 내림해서 로컬↔전역 홀짝
+    // 정렬을 창이 몇 번 바뀌어도 계속 유지시킨다.
     function computeWindowRange(centerIndex, total) {
-      const start = Math.max(0, centerIndex - PAGE_WINDOW_RADIUS);
+      let start = Math.max(0, centerIndex - PAGE_WINDOW_RADIUS);
+      if (start % 2 !== 0) start -= 1;
+      start = Math.max(0, start);
       const end = Math.min(total, centerIndex + PAGE_WINDOW_RADIUS + 1);
       return { start, end };
     }
