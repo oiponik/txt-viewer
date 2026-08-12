@@ -1525,28 +1525,37 @@
     }
 
     let saveReaderPrefsTimer = null;
+    async function persistReaderPrefsNow() {
+      const category = getDeviceCategory();
+      const snapshot = { ...readerPrefs };
+      try {
+        if (isDevUser()) {
+          const raw = localStorage.getItem(READER_PREFS_LOCAL_KEY);
+          const all = raw ? JSON.parse(raw) : {};
+          all[category] = snapshot;
+          localStorage.setItem(READER_PREFS_LOCAL_KEY, JSON.stringify(all));
+        } else if (currentUser) {
+          // merge:true — 지금 안 쓰는 쪽(PC에서 저장하면 mobile) 프로필을 덮어쓰지 않는다
+          await setDoc(doc(db, "users", currentUser.uid, "settings", "readerPrefs"), {
+            [category]: snapshot
+          }, { merge: true });
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
     function saveReaderPrefsDebounced() {
       if (!readerPrefsLoaded) return; // 아직 원래 값도 못 읽어온 상태에서 기본값으로 덮어쓰지 않는다
       clearTimeout(saveReaderPrefsTimer);
-      saveReaderPrefsTimer = setTimeout(async () => {
-        const category = getDeviceCategory();
-        const snapshot = { ...readerPrefs };
-        try {
-          if (isDevUser()) {
-            const raw = localStorage.getItem(READER_PREFS_LOCAL_KEY);
-            const all = raw ? JSON.parse(raw) : {};
-            all[category] = snapshot;
-            localStorage.setItem(READER_PREFS_LOCAL_KEY, JSON.stringify(all));
-          } else if (currentUser) {
-            // merge:true — 지금 안 쓰는 쪽(PC에서 저장하면 mobile) 프로필을 덮어쓰지 않는다
-            await setDoc(doc(db, "users", currentUser.uid, "settings", "readerPrefs"), {
-              [category]: snapshot
-            }, { merge: true });
-          }
-        } catch (err) {
-          console.error(err);
-        }
-      }, 500);
+      saveReaderPrefsTimer = setTimeout(persistReaderPrefsNow, 500);
+    }
+    // 글꼴/글자크기 등을 바꾸자마자(500ms debounce가 끝나기 전에) 새로고침하거나 탭을 벗어나면
+    // 저장이 통째로 씹힌다 — flushProgressSave와 같은 이유로, 탭이 숨겨지는/닫히는 순간엔
+    // debounce 없이 즉시 저장한다.
+    function flushReaderPrefsSave() {
+      if (!readerPrefsLoaded) return;
+      clearTimeout(saveReaderPrefsTimer);
+      persistReaderPrefsNow();
     }
 
     // 뷰어 설정을 실제 CSS에 반영 — .page/#book-stage는 --reading-* 변수만 참조하므로
@@ -2387,6 +2396,7 @@
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') {
         flushProgressSave();
+        flushReaderPrefsSave();
       } else {
         // 탭이 백그라운드에 있다가 다시 보이는 순간 — 새로고침 없이 메모리 상태 그대로
         // 복귀하는 경우가 많아서, 그 사이 다른 기기에서 더 앞서 읽었을 수 있는
@@ -2394,7 +2404,10 @@
         syncProgressFromServer();
       }
     });
-    window.addEventListener('pagehide', flushProgressSave);
+    window.addEventListener('pagehide', () => {
+      flushProgressSave();
+      flushReaderPrefsSave();
+    });
 
     // 방향키 제어 (서재 화면에서는 무시 — 뷰어가 보일 때만 동작)
     window.addEventListener('keydown', (e) => {
