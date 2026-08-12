@@ -1511,7 +1511,10 @@
           profile = snap.exists() ? snap.data()[category] : null;
         }
       } catch (err) {
-        console.error(err);
+        // 여기서 실패하면 조용히 기본값으로 넘어가버려서 "설정이 저장 안 된다"는
+        // 신고를 받아도 원인(주로 Firestore 보안 규칙)을 알 방법이 없었다 — 눈에 보이게 알린다.
+        console.error('뷰어 설정 불러오기 실패:', err);
+        setStatus('뷰어 설정을 불러오지 못했어요 (' + (err.code || err.message) + ')');
       }
 
       readerPrefs = {
@@ -1541,7 +1544,11 @@
           }, { merge: true });
         }
       } catch (err) {
-        console.error(err);
+        // 마찬가지로 저장 실패가 조용히 묻히지 않도록 — 주로 Firestore 보안 규칙이
+        // users/{uid}/settings 경로를 막고 있을 때(reading_progress는 허용하면서
+        // settings는 빠뜨린 경우 등) permission-denied로 여기 걸린다.
+        console.error('뷰어 설정 저장 실패:', err);
+        setStatus('뷰어 설정을 저장하지 못했어요 (' + (err.code || err.message) + ')');
       }
     }
     function saveReaderPrefsDebounced() {
