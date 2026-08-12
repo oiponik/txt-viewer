@@ -463,8 +463,13 @@
       -webkit-appearance: none; appearance: none;
       background: transparent;
     }
+    /* 지나온 구간(진하게)과 남은 구간(연하게)을 구분하기 위해 JS에서 --slider-progress를
+       현재 값 비율(%)로 채워 넣는다 (updateSliderProgress 참고) */
     #page-slider::-webkit-slider-runnable-track {
-      height: 4px; border-radius: 2px; background: var(--border-color);
+      height: 4px; border-radius: 2px;
+      background: linear-gradient(to right,
+        var(--accent-color) var(--slider-progress, 0%),
+        var(--border-color) var(--slider-progress, 0%));
     }
     #page-slider::-webkit-slider-thumb {
       -webkit-appearance: none; appearance: none;
@@ -474,7 +479,10 @@
       margin-top: -7px; cursor: pointer;
     }
     #page-slider::-moz-range-track {
-      height: 4px; border-radius: 2px; background: var(--border-color);
+      height: 4px; border-radius: 2px;
+      background: linear-gradient(to right,
+        var(--accent-color) var(--slider-progress, 0%),
+        var(--border-color) var(--slider-progress, 0%));
     }
     #page-slider::-moz-range-thumb {
       width: 18px; height: 18px; border-radius: 50%;
@@ -779,6 +787,15 @@
     const viewerScreen = document.getElementById('viewer-screen');
     const pageSlider = document.getElementById('page-slider');
     const pageCounter = document.getElementById('page-counter');
+    // 트랙을 지나온 구간/남은 구간 두 색으로 칠하기 위해 현재 값 비율을
+    // CSS 변수로 흘려보낸다 (사용하는 그라디언트는 #page-slider 규칙 참고)
+    function updateSliderProgress(slider) {
+      const min = parseFloat(slider.min) || 0;
+      const max = parseFloat(slider.max) || 0;
+      const value = parseFloat(slider.value) || 0;
+      const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
+      slider.style.setProperty('--slider-progress', `${pct}%`);
+    }
     const authForm = document.getElementById('auth-form');
     const authEmailInput = document.getElementById('auth-email');
     const authPasswordInput = document.getElementById('auth-password');
@@ -1363,6 +1380,7 @@
       pageSlider.min = 0;
       pageSlider.max = Math.max(0, totalPages - 1);
       pageSlider.value = globalIndex;
+      updateSliderProgress(pageSlider);
       pageCounter.textContent = `${globalIndex + 1} / ${totalPages}`;
       currentDisplayedGlobalPage = globalIndex;
       updateBookmarkToggleButton();
@@ -2094,6 +2112,7 @@
     // 실제로 페이지를 이동한다 — 매 픽셀마다 창을 다시 그리면 버벅이기 때문
     pageSlider.addEventListener('input', () => {
       const target = parseInt(pageSlider.value, 10);
+      updateSliderProgress(pageSlider);
       pageCounter.textContent = `${target + 1} / ${totalPages}`;
     });
     pageSlider.addEventListener('change', () => {
