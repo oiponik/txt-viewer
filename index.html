@@ -625,21 +625,21 @@
       display: flex; align-items: center; justify-content: center;
     }
     .stepper-btn:disabled { opacity: 0.35; cursor: default; }
-    #font-size-label { font-size: 14px; min-width: 70px; text-align: center; }
-    #brightness-slider {
-      width: 100%; margin: 0; cursor: pointer;
-      -webkit-appearance: none; appearance: none; background: transparent;
+    /* 글자 크기/문단 너비 스테퍼의 가운데 라벨 — 둘 다 이 클래스를 공유해야
+       너비/글자크기가 어긋나지 않는다("더 크게"처럼 긴 라벨과 "보통"처럼 짧은
+       라벨이 섞여도 min-width로 버튼 위치를 고정한다). */
+    .stepper-value-label { font-size: 14px; min-width: 70px; text-align: center; }
+
+    /* 뷰어 설정 미리보기 — 테마/글꼴/글자크기/문단너비를 바꿔도 실제 책 페이지에는
+       바로 반영하지 않고(재분할이 매번 돌면 느려서 불편했다), 이 작은 카드에만
+       즉시 반영해서 보여준다. "적용" 버튼을 눌러야 비로소 실제 책에 적용된다. */
+    .settings-preview {
+      border-radius: 12px; border: 1px solid var(--border-color); overflow: hidden;
     }
-    #brightness-slider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--border-color); }
-    #brightness-slider::-moz-range-track { height: 4px; border-radius: 2px; background: var(--border-color); }
-    #brightness-slider::-webkit-slider-thumb {
-      -webkit-appearance: none; appearance: none;
-      width: 18px; height: 18px; border-radius: 50%; margin-top: -7px;
-      background: var(--accent-color); cursor: pointer;
-    }
-    #brightness-slider::-moz-range-thumb {
-      width: 18px; height: 18px; border-radius: 50%; border: none;
-      background: var(--accent-color); cursor: pointer;
+    .settings-preview-page {
+      height: 130px; overflow: hidden;
+      line-height: 1.6;
+      transition: background-color 0.15s ease, color 0.15s ease;
     }
 
     /* 책갈피 */
@@ -768,16 +768,29 @@
     ];
     const PARAGRAPH_WIDTH_LABELS = ['좁게', '보통', '넓게', '아주 넓게'];
     const DEFAULT_PARAGRAPH_WIDTH_STEP = 1;
+    // 미리보기 카드는 실제 페이지보다 훨씬 좁고 고정 크기라 vw 기반 clamp()가 의미가
+    // 없다 — 같은 순서(좁게→아주 넓게)로 고정 px 값만 따로 둔다.
+    const PARAGRAPH_WIDTH_PREVIEW_PADDINGS = [32, 22, 14, 8];
+    const PREVIEW_BASE_FONT_SIZE = 15; // 미리보기 카드의 "보통(1.0배)" 기준 글자 크기(px)
 
     let readerPrefs = {
       themeId: 'default',
       fontId: 'system',
       fontSizeStep: DEFAULT_FONT_SIZE_STEP,
       paragraphWidthStep: DEFAULT_PARAGRAPH_WIDTH_STEP,
-      brightness: 100, // 100 = 정상 밝기, 낮을수록 화면 위에 어두운 막을 씌운다
+      brightness: 100, // 100 = 정상 밝기, 낮을수록 화면 위에 어두운 막을 씌운다. 설정 시트에는
+      // 더 이상 슬라이더가 없다 — 읽기 화면에서 위/아래로 스와이프해서 바로 조절한다.
     };
     let readerPrefsLoaded = false; // Firestore/localStorage에서 아직 못 불러온 동안은
     // 기본값으로 잘못 저장해버리지 않도록 저장을 잠깐 막아둔다 (아래 saveReaderPrefsDebounced 참고)
+
+    // 💡 설정 시트 안의 "초안(draft)" — 테마/글꼴/글자크기/문단너비를 바꿔도 이 사본에만
+    // 반영되고, 미리보기 카드만 즉시 갱신된다. 실제 책(.page)과 readerPrefs는 "적용" 버튼을
+    // 눌러야 비로소 바뀐다. 예전엔 바꿀 때마다 buildFlipBook()이 다시 돌아서(=페이지 다시
+    // 나누기) 큰 책에서 설정을 이것저것 눌러볼 때마다 버벅였는데, 이걸로 실제 재분할은
+    // "적용"을 눌렀을 때 딱 한 번만 일어나게 됐다. 시트가 열릴 때 readerPrefs를 복사해서
+    // 만들고, 닫히면(적용 여부와 무관하게) 다음에 열 때 새로 복사되므로 따로 정리할 필요는 없다.
+    let draftReaderPrefs = null;
 
     // 💡 페이지 가상화(windowing): 전체 페이지를 다 DOM에 그리지 않고,
     // 현재 읽는 위치 근처만 실제로 그려서 PageFlip에 올린다.
@@ -1655,6 +1668,8 @@
 
     // 뷰어 설정을 실제 CSS에 반영 — .page/#book-stage는 --reading-* 변수만 참조하므로
     // 여기서 :root에 세팅해두면 이미 그려진 페이지에도 즉시 반영된다.
+    // ⚠️ readerPrefs(확정값)에만 반영한다 — 설정 시트를 열어놓고 이것저것 눌러보는 동안은
+    // draftReaderPrefs만 바뀌고 여긴 호출되지 않는다("적용" 버튼 핸들러 참고).
     function applyReaderPrefs() {
       const theme = READING_THEMES.find(t => t.id === readerPrefs.themeId) || READING_THEMES[0];
       const font = READING_FONTS.find(f => f.id === readerPrefs.fontId) || READING_FONTS[0];
@@ -1678,34 +1693,51 @@
       updateSettingsPanelUI();
     }
 
-    // 뷰어 설정 패널 안의 스와치/칩/스텝퍼를 현재 readerPrefs에 맞게 다시 그린다
-    // (패널을 열 때, 그리고 값이 바뀔 때마다 호출)
+    // 뷰어 설정 패널 안의 스와치/칩/스텝퍼를 "초안"(시트가 열려있으면 draftReaderPrefs,
+    // 아니면 readerPrefs)에 맞춰 다시 그린다 (패널을 열 때, 그리고 값이 바뀔 때마다 호출)
     function updateSettingsPanelUI() {
+      const prefs = draftReaderPrefs || readerPrefs;
       document.querySelectorAll('#theme-swatches .theme-swatch').forEach((el) => {
-        el.classList.toggle('active', el.dataset.themeId === readerPrefs.themeId);
+        el.classList.toggle('active', el.dataset.themeId === prefs.themeId);
       });
       document.querySelectorAll('#font-options .font-chip').forEach((el) => {
-        el.classList.toggle('active', el.dataset.fontId === readerPrefs.fontId);
+        el.classList.toggle('active', el.dataset.fontId === prefs.fontId);
       });
-      const brightnessSlider = document.getElementById('brightness-slider');
-      if (brightnessSlider) brightnessSlider.value = String(readerPrefs.brightness);
 
       const label = document.getElementById('font-size-label');
-      if (label) label.textContent = FONT_SIZE_LABELS[readerPrefs.fontSizeStep] || '보통';
+      if (label) label.textContent = FONT_SIZE_LABELS[prefs.fontSizeStep] || '보통';
       const minusBtn = document.getElementById('font-size-minus');
       const plusBtn = document.getElementById('font-size-plus');
-      if (minusBtn) minusBtn.disabled = readerPrefs.fontSizeStep <= 0;
-      if (plusBtn) plusBtn.disabled = readerPrefs.fontSizeStep >= FONT_SIZE_SCALES.length - 1;
+      if (minusBtn) minusBtn.disabled = prefs.fontSizeStep <= 0;
+      if (plusBtn) plusBtn.disabled = prefs.fontSizeStep >= FONT_SIZE_SCALES.length - 1;
 
       const widthLabel = document.getElementById('paragraph-width-label');
-      if (widthLabel) widthLabel.textContent = PARAGRAPH_WIDTH_LABELS[readerPrefs.paragraphWidthStep] || '보통';
+      if (widthLabel) widthLabel.textContent = PARAGRAPH_WIDTH_LABELS[prefs.paragraphWidthStep] || '보통';
       const widthMinusBtn = document.getElementById('paragraph-width-minus');
       const widthPlusBtn = document.getElementById('paragraph-width-plus');
-      if (widthMinusBtn) widthMinusBtn.disabled = readerPrefs.paragraphWidthStep <= 0;
-      if (widthPlusBtn) widthPlusBtn.disabled = readerPrefs.paragraphWidthStep >= PARAGRAPH_WIDTH_PADDINGS.length - 1;
+      if (widthMinusBtn) widthMinusBtn.disabled = prefs.paragraphWidthStep <= 0;
+      if (widthPlusBtn) widthPlusBtn.disabled = prefs.paragraphWidthStep >= PARAGRAPH_WIDTH_PADDINGS.length - 1;
     }
 
-    // 테마 스와치/글꼴 칩을 (한 번만) 그린다 — 위 배열이 그대로 UI가 된다
+    // 미리보기 카드를 draftReaderPrefs 기준으로 다시 칠한다 — 실제 책(.page)에는 손대지 않는다.
+    function updateSettingsPreview() {
+      if (!draftReaderPrefs) return;
+      const theme = READING_THEMES.find(t => t.id === draftReaderPrefs.themeId) || READING_THEMES[0];
+      const font = READING_FONTS.find(f => f.id === draftReaderPrefs.fontId) || READING_FONTS[0];
+      const scale = FONT_SIZE_SCALES[draftReaderPrefs.fontSizeStep] ?? 1;
+      const paddingX = PARAGRAPH_WIDTH_PREVIEW_PADDINGS[draftReaderPrefs.paragraphWidthStep] ?? PARAGRAPH_WIDTH_PREVIEW_PADDINGS[DEFAULT_PARAGRAPH_WIDTH_STEP];
+
+      const preview = document.getElementById('settings-preview-page');
+      if (!preview) return;
+      preview.style.backgroundColor = theme.bg;
+      preview.style.color = theme.text;
+      preview.style.fontFamily = font.stack;
+      preview.style.fontSize = (PREVIEW_BASE_FONT_SIZE * scale) + 'px';
+      preview.style.padding = '16px ' + paddingX + 'px';
+    }
+
+    // 테마 스와치/글꼴 칩을 (한 번만) 그린다 — 위 배열이 그대로 UI가 된다.
+    // 클릭하면 draftReaderPrefs만 바꾸고 미리보기만 갱신한다 — 실제 책은 "적용"을 눌러야 바뀐다.
     function renderThemeSwatches() {
       const container = document.getElementById('theme-swatches');
       if (!container) return;
@@ -1720,9 +1752,9 @@
         btn.style.color = theme.text;
         btn.textContent = '가';
         btn.addEventListener('click', () => {
-          readerPrefs.themeId = theme.id;
-          applyReaderPrefs();
-          saveReaderPrefsDebounced();
+          draftReaderPrefs.themeId = theme.id;
+          updateSettingsPreview();
+          updateSettingsPanelUI();
         });
         container.appendChild(btn);
       });
@@ -1740,57 +1772,71 @@
         btn.style.fontFamily = font.stack;
         btn.textContent = font.name;
         btn.addEventListener('click', () => {
-          if (readerPrefs.fontId === font.id) return;
-          readerPrefs.fontId = font.id;
-          applyReaderPrefs();
-          saveReaderPrefsDebounced();
-          requestRepaginationForReaderPrefsChange();
+          if (draftReaderPrefs.fontId === font.id) return;
+          draftReaderPrefs.fontId = font.id;
+          updateSettingsPreview();
+          updateSettingsPanelUI();
         });
         container.appendChild(btn);
       });
     }
 
-    // 글꼴/글자크기는 줄바꿈 위치를 바꾸므로 다시 나눠야 한다 (테마색/밝기는 그럴 필요 없음 —
-    // applyReaderPrefs가 CSS 변수만 바꿔서 이미 그려진 페이지에도 바로 반영되기 때문)
+    // 글꼴/글자크기/문단너비는 줄바꿈 위치를 바꾸므로 다시 나눠야 한다(테마색은 그럴 필요
+    // 없음 — applyReaderPrefs가 CSS 변수만 바꿔서 이미 그려진 페이지에도 바로 반영되기 때문).
+    // "적용" 버튼을 눌렀을 때 딱 한 번만 호출된다 — 예전엔 스테퍼를 누를 때마다 매번
+    // 돌아서, 특히 큰 책에서 설정을 이것저것 눌러볼 때마다 버벅이는 게 불편했다.
     function requestRepaginationForReaderPrefsChange() {
       if (!rawTextData || viewerScreen.classList.contains('screen-hidden')) return;
       setStatus("글꼴 반영 중...");
       buildFlipBook();
     }
 
-    document.getElementById('brightness-slider').addEventListener('input', (e) => {
-      readerPrefs.brightness = parseInt(e.target.value, 10);
-      applyReaderPrefs();
-      saveReaderPrefsDebounced();
-    });
     document.getElementById('font-size-minus').addEventListener('click', () => {
-      if (readerPrefs.fontSizeStep <= 0) return;
-      readerPrefs.fontSizeStep -= 1;
-      applyReaderPrefs();
-      saveReaderPrefsDebounced();
-      requestRepaginationForReaderPrefsChange();
+      if (draftReaderPrefs.fontSizeStep <= 0) return;
+      draftReaderPrefs.fontSizeStep -= 1;
+      updateSettingsPreview();
+      updateSettingsPanelUI();
     });
     document.getElementById('font-size-plus').addEventListener('click', () => {
-      if (readerPrefs.fontSizeStep >= FONT_SIZE_SCALES.length - 1) return;
-      readerPrefs.fontSizeStep += 1;
-      applyReaderPrefs();
-      saveReaderPrefsDebounced();
-      requestRepaginationForReaderPrefsChange();
+      if (draftReaderPrefs.fontSizeStep >= FONT_SIZE_SCALES.length - 1) return;
+      draftReaderPrefs.fontSizeStep += 1;
+      updateSettingsPreview();
+      updateSettingsPanelUI();
     });
-    // 문단 너비도 글자 크기처럼 줄바꿈 위치(=페이지 경계)를 바꾸므로 다시 나눠야 한다.
     document.getElementById('paragraph-width-minus').addEventListener('click', () => {
-      if (readerPrefs.paragraphWidthStep <= 0) return;
-      readerPrefs.paragraphWidthStep -= 1;
-      applyReaderPrefs();
-      saveReaderPrefsDebounced();
-      requestRepaginationForReaderPrefsChange();
+      if (draftReaderPrefs.paragraphWidthStep <= 0) return;
+      draftReaderPrefs.paragraphWidthStep -= 1;
+      updateSettingsPreview();
+      updateSettingsPanelUI();
     });
     document.getElementById('paragraph-width-plus').addEventListener('click', () => {
-      if (readerPrefs.paragraphWidthStep >= PARAGRAPH_WIDTH_PADDINGS.length - 1) return;
-      readerPrefs.paragraphWidthStep += 1;
+      if (draftReaderPrefs.paragraphWidthStep >= PARAGRAPH_WIDTH_PADDINGS.length - 1) return;
+      draftReaderPrefs.paragraphWidthStep += 1;
+      updateSettingsPreview();
+      updateSettingsPanelUI();
+    });
+
+    // "적용" — draft를 실제 readerPrefs에 옮기고, 그때만 화면/저장/재분할을 실행한다.
+    // brightness는 draft에 손대지 않는다 — 읽기 화면 스와이프로 언제든 별도로 바뀔 수 있는
+    // 값이라, 여기서 그대로 덮어쓰면 시트가 열려있는 동안 스와이프로 바꾼 밝기가 "적용" 클릭
+    // 한 번에 시트를 열었을 때의 옛 값으로 되돌아가 버리는 문제가 생긴다.
+    document.getElementById('apply-reader-prefs-btn').addEventListener('click', () => {
+      if (!draftReaderPrefs) return;
+      const layoutChanged =
+        draftReaderPrefs.fontId !== readerPrefs.fontId ||
+        draftReaderPrefs.fontSizeStep !== readerPrefs.fontSizeStep ||
+        draftReaderPrefs.paragraphWidthStep !== readerPrefs.paragraphWidthStep;
+
+      readerPrefs.themeId = draftReaderPrefs.themeId;
+      readerPrefs.fontId = draftReaderPrefs.fontId;
+      readerPrefs.fontSizeStep = draftReaderPrefs.fontSizeStep;
+      readerPrefs.paragraphWidthStep = draftReaderPrefs.paragraphWidthStep;
+
       applyReaderPrefs();
       saveReaderPrefsDebounced();
-      requestRepaginationForReaderPrefsChange();
+      if (layoutChanged) requestRepaginationForReaderPrefsChange();
+
+      closeSheet('viewer-settings-panel');
     });
 
     renderThemeSwatches();
@@ -1811,7 +1857,11 @@
     });
 
     document.getElementById('open-viewer-settings-btn').addEventListener('click', () => {
+      // readerPrefs를 복사해서 초안을 새로 만든다 — 이 시트 안에서의 조작은 전부
+      // 이 사본에만 반영되고, "적용"을 눌러야 비로소 실제 책에 반영된다.
+      draftReaderPrefs = { ...readerPrefs };
       updateSettingsPanelUI();
+      updateSettingsPreview();
       openSheet('viewer-settings-panel');
     });
     document.getElementById('open-search-btn').addEventListener('click', () => {
@@ -2719,7 +2769,10 @@
       </div>
     </div>
 
-    <!-- 뷰어 설정 시트: 테마(배경+글자색) / 밝기 / 글꼴 / 글자 크기 -->
+    <!-- 뷰어 설정 시트: 테마(배경+글자색) / 글꼴 / 글자 크기 / 문단 너비.
+         밝기는 여기 없다 — 읽기 화면에서 위/아래로 스와이프해서 바로 조절한다.
+         아래 네 항목을 바꿔도 실제 책은 안 바뀌고 미리보기 카드만 즉시 바뀐다 —
+         "적용"을 눌러야 실제 책에도 반영되고, 그때 딱 한 번만 페이지가 다시 나뉜다. -->
     <div id="viewer-settings-panel" class="sheet-panel screen-hidden">
       <div class="sheet-backdrop" data-close-panel></div>
       <div class="sheet-content">
@@ -2727,13 +2780,14 @@
           <strong>뷰어 설정</strong>
           <button type="button" class="icon-btn" data-close-panel title="닫기">✕</button>
         </div>
+        <div class="settings-preview">
+          <div class="settings-preview-page" id="settings-preview-page">
+            <p>「가나다라마바사 아자차카타파하」 오늘은 어제와 다르고, 내일은 오늘과 또 다를 것이라는 생각을 하며 하루를 보냈다. 책을 읽는 즐거움은 책장을 넘길 때마다 새로운 이야기가 펼쳐진다는 데 있다.</p>
+          </div>
+        </div>
         <div class="settings-row">
           <span class="settings-label">테마</span>
           <div id="theme-swatches" class="swatch-row"></div>
-        </div>
-        <div class="settings-row">
-          <span class="settings-label">밝기</span>
-          <input type="range" id="brightness-slider" min="40" max="100" value="100">
         </div>
         <div class="settings-row">
           <span class="settings-label">글꼴</span>
@@ -2743,7 +2797,7 @@
           <span class="settings-label">글자 크기</span>
           <div class="stepper">
             <button type="button" class="stepper-btn" id="font-size-minus" title="작게">−</button>
-            <span id="font-size-label">보통</span>
+            <span id="font-size-label" class="stepper-value-label">보통</span>
             <button type="button" class="stepper-btn" id="font-size-plus" title="크게">+</button>
           </div>
         </div>
@@ -2751,10 +2805,11 @@
           <span class="settings-label">문단 너비</span>
           <div class="stepper">
             <button type="button" class="stepper-btn" id="paragraph-width-minus" title="좁게">−</button>
-            <span id="paragraph-width-label">보통</span>
+            <span id="paragraph-width-label" class="stepper-value-label">보통</span>
             <button type="button" class="stepper-btn" id="paragraph-width-plus" title="넓게">+</button>
           </div>
         </div>
+        <button type="button" class="sheet-primary-btn" id="apply-reader-prefs-btn" style="align-self: stretch; padding: 12px;">적용</button>
       </div>
     </div>
   </div>
