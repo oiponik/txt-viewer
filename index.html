@@ -641,6 +641,13 @@
       line-height: 1.6;
       transition: background-color 0.15s ease, color 0.15s ease;
     }
+    /* <p> 기본 마진(보통 1em, ~15px 위/아래)이 padding-top(JS에서 16px로 세팅)에
+       그대로 더해져서 의도한 것보다 위쪽 여백이 거의 2배로 벌어지던 버그를 없앤다.
+       고정 높이(130px) 박스에서 그 마진이 overflow:hidden에 잘려나가 예시 텍스트가
+       덜 보이는 부수 문제도 같이 해결된다. */
+    .settings-preview-page p {
+      margin: 0;
+    }
 
     /* 책갈피 */
     #bookmark-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
