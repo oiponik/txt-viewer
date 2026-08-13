@@ -639,7 +639,17 @@
     .settings-preview-page {
       height: 130px; overflow: hidden;
       line-height: 1.6;
+      padding-top: 16px; padding-bottom: 16px;
       transition: background-color 0.15s ease, color 0.15s ease;
+      /* 글자 크기/문단 너비는 실제 책(.page)과 정확히 같은 계산식을 그대로 재사용한다 —
+         둘 다 vw(뷰포트 너비) 기반이라 이 값은 담긴 박스 크기와 무관하게 실제 페이지와
+         똑같은 px로 계산되므로, 미리보기가 "그대로" 예측이 된다. --preview-font-scale/
+         --preview-padding-x는 updateSettingsPreview()가 초안(draft) 값으로 매번 채워 넣는다
+         (실제 페이지가 쓰는 --reading-font-scale/--reading-padding-x는 절대 안 건드린다 —
+         "적용" 전까지 실제 책에 새어나가면 안 되기 때문). */
+      padding-left: var(--preview-padding-x, 20px);
+      padding-right: var(--preview-padding-x, 20px);
+      font-size: calc(var(--preview-font-scale, 1) * clamp(13px, 1.1vw + 0.6rem, 16px));
     }
     /* <p> 기본 마진(보통 1em, ~15px 위/아래)이 padding-top(JS에서 16px로 세팅)에
        그대로 더해져서 의도한 것보다 위쪽 여백이 거의 2배로 벌어지던 버그를 없앤다.
@@ -775,10 +785,6 @@
     ];
     const PARAGRAPH_WIDTH_LABELS = ['좁게', '보통', '넓게', '아주 넓게'];
     const DEFAULT_PARAGRAPH_WIDTH_STEP = 1;
-    // 미리보기 카드는 실제 페이지보다 훨씬 좁고 고정 크기라 vw 기반 clamp()가 의미가
-    // 없다 — 같은 순서(좁게→아주 넓게)로 고정 px 값만 따로 둔다.
-    const PARAGRAPH_WIDTH_PREVIEW_PADDINGS = [32, 22, 14, 8];
-    const PREVIEW_BASE_FONT_SIZE = 15; // 미리보기 카드의 "보통(1.0배)" 기준 글자 크기(px)
 
     let readerPrefs = {
       themeId: 'default',
@@ -1732,15 +1738,19 @@
       const theme = READING_THEMES.find(t => t.id === draftReaderPrefs.themeId) || READING_THEMES[0];
       const font = READING_FONTS.find(f => f.id === draftReaderPrefs.fontId) || READING_FONTS[0];
       const scale = FONT_SIZE_SCALES[draftReaderPrefs.fontSizeStep] ?? 1;
-      const paddingX = PARAGRAPH_WIDTH_PREVIEW_PADDINGS[draftReaderPrefs.paragraphWidthStep] ?? PARAGRAPH_WIDTH_PREVIEW_PADDINGS[DEFAULT_PARAGRAPH_WIDTH_STEP];
+      // 실제 책과 똑같이 PARAGRAPH_WIDTH_PADDINGS(vw 기반 clamp)를 그대로 재사용한다 —
+      // 뷰포트 기준 단위라 미리보기 카드 안에서도 실제 페이지와 같은 px로 계산된다.
+      const paddingX = PARAGRAPH_WIDTH_PADDINGS[draftReaderPrefs.paragraphWidthStep] ?? PARAGRAPH_WIDTH_PADDINGS[DEFAULT_PARAGRAPH_WIDTH_STEP];
 
       const preview = document.getElementById('settings-preview-page');
       if (!preview) return;
       preview.style.backgroundColor = theme.bg;
       preview.style.color = theme.text;
       preview.style.fontFamily = font.stack;
-      preview.style.fontSize = (PREVIEW_BASE_FONT_SIZE * scale) + 'px';
-      preview.style.padding = '16px ' + paddingX + 'px';
+      // --reading-font-scale/--reading-padding-x(실제 책)는 절대 안 건드리고, 미리보기
+      // 전용 변수만 채운다 — "적용" 전까지 실제 화면에 새어나가지 않게 하기 위함.
+      preview.style.setProperty('--preview-font-scale', String(scale));
+      preview.style.setProperty('--preview-padding-x', paddingX);
     }
 
     // 테마 스와치/글꼴 칩을 (한 번만) 그린다 — 위 배열이 그대로 UI가 된다.
