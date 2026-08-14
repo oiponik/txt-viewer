@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Bookify</title>
 
+  <!-- 크롬 "앱 설치"/안드로이드 홈화면 추가 시 쓰일 아이콘·이름. 아이콘 원본은
+       icons/icon-512.png(디자인 소스는 커밋 로그 참고) — "조용한 서재" 팔레트로
+       만든 책 모양 아이콘. iOS 홈화면 추가는 manifest를 안 보고 apple-touch-icon만
+       보므로 따로 지정해야 한다. -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="theme-color" content="#3A2A18">
+
   <!-- 고딕/명조/둥근모양 글꼴 옵션이 실제로 다르게 보이도록 웹폰트를 직접 불러온다.
        (예전엔 OS에 설치된 폰트 이름에만 의존해서, Malgun Gothic/Apple SD Gothic Neo 같은
        이름이 없는 안드로이드 등 모바일에서는 셋 다 같은 기본 sans-serif로 렌더링되어
