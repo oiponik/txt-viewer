@@ -832,6 +832,15 @@
     let pageStartIndices = [];
     let currentLastCharIndex = 0; // 읽던 글자의 시작 위치
 
+    // 💡 현재 열린 파일의 책갈피(메모리 캐시) — {charIndex, snippet, addedAt}[].
+    // "페이지 번호"가 아니라 "글자 위치"로 저장한다: 페이지 번호는 화면 크기/글꼴/문단
+    // 너비가 바뀌어 페이지가 다시 나뉘면(기기 변경 등) 같은 숫자가 다른 내용을 가리키게
+    // 되지만, 글자 위치는 항상 같은 내용을 가리킨다. isPageBookmarked/renderBookmarkList가
+    // findPageForCharIndex()로 "그 글자가 지금 몇 번째 페이지인지"를 매번 새로 계산한다
+    // (currentLastCharIndex/이어보기와 같은 방식). 파일을 열 때 loadBookmarksForFile()로
+    // 채우고, 추가/삭제 때마다 saveBookmarksForFile()로 그대로 다시 저장한다.
+    let currentBookmarks = [];
+
     // 💡 페이지 분할 결과 캐시: (파일명 + 창 크기) 조합이 같으면 다시 계산하지 않고 재사용한다.
     // 같은 책을 다시 열거나, 창 크기를 예전 크기로 되돌릴 때 즉시 로딩되게 해준다.
     // ⚠️ 이건 메모리(Map)라 탭을 닫으면 사라진다 — 다음에 다시 열 때도 재계산을 건너뛰고
@@ -1099,8 +1108,13 @@
         document.getElementById('current-title').textContent = DEV_BOOK_FILENAME + ' (개발자 테스트)';
 
         lastKnownProgressUpdatedAt = 0;
-        currentLastCharIndex = await loadProgress(DEV_BOOK_FILENAME);
+        [currentLastCharIndex, currentBookmarks] = await Promise.all([
+          loadProgress(DEV_BOOK_FILENAME),
+          loadBookmarksForFile(DEV_BOOK_FILENAME)
+        ]);
         await buildFlipBook();
+        migrateLegacyBookmarksIfNeeded(DEV_BOOK_FILENAME);
+        updateBookmarkToggleButton();
 
         document.body.classList.add('immersive');
         clearTimeout(immersiveTimer);
@@ -1354,11 +1368,17 @@
 
         // 다른 책(파일)의 기록 기준 시각이 남아있지 않도록 새로 여는 책마다 초기화
         lastKnownProgressUpdatedAt = 0;
-        currentLastCharIndex = await loadProgress(fileName);
-        if (myLoadGeneration !== fileLoadGeneration) return; // loadProgress 대기 중에도 더 최근 선택이 있었으면 중단
+        [currentLastCharIndex, currentBookmarks] = await Promise.all([
+          loadProgress(fileName),
+          loadBookmarksForFile(fileName)
+        ]);
+        if (myLoadGeneration !== fileLoadGeneration) return; // 대기 중에도 더 최근 선택이 있었으면 중단
 
         await buildFlipBook();
         if (myLoadGeneration !== fileLoadGeneration) return;
+
+        migrateLegacyBookmarksIfNeeded(fileName);
+        updateBookmarkToggleButton();
 
         // 책이 열리면 바로 읽기 몰입 모드로: 마우스를 움직이기 전까진 UI를 띄우지 않는다
         document.body.classList.add('immersive');
@@ -1590,7 +1610,7 @@
     function updateBookmarkToggleButton() {
       const btn = document.getElementById('page-bookmark-toggle-btn');
       if (!btn) return;
-      const bookmarked = !!currentFileName && isPageBookmarked(currentFileName, currentDisplayedGlobalPage);
+      const bookmarked = !!currentFileName && isPageBookmarked(currentDisplayedGlobalPage);
       btn.classList.toggle('active', bookmarked);
     }
 
@@ -2041,50 +2061,119 @@
       renderSearchResults(document.getElementById('search-input').value.trim());
     });
 
-    // 책갈피 — localStorage에 파일+계정 단위로 저장한다 (기기 로컬. 등록은 페이지 우측
-    // 상단 🔖 아이콘으로, 여기 함수들은 등록/해제/목록 렌더링을 맡는다)
-    function bookmarksStorageKey(fileName) {
+    // 책갈피 — users/{uid}/bookmarks/{fileId} 문서에 파일당 배열 하나로 저장해서
+    // 기기 간에도 동기화된다(이어보기 위치와 같은 구조). 개발자 세션은 Firestore를
+    // 건드리지 않고 localStorage에만 저장(devProgress와 동일한 관례). 등록은 페이지
+    // 우측 상단 🔖 아이콘으로, 여기 함수들은 등록/해제/목록 렌더링을 맡는다.
+    //
+    // ⚠️ 각 항목은 {charIndex, snippet, addedAt}이지 {page, ...}가 아니다 — "페이지 번호"는
+    // 화면 크기/글꼴/문단 너비가 바뀌어 페이지가 다시 나뉘면(기기 변경 등) 같은 숫자가
+    // 다른 내용을 가리키게 된다. currentBookmarks는 항상 findPageForCharIndex()로 "지금
+    // 분할 기준 몇 번째 페이지인지"를 다시 계산해서 쓴다.
+    function bookmarksDevKey(fileName) {
+      return 'devBookmarks:' + fileName;
+    }
+    function legacyBookmarksStorageKey(fileName) {
+      // 이 파일 첫 버전(2026-08 이전)에서 쓰던 {page,...} 형식의 저장 키.
+      // migrateLegacyBookmarksIfNeeded()가 한 번만 읽고 새 형식으로 옮긴 뒤 지운다.
       return 'txtViewerBookmarks_' + (currentUser ? currentUser.uid : 'anon') + '_' + fileName;
     }
-    function loadBookmarks(fileName) {
+
+    async function loadBookmarksForFile(fileName) {
+      if (!currentUser) return [];
+      if (isDevUser()) {
+        try {
+          const raw = localStorage.getItem(bookmarksDevKey(fileName));
+          const list = raw ? JSON.parse(raw) : [];
+          return Array.isArray(list) ? list : [];
+        } catch (err) {
+          return [];
+        }
+      }
       try {
-        const raw = localStorage.getItem(bookmarksStorageKey(fileName));
-        const list = raw ? JSON.parse(raw) : [];
-        return Array.isArray(list) ? list : [];
+        const fileId = btoa(encodeURIComponent(fileName));
+        const docSnap = await getDoc(doc(db, "users", currentUser.uid, "bookmarks", fileId));
+        if (docSnap.exists() && Array.isArray(docSnap.data().bookmarks)) {
+          return docSnap.data().bookmarks;
+        }
       } catch (err) {
-        return [];
+        console.error('책갈피 불러오기 실패:', err);
+        setStatus('책갈피를 불러오지 못했습니다');
+      }
+      return [];
+    }
+
+    async function saveBookmarksForFile(fileName, bookmarks) {
+      if (!currentUser) return;
+      if (isDevUser()) {
+        try {
+          localStorage.setItem(bookmarksDevKey(fileName), JSON.stringify(bookmarks));
+        } catch (err) {
+          // 저장 실패해도(용량 초과 등) 책갈피 없이 계속 읽을 수 있으니 조용히 무시
+        }
+        return;
+      }
+      try {
+        const fileId = btoa(encodeURIComponent(fileName));
+        await setDoc(doc(db, "users", currentUser.uid, "bookmarks", fileId), {
+          fileName: fileName,
+          bookmarks: bookmarks,
+          updatedAt: new Date()
+        });
+      } catch (err) {
+        console.error('책갈피 저장 실패:', err);
+        setStatus('책갈피 저장 실패');
       }
     }
-    function saveBookmarks(fileName, bookmarks) {
+
+    // 예전 형식({page, snippet, addedAt})으로 남아있는 책갈피를 새 형식(charIndex)으로
+    // 한 번만 옮긴다. 그 당시 페이지 분할 기준을 알 수 없어 완벽히 같은 위치는 아니지만
+    // (지금 분할 기준으로 그 페이지 번호가 있던 자리를 그대로 씀), 통째로 잃어버리는
+    // 것보다는 낫다. buildFlipBook 이후(=pageStartIndices가 준비된 뒤) 호출해야 한다.
+    function migrateLegacyBookmarksIfNeeded(fileName) {
+      if (currentBookmarks.length > 0) return; // 이미 새 형식 데이터가 있으면 건드리지 않는다
+      const legacyKey = legacyBookmarksStorageKey(fileName);
+      let legacy;
       try {
-        localStorage.setItem(bookmarksStorageKey(fileName), JSON.stringify(bookmarks));
+        const raw = localStorage.getItem(legacyKey);
+        legacy = raw ? JSON.parse(raw) : null;
       } catch (err) {
-        // 저장 실패해도(용량 초과 등) 책갈피 없이 계속 읽을 수 있으니 조용히 무시
+        legacy = null;
       }
+      if (!Array.isArray(legacy) || legacy.length === 0) return;
+
+      currentBookmarks = legacy.map((b) => ({
+        charIndex: pageStartIndices[b.page] || 0,
+        snippet: b.snippet || '',
+        addedAt: b.addedAt || Date.now()
+      }));
+      saveBookmarksForFile(fileName, currentBookmarks);
+      localStorage.removeItem(legacyKey);
+      setStatus('예전 책갈피를 새 방식으로 옮겼습니다');
     }
-    function isPageBookmarked(fileName, page) {
-      return loadBookmarks(fileName).some((b) => b.page === page);
+
+    function isPageBookmarked(page) {
+      return currentBookmarks.some((b) => findPageForCharIndex(b.charIndex) === page);
     }
 
     // 페이지 우측 상단 🔖 아이콘 클릭 시 호출 — 그 페이지를 책갈피에 추가/해제하고
     // 아이콘 자신의 채움 상태도 바로 갱신한다 (목록을 다시 그릴 필요 없음)
     function toggleBookmark(page, buttonEl) {
       if (!currentFileName) return;
-      const bookmarks = loadBookmarks(currentFileName);
-      const existingIndex = bookmarks.findIndex((b) => b.page === page);
+      const existingIndex = currentBookmarks.findIndex((b) => findPageForCharIndex(b.charIndex) === page);
 
       if (existingIndex !== -1) {
-        bookmarks.splice(existingIndex, 1);
-        saveBookmarks(currentFileName, bookmarks);
+        currentBookmarks.splice(existingIndex, 1);
         if (buttonEl) buttonEl.classList.remove('active');
         setStatus('책갈피를 해제했어요');
       } else {
+        const charIndex = pageStartIndices[page] || 0;
         const snippet = (allTextPages[page] || '').trim().slice(0, 40);
-        bookmarks.push({ page, snippet, addedAt: Date.now() });
-        saveBookmarks(currentFileName, bookmarks);
+        currentBookmarks.push({ charIndex, snippet, addedAt: Date.now() });
         if (buttonEl) buttonEl.classList.add('active');
         setStatus('책갈피에 추가했어요');
       }
+      saveBookmarksForFile(currentFileName, currentBookmarks);
     }
 
     function renderBookmarkList() {
@@ -2098,7 +2187,7 @@
         return;
       }
 
-      const bookmarks = loadBookmarks(currentFileName).slice().sort((a, b) => a.page - b.page);
+      const bookmarks = currentBookmarks.slice().sort((a, b) => a.charIndex - b.charIndex);
       if (bookmarks.length === 0) {
         const li = document.createElement('li');
         li.className = 'bookmark-empty';
@@ -2108,6 +2197,7 @@
       }
 
       bookmarks.forEach((bm) => {
+        const page = findPageForCharIndex(bm.charIndex);
         const li = document.createElement('li');
         li.className = 'bookmark-item';
 
@@ -2116,7 +2206,7 @@
         jumpBtn.className = 'bookmark-jump-btn';
         const pageLabel = document.createElement('span');
         pageLabel.className = 'bookmark-page';
-        pageLabel.textContent = `${bm.page + 1}페이지`;
+        pageLabel.textContent = `${page + 1}페이지`;
         const snippet = document.createElement('span');
         snippet.className = 'bookmark-snippet';
         snippet.textContent = bm.snippet;
@@ -2124,7 +2214,7 @@
         jumpBtn.appendChild(snippet);
         jumpBtn.addEventListener('click', () => {
           closeSheet('bookmark-panel');
-          jumpToGlobalPage(bm.page);
+          jumpToGlobalPage(page);
         });
 
         const delBtn = document.createElement('button');
@@ -2132,8 +2222,8 @@
         delBtn.className = 'bookmark-delete-btn';
         delBtn.textContent = '삭제';
         delBtn.addEventListener('click', () => {
-          const updated = loadBookmarks(currentFileName).filter((b) => b.page !== bm.page);
-          saveBookmarks(currentFileName, updated);
+          currentBookmarks = currentBookmarks.filter((b) => b.addedAt !== bm.addedAt);
+          saveBookmarksForFile(currentFileName, currentBookmarks);
           renderBookmarkList();
           // 지금 보고 있는 페이지의 책갈피를 목록에서 지웠다면, 상단바 🔖 아이콘도
           // 바로 비워줘야 한다 — toggleBookmark를 안 거치는 경로라 따로 챙겨야 한다.
