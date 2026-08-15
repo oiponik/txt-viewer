@@ -91,18 +91,6 @@
     .library-panel-header h1 {
       margin: 0; font-size: 19px;
     }
-    /* 아이콘만 있으면 무슨 버튼인지 알기 어려워서, 글씨(설정)를 같이 보여주는
-       테두리 있는 알약(pill) 모양 버튼으로 — upload-btn만큼 강조하진 않되 버튼처럼 보이게 */
-    .header-pill-btn {
-      flex-shrink: 0;
-      display: flex; align-items: center; gap: 4px;
-      padding: 4px 10px; border-radius: 999px;
-      border: 1px solid var(--border-color); background-color: transparent;
-      color: var(--text-color); font-size: 11.5px; font-weight: 600;
-      cursor: pointer; transition: background-color 0.15s ease;
-    }
-    .header-pill-btn:hover { background-color: rgba(58,42,24,0.08); }
-    .header-pill-btn svg { width: 12px; height: 12px; flex-shrink: 0; }
 
     /* 화면 0: 로그인/회원가입 — 인증 전에는 서재/뷰어 모두 접근할 수 없다.
        참고 이미지("triple" 앱)의 레이아웃(로고/문구 위, 입력 아래)은 유지하되
@@ -292,7 +280,10 @@
       transition: background-color 0.15s ease;
     }
     #file-list li:last-child { border-bottom: none; }
-    #file-list li:hover { background-color: var(--border-color); }
+    /* 순서변경 드래그 중(#file-list.reordering)에는 마우스 커서가 지나가는 행마다
+       hover 배경이 따로 칠해지면 아래 삽입선(reorder-insert-*)이랑 같이 보여서
+       헷갈린다 — 드래그 중엔 hover 배경 자체를 끄고 삽입선만 보이게 한다. */
+    #file-list:not(.reordering) li:hover { background-color: rgba(58,42,24,0.08); }
     #file-list li.active { background-color: var(--active-item); color: var(--accent-color); font-weight: bold; }
     .file-item-icon { flex-shrink: 0; opacity: 0.6; }
     .file-item-name {
@@ -334,7 +325,7 @@
       background-color: transparent;
       transition: background-color 0.15s ease;
     }
-    #recent-file-list li:hover { background-color: var(--border-color); }
+    #recent-file-list li:hover { background-color: rgba(58,42,24,0.08); }
     #recent-file-list li.active { background-color: var(--active-item); color: var(--accent-color); font-weight: bold; }
     .recent-file-folder-hint {
       flex-shrink: 0; font-size: 11px; opacity: 0.6;
@@ -378,8 +369,8 @@
     .reorder-handle:hover { opacity: 0.9; background-color: rgba(0,0,0,0.08); }
     .reorder-handle:active { cursor: grabbing; }
     /* box-shadow(inset)로 그려서 레이아웃 크기에 영향을 안 주는 삽입선 표시 */
-    #file-list li.reorder-insert-before { box-shadow: inset 0 2px 0 0 var(--accent-color); }
-    #file-list li.reorder-insert-after { box-shadow: inset 0 -2px 0 0 var(--accent-color); }
+    #file-list li.reorder-insert-before { box-shadow: inset 0 3px 0 0 var(--accent-color); }
+    #file-list li.reorder-insert-after { box-shadow: inset 0 -3px 0 0 var(--accent-color); }
 
     #file-list li.folder-item .file-item-icon { opacity: 0.7; }
 
@@ -1555,19 +1546,27 @@
         fileFolderMap = (data && data.fileFolder && typeof data.fileFolder === 'object') ? data.fileFolder : {};
         itemOrder = (data && data.itemOrder && typeof data.itemOrder === 'object') ? data.itemOrder : {};
       } catch (err) {
+        // 조용히 넘어가면 "폴더가 새로고침할 때마다 사라진다"처럼 보여서(실제로는 애초에
+        // 못 불러온 것) 눈에 보이는 신호를 하나 남긴다 — 대개 Firestore 보안 규칙에서
+        // library/shared 경로를 안 열어줘서 나는 permission-denied다.
         console.error('서재 폴더 정보 불러오기 실패:', err);
+        setStatus('폴더 정보를 불러오지 못했어요');
         libraryFolders = [];
         fileFolderMap = {};
         itemOrder = {};
       }
     }
 
+    // 반환값(true/false)으로 실제 저장 성공 여부를 알려준다 — 호출부가 이걸 안 보고
+    // 무조건 "OO했어요" 토스트를 띄우면, 실패 토스트가 그 성공 토스트에 곧바로
+    // 덮어써져서 사용자 눈엔 실패한 적이 없던 것처럼 보이는 문제가 있었다
+    // (관리자가 폴더를 만들어도 새로고침하면 사라지는 버그의 실제 원인).
     async function saveLibraryState() {
       if (isDevUser()) {
         try {
           localStorage.setItem('devLibraryState', JSON.stringify({ folders: libraryFolders, fileFolder: fileFolderMap, itemOrder }));
-        } catch (err) { /* 용량 초과 등은 조용히 무시 — 폴더 정보 없이도 파일 목록 자체는 동작 */ }
-        return;
+          return true;
+        } catch (err) { return false; } /* 용량 초과 등은 조용히 무시 — 폴더 정보 없이도 파일 목록 자체는 동작 */
       }
       try {
         await setDoc(doc(db, "library", "shared"), {
@@ -1576,9 +1575,11 @@
           itemOrder,
           updatedAt: new Date()
         });
+        return true;
       } catch (err) {
         console.error('서재 폴더 정보 저장 실패:', err);
         setStatus('폴더 정보 저장 실패');
+        return false;
       }
     }
 
@@ -1842,12 +1843,15 @@
       }));
 
       const failCount = results.filter((r) => r.status === 'rejected').length;
-      if (assignFolder && failCount < results.length) await saveLibraryState();
+      let folderSaveOk = true;
+      if (assignFolder && failCount < results.length) folderSaveOk = await saveLibraryState();
 
-      if (failCount === 0) {
-        setStatus(files.length > 1 ? `${files.length}개 파일 업로드 완료!` : "업로드 완료!");
-      } else {
+      if (failCount > 0) {
         setStatus(`${files.length - failCount}개 성공, ${failCount}개 실패`);
+      } else if (!folderSaveOk) {
+        setStatus('업로드는 됐지만 폴더 지정에 실패했어요');
+      } else {
+        setStatus(files.length > 1 ? `${files.length}개 파일 업로드 완료!` : "업로드 완료!");
       }
       await fetchFileList();
     });
@@ -1957,9 +1961,9 @@
     document.getElementById('new-folder-btn').addEventListener('click', () => {
       promptTextInput('새 폴더 이름', '', async (name) => {
         libraryFolders.push({ id: newFolderId(), name, parentId: currentFolderId });
-        await saveLibraryState();
+        const ok = await saveLibraryState();
         renderLibraryView();
-        setStatus('폴더를 만들었어요');
+        if (ok) setStatus('폴더를 만들었어요');
       });
     });
 
@@ -1986,9 +1990,9 @@
       if ((folder.parentId || null) === (targetFolderId || null)) return; // 이미 그 자리
       folder.parentId = targetFolderId;
       removeFromItemOrder(folderItemKey(folderId));
-      await saveLibraryState();
+      const ok = await saveLibraryState();
       renderLibraryView();
-      setStatus('폴더를 이동했어요');
+      if (ok) setStatus('폴더를 이동했어요');
     }
 
     // 폴더를 지우면 그 안의 파일/하위 폴더는 사라지지 않고 상위 폴더로 올라간다 —
@@ -1996,8 +2000,8 @@
     async function deleteFolderConfirm(folderId) {
       const folder = getFolderById(folderId);
       if (!folder) return;
-      const ok = confirm(`"${folder.name}" 폴더를 삭제할까요?\n안에 있던 파일/폴더는 상위 폴더로 옮겨집니다.`);
-      if (!ok) return;
+      const confirmed = confirm(`"${folder.name}" 폴더를 삭제할까요?\n안에 있던 파일/폴더는 상위 폴더로 옮겨집니다.`);
+      if (!confirmed) return;
 
       const parentId = folder.parentId || null;
       libraryFolders.filter((f) => f.parentId === folderId).forEach((f) => { f.parentId = parentId; });
@@ -2011,9 +2015,9 @@
       delete itemOrder[folderId]; // 이 폴더 "안"에서의 순서 기록도 같이 정리(안의 항목들은 상위로 옮겨지며 순서가 새로 매겨짐)
 
       if (currentFolderId === folderId) currentFolderId = parentId;
-      await saveLibraryState();
+      const ok = await saveLibraryState();
       renderLibraryView();
-      setStatus('폴더를 삭제했어요');
+      if (ok) setStatus('폴더를 삭제했어요');
     }
 
     // ── 파일: 이름변경 / 이동(저장 경로 변경) ────────────────────────────
@@ -2021,9 +2025,9 @@
       promptFolderPicker('이 파일을 옮길 위치', [], async (targetFolderId) => {
         if (targetFolderId) fileFolderMap[fileName] = targetFolderId; else delete fileFolderMap[fileName];
         removeFromItemOrder(fileItemKey(fileName));
-        await saveLibraryState();
+        const ok = await saveLibraryState();
         renderLibraryView();
-        setStatus('파일을 이동했어요');
+        if (ok) setStatus('파일을 이동했어요');
       });
     }
 
@@ -2066,7 +2070,7 @@
         Object.keys(itemOrder).forEach((parent) => {
           itemOrder[parent] = itemOrder[parent].map((k) => (k === fileItemKey(oldName) ? fileItemKey(newName) : k));
         });
-        await saveLibraryState();
+        const folderStateSaved = await saveLibraryState();
 
         if (currentFileName === oldName) {
           currentFileName = newName;
@@ -2074,7 +2078,7 @@
           localStorage.setItem(lastOpenedFileKey(), newName);
         }
 
-        setStatus('이름을 변경했어요');
+        setStatus(folderStateSaved ? '이름을 변경했어요' : '이름은 변경했지만 폴더 정보 저장에 실패했어요');
         await fetchFileList();
       } catch (err) {
         console.error(err);
@@ -2104,8 +2108,8 @@
         setStatus('개발자 모드에서는 삭제를 지원하지 않아요');
         return;
       }
-      const ok = confirm(`"${fileName}" 파일을 완전히 삭제할까요?\n이 동작은 되돌릴 수 없습니다.`);
-      if (!ok) return;
+      const confirmed = confirm(`"${fileName}" 파일을 완전히 삭제할까요?\n이 동작은 되돌릴 수 없습니다.`);
+      if (!confirmed) return;
 
       setStatus('삭제 중...');
       try {
@@ -2113,7 +2117,7 @@
 
         if (fileFolderMap[fileName]) delete fileFolderMap[fileName];
         removeFromItemOrder(fileItemKey(fileName));
-        await saveLibraryState();
+        const folderStateSaved = await saveLibraryState();
 
         const fid = fileDocId(fileName);
         await deleteDoc(doc(db, "users", currentUser.uid, "reading_progress", fid)).catch(() => {});
@@ -2121,7 +2125,7 @@
 
         if (currentFileName === fileName) currentFileName = "";
 
-        setStatus('삭제했어요');
+        setStatus(folderStateSaved ? '삭제했어요' : '파일은 지웠지만 폴더 정보 저장에 실패했어요');
         await fetchFileList();
       } catch (err) {
         console.error(err);
@@ -2264,9 +2268,9 @@
         folder.parentId = targetFolderId;
         removeFromItemOrder(folderItemKey(id));
       }
-      await saveLibraryState();
+      const ok = await saveLibraryState();
       renderLibraryView();
-      setStatus('이동했어요');
+      if (ok) setStatus('이동했어요');
     }
 
     // itemKey를 (있다면) 어느 부모의 순서 배열에서든 지운다 — 파일/폴더를 다른 폴더로
@@ -2297,6 +2301,7 @@
       function armDrag() {
         dragging = true;
         li.classList.add('dragging-source');
+        fileListElement.classList.add('reordering'); // hover 배경 끄고 삽입선만 보이게
         ghost = li.cloneNode(true);
         ghost.classList.add('drag-ghost');
         ghost.style.width = li.getBoundingClientRect().width + 'px';
@@ -2352,6 +2357,7 @@
         const insertBefore = findInsertBefore(ev.clientY);
         clearInsertMarkers();
         li.classList.remove('dragging-source');
+        fileListElement.classList.remove('reordering');
         if (ghost) ghost.remove();
 
         applyReorder(li, insertBefore);
@@ -2366,6 +2372,7 @@
         document.removeEventListener('pointercancel', cleanup);
         if (dragging) {
           li.classList.remove('dragging-source');
+          fileListElement.classList.remove('reordering');
           if (ghost) ghost.remove();
           clearInsertMarkers();
         }
@@ -3927,9 +3934,8 @@
       <div class="library-panel-header">
         <div class="library-panel-title-row">
           <h1>내 서재</h1>
-          <button id="open-settings-btn" class="header-pill-btn" title="설정">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-            <span>설정</span>
+          <button id="open-settings-btn" class="icon-btn" title="설정">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
           </button>
         </div>
         <div class="library-action-row">
