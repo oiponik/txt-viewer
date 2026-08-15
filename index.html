@@ -71,9 +71,20 @@
       padding: 24px; z-index: 5;
     }
 
-    .library-panel {
+    /* "내 서재" 카드 + "최근 본 파일" 카드를 세로로 쌓아서 한 그룹으로 가운데 정렬한다 —
+       #library-screen의 중앙정렬 로직은 그대로 두고, 이 래퍼 하나만 그 유일한 자식으로
+       끼워 넣는 식이라 기존 레이아웃을 거의 안 건드린다. 폭/최대높이는 이제 여기서
+       관리하고, 두 카드는 각자 독립된 배경/모서리/그림자를 가진다(완전히 분리된 느낌). */
+    .library-screen-stack {
       width: min(480px, 92vw);
       max-height: 82vh;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .library-panel {
+      /* 최근 본 파일 카드가 보일 땐 남는 공간을 이 카드가 먼저 차지하고(flex:1),
+         최근 본 파일은 자기 내용만큼만(flex-shrink:0, 아래) — 모바일처럼 화면이
+         작아도 실제 책 목록이 최근 본 파일 카드에 밀려 사라지지 않게 한다. */
+      flex: 1; min-height: 0;
       background-color: var(--sidebar-bg);
       border-radius: 16px;
       box-shadow: 0 12px 40px rgba(0,0,0,0.18);
@@ -311,16 +322,17 @@
     .new-folder-btn:hover { background-color: rgba(58,42,24,0.08); }
 
     /* 최근 본 파일 — 루트 화면에서만 보이고, 아래로 스크롤되는 목록(#file-list)과 같은
-       줄 스타일이라 옅은 카드 배경 정도로는 "이어진 같은 목록"처럼 보인다는 피드백이
-       있었다 — 뷰어 화면 #bottom-bar와 같은 방식으로 패널 맨 아래에 완전히 분리된
-       고정 영역으로 바꿨다. .library-panel이 flex-direction:column이고 #file-list가
-       flex:1로 스크롤을 전담하기 때문에, 이 블록은 그 아래에 눌러앉듯 항상 고정된다
-       (따로 position:fixed를 안 써도 됨). */
+       줄 스타일이라 옅은 카드 배경/하단바 정도로는 여전히 "이어진 같은 목록"처럼
+       보인다는 피드백이 있었다 — .library-panel과 나란히, 그 자체로 독립된 카드로
+       완전히 분리했다(같은 배경/모서리/그림자를 그대로 재사용). .library-screen-stack이
+       이 두 카드를 세로로 쌓고, flex-shrink:0이라 내용(최대 몇 줄) 이상으로는 커지지
+       않아서 .library-panel이 화면 대부분을 계속 차지한다. */
     .recent-files-section {
       flex-shrink: 0;
-      border-top: 1px solid var(--border-color);
       background-color: var(--sidebar-bg);
-      padding: 8px 4px max(8px, env(safe-area-inset-bottom));
+      border-radius: 16px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.18);
+      padding: 10px 4px max(10px, env(safe-area-inset-bottom));
     }
     .recent-files-label {
       font-size: 11px; font-weight: 700; letter-spacing: 0.3px;
@@ -1643,7 +1655,7 @@
     // 최근 연 파일 이름 목록(최신순) — reading_progress에 이미 파일마다 updatedAt이 찍혀
     // 있어서, 따로 "최근 목록"을 유지하지 않고 그 문서들을 최신순으로 조회해서 얻는다.
     // (개발자 세션은 Firestore를 안 쓰니, devProgress: 키가 있으면 그 파일 하나만.)
-    const RECENT_FILES_LIMIT = 3;
+    const RECENT_FILES_LIMIT = 2;
     async function loadRecentFileNames() {
       if (isDevUser()) {
         recentFileNames = (localStorage.getItem('devProgress:' + DEV_BOOK_FILENAME) !== null) ? [DEV_BOOK_FILENAME] : [];
@@ -3978,32 +3990,34 @@
 
   <!-- 화면 1: 서재 (파일 업로드 + 목록) -->
   <div id="library-screen" class="screen-hidden">
-    <div class="library-panel">
-      <div class="library-panel-header">
-        <div class="library-panel-title-row">
-          <h1>내 서재</h1>
-          <button id="open-settings-btn" class="icon-btn" title="설정">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-          </button>
+    <div class="library-screen-stack">
+      <div class="library-panel">
+        <div class="library-panel-header">
+          <div class="library-panel-title-row">
+            <h1>내 서재</h1>
+            <button id="open-settings-btn" class="icon-btn" title="설정">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            </button>
+          </div>
+          <div class="library-action-row">
+            <label for="file-input" class="upload-btn" id="upload-btn-label">새 텍스트파일 업로드</label>
+            <button type="button" id="new-folder-btn" class="new-folder-btn" title="새 폴더">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path><line x1="12" y1="10" x2="12" y2="16"></line><line x1="9" y1="13" x2="15" y2="13"></line></svg>
+              <span>새 폴더</span>
+            </button>
+          </div>
+          <input type="file" id="file-input" accept=".txt" multiple>
         </div>
-        <div class="library-action-row">
-          <label for="file-input" class="upload-btn" id="upload-btn-label">새 텍스트파일 업로드</label>
-          <button type="button" id="new-folder-btn" class="new-folder-btn" title="새 폴더">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path><line x1="12" y1="10" x2="12" y2="16"></line><line x1="9" y1="13" x2="15" y2="13"></line></svg>
-            <span>새 폴더</span>
-          </button>
-        </div>
-        <input type="file" id="file-input" accept=".txt" multiple>
+        <!-- 지금 보고 있는 폴더 경로 — "내 서재 › 폴더A › 하위폴더" 형태로, 클릭하면 그 위치로 이동.
+             헤더(구분선 위)가 아니라 목록 바로 위에 붙여서, "이 목록이 있는 위치"라는 게
+             한눈에 이어져 보이게 한다. -->
+        <div id="library-breadcrumb" class="library-breadcrumb"></div>
+        <ul id="file-list"></ul>
       </div>
-      <!-- 지금 보고 있는 폴더 경로 — "내 서재 › 폴더A › 하위폴더" 형태로, 클릭하면 그 위치로 이동.
-           헤더(구분선 위)가 아니라 목록 바로 위에 붙여서, "이 목록이 있는 위치"라는 게
-           한눈에 이어져 보이게 한다. -->
-      <div id="library-breadcrumb" class="library-breadcrumb"></div>
-      <ul id="file-list"></ul>
-      <!-- 최근 본 파일 — 목록이랑 같은 줄 스타일이라 구분선/배경만으로는 "이어진 목록"처럼
-           보인다는 피드백 → 뷰어 화면의 #bottom-bar와 같은 방식(스크롤 영역 밖, 패널
-           맨 아래 고정)으로 완전히 분리했다. 지금 어느 폴더를 보고 있는지와 무관하게
-           최근에 열었던 책 몇 권을 폴더를 안 뒤져도 바로 누를 수 있다. -->
+      <!-- 최근 본 파일 — 아래 목록이랑 행 스타일이 같아서 구분선/배경 정도로는 "이어진
+           같은 목록"처럼 보인다는 피드백 → 아예 독립된 카드로 완전히 분리했다. 지금
+           어느 폴더를 보고 있는지와 무관하게 최근에 열었던 책 몇 권을 폴더를 안
+           뒤져도 바로 누를 수 있다. -->
       <div id="recent-files-section" class="recent-files-section" style="display:none;">
         <div class="recent-files-label">최근 본 파일</div>
         <ul id="recent-file-list"></ul>
