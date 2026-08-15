@@ -310,16 +310,21 @@
     }
     .new-folder-btn:hover { background-color: rgba(58,42,24,0.08); }
 
-    /* 최근 본 파일 — 루트 화면에서만 보이고, 아래 폴더/파일 목록과 행 스타일이 똑같아서
-       구분선 하나만으로는 "이어진 같은 목록"처럼 보인다는 피드백 반영 — 옅은 배경을
-       깔아 하나의 독립된 카드처럼 보이게 한다. */
+    /* 최근 본 파일 — 루트 화면에서만 보이고, 아래로 스크롤되는 목록(#file-list)과 같은
+       줄 스타일이라 옅은 카드 배경 정도로는 "이어진 같은 목록"처럼 보인다는 피드백이
+       있었다 — 뷰어 화면 #bottom-bar와 같은 방식으로 패널 맨 아래에 완전히 분리된
+       고정 영역으로 바꿨다. .library-panel이 flex-direction:column이고 #file-list가
+       flex:1로 스크롤을 전담하기 때문에, 이 블록은 그 아래에 눌러앉듯 항상 고정된다
+       (따로 position:fixed를 안 써도 됨). */
     .recent-files-section {
-      margin: 10px 12px 4px; padding: 6px 0 8px; border-radius: 12px;
-      background-color: rgba(58,42,24,0.05);
+      flex-shrink: 0;
+      border-top: 1px solid var(--border-color);
+      background-color: var(--sidebar-bg);
+      padding: 8px 4px max(8px, env(safe-area-inset-bottom));
     }
     .recent-files-label {
       font-size: 11px; font-weight: 700; letter-spacing: 0.3px;
-      opacity: 0.55; padding: 0 10px 4px;
+      opacity: 0.55; padding: 4px 14px 2px;
     }
     #recent-file-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
     #recent-file-list li {
@@ -3990,17 +3995,19 @@
         </div>
         <input type="file" id="file-input" accept=".txt" multiple>
       </div>
-      <!-- 최근 본 파일 — 지금 어느 폴더를 보고 있는지와 무관하게, 루트 화면에서
-           최근에 열었던 책 몇 권을 폴더를 안 뒤져도 바로 누를 수 있게 따로 보여준다. -->
-      <div id="recent-files-section" class="recent-files-section" style="display:none;">
-        <div class="recent-files-label">최근 본 파일</div>
-        <ul id="recent-file-list"></ul>
-      </div>
       <!-- 지금 보고 있는 폴더 경로 — "내 서재 › 폴더A › 하위폴더" 형태로, 클릭하면 그 위치로 이동.
            헤더(구분선 위)가 아니라 목록 바로 위에 붙여서, "이 목록이 있는 위치"라는 게
            한눈에 이어져 보이게 한다. -->
       <div id="library-breadcrumb" class="library-breadcrumb"></div>
       <ul id="file-list"></ul>
+      <!-- 최근 본 파일 — 목록이랑 같은 줄 스타일이라 구분선/배경만으로는 "이어진 목록"처럼
+           보인다는 피드백 → 뷰어 화면의 #bottom-bar와 같은 방식(스크롤 영역 밖, 패널
+           맨 아래 고정)으로 완전히 분리했다. 지금 어느 폴더를 보고 있는지와 무관하게
+           최근에 열었던 책 몇 권을 폴더를 안 뒤져도 바로 누를 수 있다. -->
+      <div id="recent-files-section" class="recent-files-section" style="display:none;">
+        <div class="recent-files-label">최근 본 파일</div>
+        <ul id="recent-file-list"></ul>
+      </div>
     </div>
   </div>
 
