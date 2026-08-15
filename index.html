@@ -272,6 +272,7 @@
        기본 상태에서는 배경 없이 텍스트만 있는 편이 더 깔끔해 보인다는 피드백 반영.
        hover/active일 때만 배경이 붙어서 "지금 이게 눌리는 대상"이라는 걸 보여준다. */
     #file-list li {
+      position: relative; /* 순서변경 삽입선(::before/::after)의 위치 기준 */
       padding: 14px 10px;
       cursor: pointer; font-size: 14px;
       display: flex; align-items: center; gap: 12px;
@@ -369,8 +370,15 @@
     .reorder-handle:hover { opacity: 0.9; background-color: rgba(0,0,0,0.08); }
     .reorder-handle:active { cursor: grabbing; }
     /* box-shadow(inset)로 그려서 레이아웃 크기에 영향을 안 주는 삽입선 표시 */
-    #file-list li.reorder-insert-before { box-shadow: inset 0 3px 0 0 var(--accent-color); }
-    #file-list li.reorder-insert-after { box-shadow: inset 0 -3px 0 0 var(--accent-color); }
+    /* box-shadow 굵은 실선 대신 점선 — 레이아웃 크기에 영향 안 주게 절대배치 pseudo-element로 그린다 */
+    #file-list li.reorder-insert-before::before,
+    #file-list li.reorder-insert-after::after {
+      content: ''; position: absolute; left: 4px; right: 4px;
+      border-top: 2px dashed var(--accent-color);
+      pointer-events: none;
+    }
+    #file-list li.reorder-insert-before::before { top: -1px; }
+    #file-list li.reorder-insert-after::after { bottom: -1px; }
 
     #file-list li.folder-item .file-item-icon { opacity: 0.7; }
 
