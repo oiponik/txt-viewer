@@ -1177,6 +1177,21 @@
       return !!currentUser && currentUser.uid === DEV_USER_UID;
     }
 
+    // 🔐 임시 관리자 게이트 — 지금은 books/ 아래 파일 목록을 모든 회원이 공통으로 보는
+    // 서재라서, 서재 구조를 바꾸는 동작(새 폴더/이동/삭제/이름변경)을 아무나 할 수
+    // 있으면 안 된다. 나중에 회원별로 자기가 올린 파일만 보이게 바뀌면 이 게이트는
+    // 필요 없어진다 — 그 전까지의 임시 조치.
+    // ⚠️ 이건 화면에 버튼을 숨기는 것뿐이다. 진짜 보안은 여기가 아니라 Firebase
+    // Storage/Firestore 보안 규칙에서 이 이메일인지 확인해야 한다 — 그 규칙은 이
+    // 저장소에 없어서(Firebase 콘솔에서 직접 관리) 내가 대신 걸어줄 수 없다.
+    // 아래 두 함수 바로 위 주석에 필요한 규칙을 적어뒀다.
+    const ADMIN_EMAIL = 'kinopioo@naver.com';
+    function isAdminUser() {
+      // 개발자 테스트 세션은 실제 Storage/Firestore를 안 건드리니 항상 관리자로 취급해서
+      // 화면 확인이 가능하게 한다 — 실사용자 권한 체계와는 무관.
+      return isDevUser() || (!!currentUser && currentUser.email === ADMIN_EMAIL);
+    }
+
     // 목록 항목 우측의 "⋮" 메뉴 버튼 — 파일/폴더 공통으로 쓴다. 클릭이 li 자체의
     // onclick(열기/이동)까지 같이 발동하지 않도록 stopPropagation을 건다.
     function createItemMenuButton(onOpen) {
@@ -1218,7 +1233,8 @@
 
       li.appendChild(icon);
       li.appendChild(nameSpan);
-      li.appendChild(createItemMenuButton(() => openFileActionSheet(fileName)));
+      // 이름변경/이동/삭제는 관리자만 — 버튼 자체를 안 보여준다(isAdminUser 주석 참고)
+      if (isAdminUser()) li.appendChild(createItemMenuButton(() => openFileActionSheet(fileName)));
       // suppressClick: 방금 드래그로 옮겼을 때 이어서 뜨는 클릭까지 "열기"로 처리되지 않게 막는다
       li.onclick = () => { if (li.dataset.suppressClick) return; onClick(); };
       return li;
@@ -1249,7 +1265,9 @@
 
       li.appendChild(icon);
       li.appendChild(nameSpan);
-      li.appendChild(createItemMenuButton(() => openFolderActionSheet(folder.id)));
+      // 이름변경/이동/삭제는 관리자만 — 버튼 자체를 안 보여준다(isAdminUser 주석 참고).
+      // 폴더 안으로 들어가서 훑어보는 건(li.onclick) 관리자가 아니어도 그대로 가능하다.
+      if (isAdminUser()) li.appendChild(createItemMenuButton(() => openFolderActionSheet(folder.id)));
       li.onclick = () => {
         if (li.dataset.suppressClick) return;
         currentFolderId = folder.id;
@@ -1453,6 +1471,14 @@
       return (crypto.randomUUID ? crypto.randomUUID() : 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2));
     }
 
+    // ⚠️ books/ 파일 목록이 전체 회원 공통이라, 폴더 구조도 회원마다 따로가 아니라
+    // 전체가 같은 걸 본다 — 그래서 users/{uid}/... 밑이 아니라 공용 문서(library/shared)
+    // 하나에 저장한다. Firestore 보안 규칙에 아래 내용을 추가해야 실제로 안전해진다
+    // (이 저장소엔 규칙 파일이 없어서 Firebase 콘솔에서 직접 추가해야 함):
+    //   match /library/shared {
+    //     allow read: if request.auth != null;
+    //     allow write: if request.auth != null && request.auth.token.email == 'kinopioo@naver.com';
+    //   }
     async function loadLibraryState() {
       if (isDevUser()) {
         try {
@@ -1467,7 +1493,7 @@
         return;
       }
       try {
-        const snap = await getDoc(doc(db, "users", currentUser.uid, "library", "state"));
+        const snap = await getDoc(doc(db, "library", "shared"));
         const data = snap.exists() ? snap.data() : null;
         libraryFolders = (data && Array.isArray(data.folders)) ? data.folders : [];
         fileFolderMap = (data && data.fileFolder && typeof data.fileFolder === 'object') ? data.fileFolder : {};
@@ -1486,7 +1512,7 @@
         return;
       }
       try {
-        await setDoc(doc(db, "users", currentUser.uid, "library", "state"), {
+        await setDoc(doc(db, "library", "shared"), {
           folders: libraryFolders,
           fileFolder: fileFolderMap,
           updatedAt: new Date()
@@ -1529,7 +1555,7 @@
     // 최근 연 파일 이름 목록(최신순) — reading_progress에 이미 파일마다 updatedAt이 찍혀
     // 있어서, 따로 "최근 목록"을 유지하지 않고 그 문서들을 최신순으로 조회해서 얻는다.
     // (개발자 세션은 Firestore를 안 쓰니, devProgress: 키가 있으면 그 파일 하나만.)
-    const RECENT_FILES_LIMIT = 6;
+    const RECENT_FILES_LIMIT = 3;
     async function loadRecentFileNames() {
       if (isDevUser()) {
         recentFileNames = (localStorage.getItem('devProgress:' + DEV_BOOK_FILENAME) !== null) ? [DEV_BOOK_FILENAME] : [];
@@ -1579,6 +1605,9 @@
     // 상단 경로(breadcrumb)도 같이 갱신한다. 폴더 CRUD/이동/이름변경/업로드 등
     // 목록에 영향을 주는 동작 뒤에는 항상 이 함수를 다시 부른다.
     function renderLibraryView() {
+      // 새 폴더 만들기도 관리자만 — 매 렌더마다 다시 맞춰도 비용이 거의 없어서
+      // 로그인 시점 한 번이 아니라 여기서 같이 처리한다.
+      document.getElementById('new-folder-btn').style.display = isAdminUser() ? '' : 'none';
       renderLibraryBreadcrumb();
       renderRecentFilesSection();
       fileListElement.innerHTML = '';
@@ -1712,13 +1741,16 @@
 
       setStatus(files.length > 1 ? `${files.length}개 파일 업로드 중...` : "Storage 업로드 중...");
 
+      // 폴더 구조는 관리자만 바꿀 수 있어서, 관리자가 아니면 지금 어느 폴더를 보고
+      // 있었든 업로드된 파일은 항상 루트("내 서재")에 놓인다 — 정리는 관리자 몫.
+      const assignFolder = isAdminUser() && currentFolderId;
       const results = await Promise.allSettled(files.map(async (file) => {
         await uploadBytes(ref(storage, 'books/' + file.name), file);
-        if (currentFolderId) fileFolderMap[file.name] = currentFolderId;
+        if (assignFolder) fileFolderMap[file.name] = currentFolderId;
       }));
 
       const failCount = results.filter((r) => r.status === 'rejected').length;
-      if (currentFolderId && failCount < results.length) await saveLibraryState();
+      if (assignFolder && failCount < results.length) await saveLibraryState();
 
       if (failCount === 0) {
         setStatus(files.length > 1 ? `${files.length}개 파일 업로드 완료!` : "업로드 완료!");
@@ -1815,6 +1847,7 @@
       openItemActionSheet(fileName, [
         { label: '이름 변경', onClick: () => renameFilePrompt(fileName) },
         { label: '이동', onClick: () => moveFilePrompt(fileName) },
+        { label: '삭제', danger: true, onClick: () => deleteFileConfirm(fileName) },
       ]);
     }
 
@@ -1962,6 +1995,41 @@
       }
     }
 
+    // 파일 삭제 — books/에서 실제로 지운다(되돌릴 수 없음, 그래서 확인창 하나 거친다).
+    // ⚠️ 지금 이 파일을 읽고 있던 "다른" 회원들의 이어보기/책갈피 기록은 각자 계정
+    // 밑(users/{uid}/...)에 있어서 관리자 세션에서는 건드릴 수 없다 — 그 파일을 가리키는
+    // 채로 orphan으로 남지만(재사용 안 되는 한 무해), 관리자 자신의 기록만 같이 정리한다.
+    async function deleteFileConfirm(fileName) {
+      if (isDevUser()) {
+        setStatus('개발자 모드에서는 삭제를 지원하지 않아요');
+        return;
+      }
+      const ok = confirm(`"${fileName}" 파일을 완전히 삭제할까요?\n이 동작은 되돌릴 수 없습니다.`);
+      if (!ok) return;
+
+      setStatus('삭제 중...');
+      try {
+        await deleteObject(ref(storage, 'books/' + fileName));
+
+        if (fileFolderMap[fileName]) {
+          delete fileFolderMap[fileName];
+          await saveLibraryState();
+        }
+
+        const fid = fileDocId(fileName);
+        await deleteDoc(doc(db, "users", currentUser.uid, "reading_progress", fid)).catch(() => {});
+        await deleteDoc(doc(db, "users", currentUser.uid, "bookmarks", fid)).catch(() => {});
+
+        if (currentFileName === fileName) currentFileName = "";
+
+        setStatus('삭제했어요');
+        await fetchFileList();
+      } catch (err) {
+        console.error(err);
+        setStatus('삭제 실패');
+      }
+    }
+
     // ── 드래그 앤 드롭: 파일/폴더를 폴더 위로(또는 상단 경로로) 끌어다 놓으면 이동 ──
     // 데스크톱(마우스)은 클릭+이동을 바로 드래그로 취급하지만, 모바일(터치)에서는
     // 목록을 손가락으로 스크롤하는 동작과 구분해야 해서 살짝 눌러 붙잡고 있어야
@@ -1971,6 +2039,7 @@
     const TOUCH_HOLD_CANCEL_DISTANCE = 10;
 
     function setupLibraryDragAndDrop() {
+      if (!isAdminUser()) return; // 드래그 결과는 결국 "이동"이라 관리자만
       fileListElement.querySelectorAll('li[data-draggable]').forEach((li) => {
         li.addEventListener('pointerdown', onLibraryItemPointerDown);
       });
