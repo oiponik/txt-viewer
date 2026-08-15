@@ -1864,9 +1864,19 @@
     // 폴더 안으로 바로 들어간다. 업로드가 끝나도 그 책을 바로 열지 않고 목록 화면에
     // 그대로 머문다 — 여러 권을 올렸을 때 "그중 뭘 열지"를 사용자가 직접 고르게 한다.
     document.getElementById('file-input').addEventListener('change', async (e) => {
-      const files = Array.from(e.target.files || []);
+      const selectedFiles = Array.from(e.target.files || []);
       e.target.value = ''; // 같은 파일(들)을 다시 선택해도 change가 또 발생하도록 초기화
-      if (files.length === 0) return;
+      if (selectedFiles.length === 0) return;
+
+      // <input accept=".txt">는 OS 파일 선택창의 필터일 뿐이라("모든 파일"로 바꾸면
+      // 뭐든 고를 수 있다) 실제로 올리기 전에 확장자를 한 번 더 검사해야 진짜로
+      // .txt만 들어온다. 대소문자 구분 없이 .txt로 끝나는 것만 통과시킨다.
+      const files = selectedFiles.filter((f) => /\.txt$/i.test(f.name));
+      const rejectedCount = selectedFiles.length - files.length;
+      if (files.length === 0) {
+        setStatus('.txt 파일만 업로드할 수 있어요');
+        return;
+      }
 
       // 개발자 세션은 실제 Storage 계정이 없어서 업로드가 될 수 없다 — 버튼 자체는
       // 실사용자 화면과 똑같이 보여주되(요청사항), 시도하면 실패할 real 네트워크
@@ -1894,6 +1904,8 @@
         setStatus(`${files.length - failCount}개 성공, ${failCount}개 실패`);
       } else if (!folderSaveOk) {
         setStatus('업로드는 됐지만 폴더 지정에 실패했어요');
+      } else if (rejectedCount > 0) {
+        setStatus(`${files.length}개 업로드 완료 (.txt 아닌 ${rejectedCount}개 제외)`);
       } else {
         setStatus(files.length > 1 ? `${files.length}개 파일 업로드 완료!` : "업로드 완료!");
       }
