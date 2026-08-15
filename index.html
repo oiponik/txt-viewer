@@ -319,14 +319,14 @@
        이어, 화면 맨 아래에 고정(position:fixed)해서 "내 서재" 카드 크기나 스크롤과
        무관하게 항상 같은 자리에 떠 있게 했다. */
     .recent-files-section {
-      position: fixed; left: 50%; bottom: max(16px, env(safe-area-inset-bottom));
+      position: fixed; left: 50%; bottom: 0;
       transform: translateX(-50%);
       width: min(480px, 92vw);
       z-index: 6;
       background-color: var(--sidebar-bg);
-      border-radius: 16px;
+      border-radius: 16px 16px 0 0; /* 화면 맨 아래에 딱 붙으니 아래쪽 모서리는 각지게 */
       box-shadow: 0 12px 40px rgba(0,0,0,0.18);
-      padding: 10px 4px;
+      padding: 10px 4px max(10px, env(safe-area-inset-bottom));
     }
     .recent-files-label {
       font-size: 11px; font-weight: 700; letter-spacing: 0.3px;
@@ -1780,11 +1780,11 @@
       }
       section.style.display = '';
       recentFileNames.forEach((name) => listEl.appendChild(createRecentFileListItem(name)));
-      // "최근 본 파일"이 화면 아래에 고정으로 떠 있어서, "내 서재" 카드가 그 밑에 깔려
-      // 가려지지 않도록 실제 렌더된 높이만큼 위쪽에 여백을 남겨준다(카드 자신의 화면
-      // 하단 여백 + 두 카드 사이 여유 간격까지 포함).
+      // "최근 본 파일"이 화면 아래에 딱 붙어 고정돼 있어서, "내 서재" 카드가 그 밑에
+      // 깔려 가려지지 않도록 실제 렌더된 높이만큼 위쪽에 여백을 남겨준다(카드 자체는
+      // 화면 하단 여백이 없으니, 두 카드 사이 숨쉴 틈만 더하면 된다).
       const height = section.getBoundingClientRect().height;
-      reserveSpaceForRecentCard(height + 16 + 14);
+      reserveSpaceForRecentCard(height + 14);
     }
 
     function reserveSpaceForRecentCard(px) {
