@@ -365,6 +365,22 @@
     }
     .item-menu-btn:hover { opacity: 1; background-color: rgba(0,0,0,0.08); }
 
+    /* 순서변경 손잡이 — touch-action:none이라 여길 잡으면 목록 스크롤 대신 곧바로
+       드래그가 시작된다(작고 정확한 타겟이라 스크롤과 헷갈릴 일이 적어서, 몸통
+       드래그처럼 길게 눌러 붙잡을 필요 없이 바로 반응해도 괜찮다). */
+    .reorder-handle {
+      flex-shrink: 0; cursor: grab; touch-action: none;
+      width: 28px; height: 28px; border-radius: 50%;
+      border: none; background: transparent; color: inherit; opacity: 0.4;
+      display: flex; align-items: center; justify-content: center;
+      transition: background-color 0.15s ease, opacity 0.15s ease;
+    }
+    .reorder-handle:hover { opacity: 0.9; background-color: rgba(0,0,0,0.08); }
+    .reorder-handle:active { cursor: grabbing; }
+    /* box-shadow(inset)로 그려서 레이아웃 크기에 영향을 안 주는 삽입선 표시 */
+    #file-list li.reorder-insert-before { box-shadow: inset 0 2px 0 0 var(--accent-color); }
+    #file-list li.reorder-insert-after { box-shadow: inset 0 -2px 0 0 var(--accent-color); }
+
     #file-list li.folder-item .file-item-icon { opacity: 0.7; }
 
     [data-draggable] { user-select: none; }
@@ -1207,6 +1223,26 @@
       return btn;
     }
 
+    // 순서변경 전용 손잡이(⠿) — 여길 잡고 끌면 "같은 폴더 안에서 순서만 바꾸기"이고,
+    // 행 몸통을 잡고 끄는 기존 동작("폴더로 옮기기")과는 완전히 분리된 별도의 드래그다.
+    // pointerdown이 li까지 버블링되면 몸통-드래그(onLibraryItemPointerDown)까지 같이
+    // 발동해버리므로, 여기서 반드시 stopPropagation으로 끊어야 한다.
+    function createReorderHandle() {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'reorder-handle';
+      btn.title = '순서 변경';
+      btn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><circle cx="9" cy="6" r="1.6"></circle><circle cx="15" cy="6" r="1.6"></circle><circle cx="9" cy="12" r="1.6"></circle><circle cx="15" cy="12" r="1.6"></circle><circle cx="9" cy="18" r="1.6"></circle><circle cx="15" cy="18" r="1.6"></circle></svg>';
+      btn.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        onReorderHandlePointerDown(e);
+      });
+      // 드래그 없이 그냥 클릭됐을 때도(예: 짧은 탭) li의 onclick(열기/이동)으로
+      // 안 새어나가게 막는다 — 손잡이는 순서변경 전용이지 열기 버튼이 아니다.
+      btn.addEventListener('click', (e) => e.stopPropagation());
+      return btn;
+    }
+
     // 서재 파일 목록 항목 하나를 만든다 — 도구모음 아이콘들과 같은 stroke 기반
     // feather 스타일 책 아이콘을 파일명 앞에 붙인다. li.dataset.fileName으로
     // 어떤 파일인지 식별한다(활성 표시/드래그 모두 이 값을 쓴다).
@@ -1233,8 +1269,11 @@
 
       li.appendChild(icon);
       li.appendChild(nameSpan);
-      // 이름변경/이동/삭제는 관리자만 — 버튼 자체를 안 보여준다(isAdminUser 주석 참고)
-      if (isAdminUser()) li.appendChild(createItemMenuButton(() => openFileActionSheet(fileName)));
+      // 이름변경/이동/삭제/순서변경은 전부 관리자만 — 버튼 자체를 안 보여준다(isAdminUser 주석 참고)
+      if (isAdminUser()) {
+        li.appendChild(createReorderHandle());
+        li.appendChild(createItemMenuButton(() => openFileActionSheet(fileName)));
+      }
       // suppressClick: 방금 드래그로 옮겼을 때 이어서 뜨는 클릭까지 "열기"로 처리되지 않게 막는다
       li.onclick = () => { if (li.dataset.suppressClick) return; onClick(); };
       return li;
@@ -1265,9 +1304,12 @@
 
       li.appendChild(icon);
       li.appendChild(nameSpan);
-      // 이름변경/이동/삭제는 관리자만 — 버튼 자체를 안 보여준다(isAdminUser 주석 참고).
+      // 이름변경/이동/삭제/순서변경은 전부 관리자만 — 버튼 자체를 안 보여준다(isAdminUser 주석 참고).
       // 폴더 안으로 들어가서 훑어보는 건(li.onclick) 관리자가 아니어도 그대로 가능하다.
-      if (isAdminUser()) li.appendChild(createItemMenuButton(() => openFolderActionSheet(folder.id)));
+      if (isAdminUser()) {
+        li.appendChild(createReorderHandle());
+        li.appendChild(createItemMenuButton(() => openFolderActionSheet(folder.id)));
+      }
       li.onclick = () => {
         if (li.dataset.suppressClick) return;
         currentFolderId = folder.id;
@@ -1466,10 +1508,17 @@
     let fileFolderMap = {};       // { [fileName]: folderId } — 없으면 루트
     let currentFolderId = null;   // 지금 서재 화면에서 보고 있는 폴더 (null=루트)
     let recentFileNames = [];     // 최근 연 순서(최신이 앞) — 폴더 위치와 무관하게 루트 화면에 따로 보여줌
+    // 손잡이(⠿)로 직접 끌어 정한 순서 — { [부모 폴더 id 또는 'root']: [itemKey, ...] }.
+    // itemKey는 폴더면 "folder:id", 파일이면 "file:fileName". 이 배열에 없는 항목은
+    // (아직 손대지 않은 새 파일/폴더) 정렬된 항목들 뒤에 이름순으로 자연히 붙는다.
+    let itemOrder = {};
 
     function newFolderId() {
       return (crypto.randomUUID ? crypto.randomUUID() : 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2));
     }
+    function orderParentKey(folderId) { return folderId || 'root'; }
+    function folderItemKey(id) { return 'folder:' + id; }
+    function fileItemKey(name) { return 'file:' + name; }
 
     // ⚠️ books/ 파일 목록이 전체 회원 공통이라, 폴더 구조도 회원마다 따로가 아니라
     // 전체가 같은 걸 본다 — 그래서 users/{uid}/... 밑이 아니라 공용 문서(library/shared)
@@ -1486,9 +1535,11 @@
           const data = raw ? JSON.parse(raw) : null;
           libraryFolders = (data && Array.isArray(data.folders)) ? data.folders : [];
           fileFolderMap = (data && data.fileFolder && typeof data.fileFolder === 'object') ? data.fileFolder : {};
+          itemOrder = (data && data.itemOrder && typeof data.itemOrder === 'object') ? data.itemOrder : {};
         } catch (err) {
           libraryFolders = [];
           fileFolderMap = {};
+          itemOrder = {};
         }
         return;
       }
@@ -1497,17 +1548,19 @@
         const data = snap.exists() ? snap.data() : null;
         libraryFolders = (data && Array.isArray(data.folders)) ? data.folders : [];
         fileFolderMap = (data && data.fileFolder && typeof data.fileFolder === 'object') ? data.fileFolder : {};
+        itemOrder = (data && data.itemOrder && typeof data.itemOrder === 'object') ? data.itemOrder : {};
       } catch (err) {
         console.error('서재 폴더 정보 불러오기 실패:', err);
         libraryFolders = [];
         fileFolderMap = {};
+        itemOrder = {};
       }
     }
 
     async function saveLibraryState() {
       if (isDevUser()) {
         try {
-          localStorage.setItem('devLibraryState', JSON.stringify({ folders: libraryFolders, fileFolder: fileFolderMap }));
+          localStorage.setItem('devLibraryState', JSON.stringify({ folders: libraryFolders, fileFolder: fileFolderMap, itemOrder }));
         } catch (err) { /* 용량 초과 등은 조용히 무시 — 폴더 정보 없이도 파일 목록 자체는 동작 */ }
         return;
       }
@@ -1515,6 +1568,7 @@
         await setDoc(doc(db, "library", "shared"), {
           folders: libraryFolders,
           fileFolder: fileFolderMap,
+          itemOrder,
           updatedAt: new Date()
         });
       } catch (err) {
@@ -1612,30 +1666,63 @@
       renderRecentFilesSection();
       fileListElement.innerHTML = '';
 
-      const childFolders = getChildFolders(currentFolderId)
-        .slice().sort((a, b) => a.name.localeCompare(b.name, 'ko'));
-      const childFiles = allStorageFileNames
-        .filter((name) => (fileFolderMap[name] || null) === (currentFolderId || null))
-        .sort((a, b) => a.localeCompare(b, 'ko'));
+      const childFolders = getChildFolders(currentFolderId);
+      const childFileNames = allStorageFileNames
+        .filter((name) => (fileFolderMap[name] || null) === (currentFolderId || null));
 
-      if (childFolders.length === 0 && childFiles.length === 0) {
+      if (childFolders.length === 0 && childFileNames.length === 0) {
         renderLibraryMessage(currentFolderId ? '이 폴더는 비어 있습니다.' : '업로드된 파일이 없습니다.');
         return;
       }
 
-      childFolders.forEach((folder) => fileListElement.appendChild(createFolderListItem(folder)));
-      childFiles.forEach((name) => {
-        const li = createFileListItem(name, () => {
+      orderedLibraryItems(currentFolderId, childFolders, childFileNames).forEach((item) => {
+        if (item.type === 'folder') {
+          fileListElement.appendChild(createFolderListItem(item.folder));
+          return;
+        }
+        const li = createFileListItem(item.name, () => {
           // #book-stage가 실제 크기를 가지려면 뷰어 화면이 먼저 보여야 한다
           // (숨겨진 상태에서 페이지 크기를 재면 0으로 계산되어 버림)
           showViewerScreen();
-          if (isDevUser()) loadDevTestFile(); else loadFileFromStorage(name);
+          if (isDevUser()) loadDevTestFile(); else loadFileFromStorage(item.name);
         });
-        if (name === currentFileName) li.classList.add('active');
+        if (item.name === currentFileName) li.classList.add('active');
         fileListElement.appendChild(li);
       });
 
       setupLibraryDragAndDrop();
+    }
+
+    // 폴더+파일을 하나의 순서로 합친다 — 손잡이(⠿)로 직접 정한 순서(itemOrder)가
+    // 있으면 그걸 먼저 따르고, 아직 손대지 않은 새 항목들은 "폴더 먼저, 이름순"으로
+    // 그 뒤에 자연스럽게 붙는다(예전 기본 정렬과 동일).
+    function orderedLibraryItems(parentId, folders, fileNames) {
+      const order = itemOrder[orderParentKey(parentId)] || [];
+      const folderByKey = new Map(folders.map((f) => [folderItemKey(f.id), f]));
+      const fileKeySet = new Set(fileNames.map(fileItemKey));
+      const seen = new Set();
+      const items = [];
+
+      order.forEach((key) => {
+        if (folderByKey.has(key)) {
+          items.push({ type: 'folder', folder: folderByKey.get(key) });
+          seen.add(key);
+        } else if (fileKeySet.has(key)) {
+          items.push({ type: 'file', name: key.slice('file:'.length) });
+          seen.add(key);
+        }
+      });
+
+      folders
+        .filter((f) => !seen.has(folderItemKey(f.id)))
+        .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+        .forEach((f) => items.push({ type: 'folder', folder: f }));
+      fileNames
+        .filter((n) => !seen.has(fileItemKey(n)))
+        .sort((a, b) => a.localeCompare(b, 'ko'))
+        .forEach((n) => items.push({ type: 'file', name: n }));
+
+      return items;
     }
 
     // 최근 본 파일 — 루트(내 서재) 화면에서만 보인다. 폴더 안까지 들어가서도 보이면
@@ -1893,6 +1980,7 @@
       if (!folder) return;
       if ((folder.parentId || null) === (targetFolderId || null)) return; // 이미 그 자리
       folder.parentId = targetFolderId;
+      removeFromItemOrder(folderItemKey(folderId));
       await saveLibraryState();
       renderLibraryView();
       setStatus('폴더를 이동했어요');
@@ -1914,6 +2002,8 @@
         }
       });
       libraryFolders = libraryFolders.filter((f) => f.id !== folderId);
+      removeFromItemOrder(folderItemKey(folderId));
+      delete itemOrder[folderId]; // 이 폴더 "안"에서의 순서 기록도 같이 정리(안의 항목들은 상위로 옮겨지며 순서가 새로 매겨짐)
 
       if (currentFolderId === folderId) currentFolderId = parentId;
       await saveLibraryState();
@@ -1925,6 +2015,7 @@
     function moveFilePrompt(fileName) {
       promptFolderPicker('이 파일을 옮길 위치', [], async (targetFolderId) => {
         if (targetFolderId) fileFolderMap[fileName] = targetFolderId; else delete fileFolderMap[fileName];
+        removeFromItemOrder(fileItemKey(fileName));
         await saveLibraryState();
         renderLibraryView();
         setStatus('파일을 이동했어요');
@@ -1965,8 +2056,12 @@
         if (fileFolderMap[oldName]) {
           fileFolderMap[newName] = fileFolderMap[oldName];
           delete fileFolderMap[oldName];
-          await saveLibraryState();
         }
+        // 순서를 직접 정해뒀던 자리가 있다면(어느 폴더 소속이었든) 새 이름으로 키만 갈아끼운다
+        Object.keys(itemOrder).forEach((parent) => {
+          itemOrder[parent] = itemOrder[parent].map((k) => (k === fileItemKey(oldName) ? fileItemKey(newName) : k));
+        });
+        await saveLibraryState();
 
         if (currentFileName === oldName) {
           currentFileName = newName;
@@ -2011,10 +2106,9 @@
       try {
         await deleteObject(ref(storage, 'books/' + fileName));
 
-        if (fileFolderMap[fileName]) {
-          delete fileFolderMap[fileName];
-          await saveLibraryState();
-        }
+        if (fileFolderMap[fileName]) delete fileFolderMap[fileName];
+        removeFromItemOrder(fileItemKey(fileName));
+        await saveLibraryState();
 
         const fid = fileDocId(fileName);
         await deleteDoc(doc(db, "users", currentUser.uid, "reading_progress", fid)).catch(() => {});
@@ -2156,16 +2250,145 @@
       if (kind === 'file') {
         if ((fileFolderMap[id] || null) === (targetFolderId || null)) return;
         if (targetFolderId) fileFolderMap[id] = targetFolderId; else delete fileFolderMap[id];
+        removeFromItemOrder(fileItemKey(id));
       } else {
         if (targetFolderId === id) return;
         if (getFolderAndDescendantIds(id).includes(targetFolderId)) return;
         const folder = getFolderById(id);
         if (!folder || (folder.parentId || null) === (targetFolderId || null)) return;
         folder.parentId = targetFolderId;
+        removeFromItemOrder(folderItemKey(id));
       }
       await saveLibraryState();
       renderLibraryView();
       setStatus('이동했어요');
+    }
+
+    // itemKey를 (있다면) 어느 부모의 순서 배열에서든 지운다 — 파일/폴더를 다른 폴더로
+    // 옮기거나 삭제했을 때, 예전 자리의 순서 기록이 남아있지 않게 정리하는 용도.
+    function removeFromItemOrder(itemKey) {
+      Object.keys(itemOrder).forEach((parent) => {
+        const idx = itemOrder[parent].indexOf(itemKey);
+        if (idx !== -1) itemOrder[parent].splice(idx, 1);
+      });
+    }
+
+    // ── 순서변경(⠿ 손잡이) 드래그 — 폴더로 옮기는 드래그와는 별개로, 같은 폴더
+    // 안에서 위/아래 어디에 놓았는지만 본다. 폴더 드롭존 판정이 전혀 없어서
+    // "폴더로 넣기"랑 겹칠 일이 없다.
+    function libraryItemKeyFromLi(li) {
+      return li.dataset.draggable === 'folder' ? folderItemKey(li.dataset.folderId) : fileItemKey(li.dataset.fileName);
+    }
+
+    function onReorderHandlePointerDown(e) {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      const li = e.currentTarget.closest('li[data-draggable]');
+      if (!li) return;
+
+      const startX = e.clientX, startY = e.clientY;
+      let dragging = false;
+      let ghost = null;
+
+      function armDrag() {
+        dragging = true;
+        li.classList.add('dragging-source');
+        ghost = li.cloneNode(true);
+        ghost.classList.add('drag-ghost');
+        ghost.style.width = li.getBoundingClientRect().width + 'px';
+        document.body.appendChild(ghost);
+        positionGhost(startX, startY);
+      }
+      function positionGhost(x, y) {
+        if (ghost) { ghost.style.left = x + 'px'; ghost.style.top = y + 'px'; }
+      }
+      function clearInsertMarkers() {
+        fileListElement.querySelectorAll('.reorder-insert-before, .reorder-insert-after')
+          .forEach((el) => el.classList.remove('reorder-insert-before', 'reorder-insert-after'));
+      }
+      function siblingsExcludingSelf() {
+        return Array.from(fileListElement.querySelectorAll('li[data-draggable]')).filter((el) => el !== li);
+      }
+      // 포인터 y좌표 기준으로 "이 형제 바로 위에 놓일 것"을 찾는다. 못 찾으면(맨 아래로
+      // 내려간 경우) null — 그때는 마지막 형제 아래에 삽입선을 대신 그려서 보여준다.
+      function findInsertBefore(y) {
+        for (const sib of siblingsExcludingSelf()) {
+          const rect = sib.getBoundingClientRect();
+          if (y < rect.top + rect.height / 2) return sib;
+        }
+        return null;
+      }
+      function updateInsertMarker(y) {
+        clearInsertMarkers();
+        const before = findInsertBefore(y);
+        if (before) {
+          before.classList.add('reorder-insert-before');
+        } else {
+          const sibs = siblingsExcludingSelf();
+          if (sibs.length > 0) sibs[sibs.length - 1].classList.add('reorder-insert-after');
+        }
+      }
+
+      function onMove(ev) {
+        if (!dragging) {
+          if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > DRAG_MOVE_THRESHOLD) armDrag();
+          return;
+        }
+        ev.preventDefault();
+        positionGhost(ev.clientX, ev.clientY);
+        updateInsertMarker(ev.clientY);
+      }
+
+      function finish(ev) {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', finish);
+        document.removeEventListener('pointercancel', cleanup);
+        if (!dragging) return;
+
+        const insertBefore = findInsertBefore(ev.clientY);
+        clearInsertMarkers();
+        li.classList.remove('dragging-source');
+        if (ghost) ghost.remove();
+
+        applyReorder(li, insertBefore);
+
+        li.dataset.suppressClick = '1';
+        setTimeout(() => { delete li.dataset.suppressClick; }, 0);
+      }
+
+      function cleanup() {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', finish);
+        document.removeEventListener('pointercancel', cleanup);
+        if (dragging) {
+          li.classList.remove('dragging-source');
+          if (ghost) ghost.remove();
+          clearInsertMarkers();
+        }
+      }
+
+      document.addEventListener('pointermove', onMove, { passive: false });
+      document.addEventListener('pointerup', finish);
+      document.addEventListener('pointercancel', cleanup);
+    }
+
+    // 지금 화면에 그려진 순서(=현재 정렬 결과) 그대로를 새 순서의 기준으로 삼아,
+    // 끌던 항목만 새 위치에 끼워 넣은 뒤 저장한다 — 화면에 안 보이는 항목까지
+    // 신경 쓸 필요 없이 "보이는 그대로"가 곧 저장되는 순서가 되는 셈.
+    async function applyReorder(draggedLi, insertBeforeLi) {
+      const siblings = Array.from(fileListElement.querySelectorAll('li[data-draggable]')).filter((el) => el !== draggedLi);
+      const keys = siblings.map(libraryItemKeyFromLi);
+      const draggedKey = libraryItemKeyFromLi(draggedLi);
+
+      let insertIndex = keys.length;
+      if (insertBeforeLi) {
+        const idx = siblings.indexOf(insertBeforeLi);
+        if (idx !== -1) insertIndex = idx;
+      }
+      keys.splice(insertIndex, 0, draggedKey);
+
+      itemOrder[orderParentKey(currentFolderId)] = keys;
+      await saveLibraryState();
+      renderLibraryView();
     }
 
     // 💡 파일 로드 요청이 겹칠 때(예: 책을 눌렀다가 로딩 중에 다른 책을 또 누름) 먼저 시작된
