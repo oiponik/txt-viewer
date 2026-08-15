@@ -91,9 +91,9 @@
     .library-panel-header h1 {
       margin: 0; font-size: 19px;
     }
-    /* 아이콘만 있으면 무슨 버튼인지 알기 어려워서, 글씨(로그아웃)를 같이 보여주는
+    /* 아이콘만 있으면 무슨 버튼인지 알기 어려워서, 글씨(설정)를 같이 보여주는
        테두리 있는 알약(pill) 모양 버튼으로 — upload-btn만큼 강조하진 않되 버튼처럼 보이게 */
-    .logout-btn {
+    .header-pill-btn {
       flex-shrink: 0;
       display: flex; align-items: center; gap: 4px;
       padding: 4px 10px; border-radius: 999px;
@@ -101,8 +101,8 @@
       color: var(--text-color); font-size: 11.5px; font-weight: 600;
       cursor: pointer; transition: background-color 0.15s ease;
     }
-    .logout-btn:hover { background-color: rgba(58,42,24,0.08); }
-    .logout-btn svg { width: 12px; height: 12px; flex-shrink: 0; }
+    .header-pill-btn:hover { background-color: rgba(58,42,24,0.08); }
+    .header-pill-btn svg { width: 12px; height: 12px; flex-shrink: 0; }
 
     /* 화면 0: 로그인/회원가입 — 인증 전에는 서재/뷰어 모두 접근할 수 없다.
        참고 이미지("triple" 앱)의 레이아웃(로고/문구 위, 입력 아래)은 유지하되
@@ -1486,6 +1486,7 @@
     });
 
     document.getElementById('logout-btn').addEventListener('click', () => {
+      closeSheet('settings-panel');
       if (isDevUser()) {
         // 개발자 세션은 Firebase 로그인 자체가 없었으므로 signOut 대신 직접 정리한다
         currentUser = null;
@@ -1496,6 +1497,10 @@
         return;
       }
       signOut(auth);
+    });
+
+    document.getElementById('open-settings-btn').addEventListener('click', () => {
+      openSheet('settings-panel');
     });
 
     // 📁 서재 폴더 개념 — Storage 자체는 books/ 아래 평평한 구조를 그대로 유지한다
@@ -3922,9 +3927,9 @@
       <div class="library-panel-header">
         <div class="library-panel-title-row">
           <h1>내 서재</h1>
-          <button id="logout-btn" class="logout-btn" title="로그아웃">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-            <span>로그아웃</span>
+          <button id="open-settings-btn" class="header-pill-btn" title="설정">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            <span>설정</span>
           </button>
         </div>
         <div class="library-action-row">
@@ -4111,6 +4116,22 @@
         <button type="button" class="icon-btn" data-close-panel title="닫기">✕</button>
       </div>
       <ul id="folder-picker-list" class="folder-picker-list"></ul>
+    </div>
+  </div>
+
+  <!-- 서재 화면 "설정" — 지금은 로그아웃 하나뿐이지만, 뷰어 설정(책 읽는 화면 전용)과는
+       별개로 앱 전체 단위 설정이 늘어날 자리를 미리 만들어둔다. -->
+  <div id="settings-panel" class="sheet-panel screen-hidden">
+    <div class="sheet-backdrop" data-close-panel></div>
+    <div class="sheet-content">
+      <div class="sheet-header">
+        <strong>설정</strong>
+        <button type="button" class="icon-btn" data-close-panel title="닫기">✕</button>
+      </div>
+      <button type="button" id="logout-btn" class="item-action-btn">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -3px; margin-right: 6px;"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+        로그아웃
+      </button>
     </div>
   </div>
 
