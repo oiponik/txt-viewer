@@ -258,14 +258,6 @@
       font-size: 14px; font-weight: 600;
     }
 
-    /* 하단 바(#bottom-bar)와 같은 결의 "둥근 카드" 느낌으로 통일 —
-       각지고 줄 구분선으로 나뉜 목록 대신, 버튼/행 각각을 독립된 둥근 블록으로 띄운다. */
-    .upload-btn {
-      background-color: var(--accent-color); color: #F2EEE4;
-      text-align: center; padding: 12px; border-radius: 10px;
-      cursor: pointer; font-weight: bold; font-size: 14px;
-      box-shadow: 0 4px 10px rgba(58, 42, 24, 0.3);
-    }
 
     #file-list {
       list-style: none; margin: 0; padding: 4px 12px 12px; overflow-y: auto; flex: 1;
@@ -299,19 +291,10 @@
     }
     .file-list-message.error { color: #c0392b; }
 
-    /* 📁 폴더 관련 UI — 업로드 버튼 옆 "새 폴더" 버튼, 상단 경로(breadcrumb),
-       목록의 "⋮" 더보기 버튼, 폴더 항목, 드래그 앤 드롭 시각 효과 */
-    .library-action-row { display: flex; gap: 8px; align-items: stretch; }
-    .library-action-row .upload-btn { flex: 1; }
-    .new-folder-btn {
-      flex-shrink: 0;
-      display: flex; align-items: center; gap: 6px;
-      padding: 0 14px; border-radius: 10px;
-      border: 1px solid var(--border-color); background-color: transparent;
-      color: var(--text-color); font-size: 13px; font-weight: 600;
-      cursor: pointer; transition: background-color 0.15s ease;
-    }
-    .new-folder-btn:hover { background-color: rgba(58,42,24,0.08); }
+    /* 📁 폴더 관련 UI — 업로드/새 폴더 버튼(둘 다 설정 버튼과 같은 .icon-btn 스타일 —
+       글씨 없이 아이콘만, 크기/색은 같이 낮춰서 한 그룹으로 짝이 맞게 보이게 함),
+       상단 경로(breadcrumb), 목록의 "⋮" 더보기 버튼, 폴더 항목, 드래그 앤 드롭 효과 */
+    .library-action-row { display: flex; gap: 8px; }
 
     /* 최근 본 파일 — 루트 화면에서만 보이고, 아래로 스크롤되는 목록(#file-list)과 같은
        줄 스타일이라 옅은 카드 배경/하단바 정도로는 여전히 "이어진 같은 목록"처럼
@@ -4003,10 +3986,11 @@
             </button>
           </div>
           <div class="library-action-row">
-            <label for="file-input" class="upload-btn" id="upload-btn-label">새 텍스트파일 업로드</label>
-            <button type="button" id="new-folder-btn" class="new-folder-btn" title="새 폴더">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path><line x1="12" y1="10" x2="12" y2="16"></line><line x1="9" y1="13" x2="15" y2="13"></line></svg>
-              <span>새 폴더</span>
+            <label for="file-input" class="icon-btn" id="upload-btn-label" title="새 텍스트파일 업로드">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+            </label>
+            <button type="button" id="new-folder-btn" class="icon-btn" title="새 폴더">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path><line x1="12" y1="10" x2="12" y2="16"></line><line x1="9" y1="13" x2="15" y2="13"></line></svg>
             </button>
           </div>
           <input type="file" id="file-input" accept=".txt" multiple>
