@@ -347,6 +347,16 @@
     .breadcrumb-item:hover { opacity: 0.9; background-color: rgba(58,42,24,0.08); }
     .breadcrumb-item.breadcrumb-current { opacity: 1; font-weight: 700; cursor: default; }
     .breadcrumb-sep { opacity: 0.45; }
+    /* 경로를 한 칸씩 정확히 찾아 누르는 대신, 바로 위 폴더로 한 번에 올라가는 버튼 —
+       특히 모바일에서 breadcrumb 글자를 정확히 탭하는 것보다 훨씬 쉬운 타겟이라 별도로 둔다 */
+    .breadcrumb-up-btn {
+      flex-shrink: 0; margin-right: 2px;
+      width: 24px; height: 24px; border-radius: 50%;
+      border: none; background: transparent; color: var(--text-color); opacity: 0.65;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: background-color 0.15s ease, opacity 0.15s ease;
+    }
+    .breadcrumb-up-btn:hover { opacity: 1; background-color: rgba(58,42,24,0.08); }
 
     .item-menu-btn {
       flex-shrink: 0; margin-left: auto;
@@ -1800,12 +1810,32 @@
       const el = document.getElementById('library-breadcrumb');
       el.innerHTML = '';
 
+      // 루트("내 서재")에 있을 땐 이 줄 자체를 숨긴다 — 바로 위 패널 제목이 이미
+      // "내 서재"라서, 여기서 또 같은 말을 하는 건 반복일 뿐 아무 정보도 안 준다.
+      // 폴더 안으로 들어갔을 때만(=실제로 "경로"라고 부를 게 생겼을 때만) 보여준다.
+      if (!currentFolderId) {
+        el.style.display = 'none';
+        return;
+      }
+      el.style.display = '';
+
+      const currentFolder = getFolderById(currentFolderId);
+      const upBtn = document.createElement('button');
+      upBtn.type = 'button';
+      upBtn.className = 'breadcrumb-up-btn';
+      upBtn.title = '상위 폴더로';
+      upBtn.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>';
+      upBtn.addEventListener('click', () => {
+        currentFolderId = currentFolder ? (currentFolder.parentId || null) : null;
+        renderLibraryView();
+      });
+      el.appendChild(upBtn);
+
       const rootBtn = document.createElement('button');
       rootBtn.type = 'button';
       rootBtn.className = 'breadcrumb-item';
       rootBtn.textContent = '내 서재';
       rootBtn.dataset.folderId = '';
-      if (!currentFolderId) rootBtn.classList.add('breadcrumb-current');
       rootBtn.addEventListener('click', () => { currentFolderId = null; renderLibraryView(); });
       el.appendChild(rootBtn);
 
