@@ -1,0 +1,1675 @@
+// reader.js — 뷰어(책 읽기) 화면 전체: 페이지 분할/가상화, PageFlip 빌드, 페이지 이동,
+// 검색, 책갈피, 뷰어 설정(테마/글꼴/글자크기/문단너비/밝기), 진행 상황 저장/기기 간 동기화,
+// 읽기 몰입 모드(UI 자동 숨김), 브라우저 스와이프(페이지 넘김/밝기 조절), 화면 항상 켜짐 리셋.
+// currentFileName은 library.js(파일 목록 활성 표시, 이름변경/삭제 반영)도 읽어야 해서 session.js의
+// currentUser와 같은 패턴으로 export + setCurrentFileName()을 통해서만 바깥에서 바꿀 수 있게 했다.
+// ⚠️ library.js와 서로 가져다 쓰는 순환 참조가 있다 — library.js는 loadFileFromStorage/
+// loadDevTestFile/currentFileName/setCurrentFileName/resetReaderSession을, 이 파일은
+// library.js의 markActiveFileRow를 가져다 쓴다. 둘 다 실제 사용은 이벤트 핸들러/비동기 함수
+// 안에서만 일어나(모듈 최상단에서 즉시 실행되는 게 아니라) ES 모듈 스펙상 문제없이 동작한다.
+
+import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { ref, getBytes } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+
+import { db, storage } from "./firebase-init.js";
+import { currentUser, isDevUser, lastOpenedFileKey, fileDocId, DEV_BOOK_FILENAME } from "./session.js";
+import { setStatus, showLibraryScreen, openSheet, closeSheet, releaseWakeLock, resetWakeLockIdleTimer } from "./ui-shared.js";
+import { markActiveFileRow } from "./library.js";
+
+export let currentFileName = "";
+export function setCurrentFileName(name) {
+  currentFileName = name;
+}
+let rawTextData = "";
+let pageFlip = null;
+let debounceSaveTimer = null;
+let resizeTimer = null;
+let buildGeneration = 0; // buildFlipBook 재진입/경합 방지용 세대 번호
+// 마지막으로 실제 빌드에 쓰인 무대 크기 — 모바일에서 주소창이 나타났다 사라지는
+// 정도의 자잘한 흔들림은 무시하고, 진짜 의미있는 크기 변화에만 재빌드하기 위함
+// (scheduleFlipbookRebuild 참고)
+let lastBuiltStageWidth = 0;
+let lastBuiltStageHeight = 0;
+let immersiveTimer = null; // 읽기 몰입 모드(UI 자동 숨김) 타이머
+let isHoveringChrome = false; // 사이드바/헤더 위에 마우스가 있는 동안은 숨기지 않음
+// 💡 뷰어 설정(테마/글꼴/글자크기/밝기) — "책 자체"가 아니라 "이 사람이 어떻게
+// 읽고 싶은지"에 대한 설정이라, 파일별이 아니라 기기(모바일/PC) 단위로 기억한다.
+// 모바일/PC 구분은 이미 있는 한 페이지·두 페이지 보기 기준(가로 900px)을 그대로
+// 재사용한다 — 새 기준을 또 만들지 않고 기존 로직과 일관되게 유지하기 위함.
+const READING_THEMES = [
+  { id: 'default',  name: '기본',      bg: '#cecac0', text: '#3a2512' },
+  { id: 'white',    name: '화이트',    bg: '#ffffff', text: '#2b2b2b' },
+  { id: 'cream',    name: '크림',      bg: '#f7ecd8', text: '#4a3520' },
+  { id: 'gray',     name: '그레이',    bg: '#8c8c8c', text: '#f5f5f5' },
+  { id: 'darkgray', name: '다크그레이', bg: '#3a3a3a', text: '#eaeaea' },
+  { id: 'green',    name: '그린',      bg: '#1f3d2f', text: '#dfe8de' },
+  { id: 'black',    name: '블랙',      bg: '#101010', text: '#c9c9c9' },
+];
+const READING_FONTS = [
+  { id: 'system',  name: '기본',     stack: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Malgun Gothic', sans-serif" },
+  { id: 'gothic',  name: '고딕',     stack: "'Noto Sans KR', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif" },
+  { id: 'myeongjo',name: '명조',     stack: "'Noto Serif KR', 'Nanum Myeongjo', Batang, 'Times New Roman', serif" },
+  { id: 'rounded', name: '둥근모양', stack: "'Gowun Dodum', 'Apple SD Gothic Neo', 'Segoe UI Rounded', sans-serif" },
+];
+// 배율 — 기본은 인덱스 2(1.0배). .page의 font-size가 이 값을 곱해 쓴다.
+const FONT_SIZE_SCALES = [0.8, 0.9, 1.0, 1.15, 1.3, 1.5];
+const FONT_SIZE_LABELS = ['아주 작게', '작게', '보통', '크게', '더 크게', '아주 크게'];
+const DEFAULT_FONT_SIZE_STEP = 2;
+
+// 문단 너비 — 값이 클수록(오른쪽으로 갈수록) 좌우 여백이 줄어들어 한 줄에 글자가
+// 더 많이 들어간다(=문단이 "넓어짐"). .page의 좌우 padding(--reading-padding-x)에 쓰인다.
+// 기본값(인덱스 1)은 예전 고정값(clamp(12px,2vw,20px))보다 여백을 넓게 잡았다.
+const PARAGRAPH_WIDTH_PADDINGS = [
+  'clamp(28px, 8vw, 84px)',   // 0: 좁게 (여백 많음)
+  'clamp(20px, 5vw, 56px)',   // 1: 보통 (기본값)
+  'clamp(15px, 3.2vw, 34px)', // 2: 넓게
+  'clamp(12px, 2vw, 20px)',   // 3: 아주 넓게 (예전 기본값과 동일)
+];
+const PARAGRAPH_WIDTH_LABELS = ['좁게', '보통', '넓게', '아주 넓게'];
+const DEFAULT_PARAGRAPH_WIDTH_STEP = 1;
+
+let readerPrefs = {
+  themeId: 'default',
+  fontId: 'system',
+  fontSizeStep: DEFAULT_FONT_SIZE_STEP,
+  paragraphWidthStep: DEFAULT_PARAGRAPH_WIDTH_STEP,
+  brightness: 100, // 100 = 정상 밝기, 낮을수록 화면 위에 어두운 막을 씌운다. 설정 시트에는
+  // 더 이상 슬라이더가 없다 — 읽기 화면에서 위/아래로 스와이프해서 바로 조절한다.
+};
+let readerPrefsLoaded = false; // Firestore/localStorage에서 아직 못 불러온 동안은
+// 기본값으로 잘못 저장해버리지 않도록 저장을 잠깐 막아둔다 (아래 saveReaderPrefsDebounced 참고)
+
+// 💡 설정 시트 안의 "초안(draft)" — 테마/글꼴/글자크기/문단너비를 바꿔도 이 사본에만
+// 반영되고, 미리보기 카드만 즉시 갱신된다. 실제 책(.page)과 readerPrefs는 "적용" 버튼을
+// 눌러야 비로소 바뀐다. 예전엔 바꿀 때마다 buildFlipBook()이 다시 돌아서(=페이지 다시
+// 나누기) 큰 책에서 설정을 이것저것 눌러볼 때마다 버벅였는데, 이걸로 실제 재분할은
+// "적용"을 눌렀을 때 딱 한 번만 일어나게 됐다. 시트가 열릴 때 readerPrefs를 복사해서
+// 만들고, 닫히면(적용 여부와 무관하게) 다음에 열 때 새로 복사되므로 따로 정리할 필요는 없다.
+let draftReaderPrefs = null;
+
+// 💡 페이지 가상화(windowing): 전체 페이지를 다 DOM에 그리지 않고,
+// 현재 읽는 위치 근처만 실제로 그려서 PageFlip에 올린다.
+const PAGE_WINDOW_RADIUS = 15;   // 현재 페이지 기준 앞/뒤로 미리 그려둘 페이지 수
+const PAGE_WINDOW_EDGE_MARGIN = 3; // 창 가장자리에서 이만큼 남으면 다음 구간을 미리 당겨온다
+let allTextPages = [];   // 문서 전체를 나눈 페이지 텍스트 배열 (DOM 없이 문자열만 보관)
+let totalPages = 0;
+let windowStartIndex = 0; // 지금 PageFlip에 실제로 로드되어 있는 구간의 전역 시작 페이지
+let windowEndIndex = 0;   // (미포함) 끝 페이지
+let isShiftingWindow = false; // 창 재정렬 도중 중복 실행 방지 가드
+
+// 페이지별 시작 글자 인덱스를 기록하는 배열
+let pageStartIndices = [];
+let currentLastCharIndex = 0; // 읽던 글자의 시작 위치
+
+// 💡 현재 열린 파일의 책갈피(메모리 캐시) — {charIndex, snippet, addedAt}[].
+// "페이지 번호"가 아니라 "글자 위치"로 저장한다: 페이지 번호는 화면 크기/글꼴/문단
+// 너비가 바뀌어 페이지가 다시 나뉘면(기기 변경 등) 같은 숫자가 다른 내용을 가리키게
+// 되지만, 글자 위치는 항상 같은 내용을 가리킨다. isPageBookmarked/renderBookmarkList가
+// findPageForCharIndex()로 "그 글자가 지금 몇 번째 페이지인지"를 매번 새로 계산한다
+// (currentLastCharIndex/이어보기와 같은 방식). 파일을 열 때 loadBookmarksForFile()로
+// 채우고, 추가/삭제 때마다 saveBookmarksForFile()로 그대로 다시 저장한다.
+let currentBookmarks = [];
+
+// 💡 페이지 분할 결과 캐시: (파일명 + 창 크기) 조합이 같으면 다시 계산하지 않고 재사용한다.
+// 같은 책을 다시 열거나, 창 크기를 예전 크기로 되돌릴 때 즉시 로딩되게 해준다.
+// ⚠️ 이건 메모리(Map)라 탭을 닫으면 사라진다 — 다음에 다시 열 때도 재계산을 건너뛰고
+// 싶으면 아래 loadPersistedPagination/savePersistedPagination(localStorage)을 같이 쓴다.
+const paginationCache = new Map();
+// 💡 페이지 분할 결과를 localStorage에도 남겨서, 탭을 닫았다가 같은 파일을 같은
+// 화면 크기로 다시 열어도(다음 방문, 새로고침 등) 무거운 DOM 실측(splitTextIntoPagesDOM)을
+// 또 돌리지 않게 한다. 실제 페이지 텍스트(pages)는 저장하지 않는다 — pageStartIndices
+// (숫자 배열)만 있으면 rawTextData를 그 인덱스로 다시 잘라서 그대로 복원되고, 이러면
+// 저장 용량이 페이지 수 × 숫자 하나 수준이라 아주 작다(수천 페이지짜리 책도 수십 KB).
+// textLength를 같이 저장해서, 파일 내용이 바뀌었으면(같은 이름으로 다른 파일을 올린 경우
+// 등) 캐시를 무효로 친다.
+// fontKey: 글꼴/글자크기도 텍스트가 줄바꿈되는 위치(=페이지가 나뉘는 위치)에 영향을
+// 주므로, 화면 크기와 마찬가지로 캐시 키에 포함시킨다 — 안 그러면 글꼴을 바꿨는데
+// 이전 글꼴 기준으로 나뉜 캐시를 그대로 써서 페이지 끝이 잘려 보이는 문제가 생긴다.
+function persistedPaginationKey(fileName, width, height, fontKey) {
+  return 'txtViewerPagination:' + fileName + '::' + width + '::' + height + '::' + fontKey;
+}
+
+function loadPersistedPagination(fileName, width, height, text, fontKey) {
+  try {
+    const raw = localStorage.getItem(persistedPaginationKey(fileName, width, height, fontKey));
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (data.textLength !== text.length || !Array.isArray(data.pageStartIndices)) return null;
+
+    const starts = data.pageStartIndices;
+    const pages = starts.map((start, i) =>
+      text.slice(start, i + 1 < starts.length ? starts[i + 1] : text.length));
+    return { pages, pageStartIndices: starts };
+  } catch (err) {
+    return null; // 저장된 값이 깨졌거나 파싱 실패해도 그냥 새로 계산하면 되니 조용히 무시
+  }
+}
+
+function savePersistedPagination(fileName, width, height, text, pageStartIndices, fontKey) {
+  try {
+    localStorage.setItem(persistedPaginationKey(fileName, width, height, fontKey), JSON.stringify({
+      textLength: text.length,
+      pageStartIndices
+    }));
+  } catch (err) {
+    // 저장 공간이 꽉 찼거나(QuotaExceededError) 등 — 캐시는 있으면 좋고 없어도
+    // 그만이니(그냥 다시 계산됨) 실패해도 앱 동작에는 영향 없다
+  }
+}
+const stageContainer = document.getElementById('book-stage');
+const sidebarElement = document.getElementById('sidebar');
+const viewerScreen = document.getElementById('viewer-screen');
+const pageSlider = document.getElementById('page-slider');
+const pageCounter = document.getElementById('page-counter');
+// 트랙을 지나온 구간/남은 구간 두 색으로 칠하기 위해 현재 값 비율을
+// CSS 변수로 흘려보낸다 (사용하는 그라디언트는 #page-slider 규칙 참고)
+function updateSliderProgress(slider) {
+  const min = parseFloat(slider.min) || 0;
+  const max = parseFloat(slider.max) || 0;
+  const value = parseFloat(slider.value) || 0;
+  const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
+  slider.style.setProperty('--slider-progress', `${pct}%`);
+}
+// 새 책을 여는 동안 이전 책의 마지막 화면이 그대로 비치지 않도록 덮는 오버레이.
+// loadFileFromStorage/loadDevTestFile이 시작하자마자 켜고, 끝나면(성공/실패 상관없이) 끈다.
+function showBookLoadingOverlay() {
+  document.getElementById('book-loading-overlay').classList.add('visible');
+}
+function hideBookLoadingOverlay() {
+  document.getElementById('book-loading-overlay').classList.remove('visible');
+}
+
+// 로그아웃 시 뷰어 상태를 정리한다 (auth.js가 currentFileName/rawTextData/pageFlip에
+// 직접 손댈 수 없어서 — 모듈 바깥에서 재할당 불가 — 대신 이 함수를 호출해서 정리한다)
+export function resetReaderSession() {
+  if (pageFlip) { pageFlip.destroy(); pageFlip = null; }
+  currentFileName = "";
+  rawTextData = "";
+}
+export async function loadDevTestFile() {
+  currentFileName = DEV_BOOK_FILENAME;
+  localStorage.setItem(lastOpenedFileKey(), DEV_BOOK_FILENAME);
+  setStatus("로컬 테스트 파일 불러오는 중...");
+  showBookLoadingOverlay();
+
+  markActiveFileRow(DEV_BOOK_FILENAME);
+
+  try {
+    const res = await fetch('./' + DEV_BOOK_FILENAME);
+    if (!res.ok) throw new Error('dev-test-book.txt 로드 실패: ' + res.status);
+    rawTextData = await res.text();
+
+    document.getElementById('current-title').textContent = DEV_BOOK_FILENAME + ' (개발자 테스트)';
+
+    lastKnownProgressUpdatedAt = 0;
+    [currentLastCharIndex, currentBookmarks] = await Promise.all([
+      loadProgress(DEV_BOOK_FILENAME),
+      loadBookmarksForFile(DEV_BOOK_FILENAME)
+    ]);
+    await buildFlipBook();
+    migrateLegacyBookmarksIfNeeded(DEV_BOOK_FILENAME);
+    updateBookmarkToggleButton();
+
+    document.body.classList.add('immersive');
+    clearTimeout(immersiveTimer);
+  } catch (err) {
+    console.error(err);
+    setStatus("파일 열기 실패");
+  } finally {
+    hideBookLoadingOverlay();
+  }
+}
+let fileLoadGeneration = 0;
+
+// 3. Storage에서 파일 다운로드 및 인코딩 자동 처리
+export async function loadFileFromStorage(fileName) {
+  const myLoadGeneration = ++fileLoadGeneration;
+  currentFileName = fileName;
+  localStorage.setItem(lastOpenedFileKey(), fileName);
+  setStatus("파일 다운로드 중...");
+  showBookLoadingOverlay();
+
+  markActiveFileRow(fileName);
+
+  try {
+    const fileRef = ref(storage, 'books/' + fileName);
+    const arrayBuffer = await getBytes(fileRef);
+    // 응답을 기다리는 동안 다른 책이 더 최근에 선택됐다면, 이 낡은 응답은 그냥 버린다.
+    if (myLoadGeneration !== fileLoadGeneration) return;
+
+    const uint8Array = new Uint8Array(arrayBuffer);
+
+    if (uint8Array.length >= 2 && uint8Array[0] === 0xFF && uint8Array[1] === 0xFE) {
+      rawTextData = new TextDecoder("utf-16le").decode(arrayBuffer);
+    } else if (uint8Array.length >= 2 && uint8Array[0] === 0xFE && uint8Array[1] === 0xFF) {
+      rawTextData = new TextDecoder("utf-16be").decode(arrayBuffer);
+    } else {
+      try {
+        rawTextData = new TextDecoder("utf-8", { fatal: true }).decode(arrayBuffer);
+      } catch (e) {
+        try {
+          rawTextData = new TextDecoder("euc-kr", { fatal: true }).decode(arrayBuffer);
+        } catch (e2) {
+          rawTextData = new TextDecoder("utf-16le").decode(arrayBuffer);
+        }
+      }
+    }
+
+    document.getElementById('current-title').textContent = fileName;
+
+    // 다른 책(파일)의 기록 기준 시각이 남아있지 않도록 새로 여는 책마다 초기화
+    lastKnownProgressUpdatedAt = 0;
+    [currentLastCharIndex, currentBookmarks] = await Promise.all([
+      loadProgress(fileName),
+      loadBookmarksForFile(fileName)
+    ]);
+    if (myLoadGeneration !== fileLoadGeneration) return; // 대기 중에도 더 최근 선택이 있었으면 중단
+
+    await buildFlipBook();
+    if (myLoadGeneration !== fileLoadGeneration) return;
+
+    migrateLegacyBookmarksIfNeeded(fileName);
+    updateBookmarkToggleButton();
+
+    // 책이 열리면 바로 읽기 몰입 모드로: 마우스를 움직이기 전까진 UI를 띄우지 않는다
+    document.body.classList.add('immersive');
+    clearTimeout(immersiveTimer);
+
+  } catch (err) {
+    console.error(err);
+    if (myLoadGeneration === fileLoadGeneration) setStatus("파일 열기 실패");
+  } finally {
+    // 낡은 요청이 뒤늦게 끝난 거라면, 지금 진행 중인 최신 로딩의 오버레이를 실수로 끄면 안 된다.
+    if (myLoadGeneration === fileLoadGeneration) hideBookLoadingOverlay();
+  }
+}
+
+// 💡 4. DOM 높이 실측 + 갤로핑 탐색(Galloping Search) 기반 정밀 분할 함수
+//
+// 예전 방식은 매 페이지마다 "문서 전체 남은 길이"를 기준으로 이진 탐색을 했기 때문에,
+// 대용량 텍스트(수백 KB~수 MB짜리 소설 등)에서는 페이지 하나 찾는 데도
+// 거대한 문자열을 DOM에 반복해서 밀어넣고 레이아웃을 재계산하게 되어
+// 브라우저 탭이 통째로 멈추는 문제가 있었다.
+// → 필요한 구간만 작게 시작해서 2배씩 넓혀가며(갤로핑) 대략적인 범위를 잡고,
+//   그 좁은 범위 안에서만 이진 탐색하도록 바꿔서 문서 크기와 무관하게 빠르게 동작한다.
+// 또한 대용량 문서에서도 브라우저가 "응답 없음" 상태가 되지 않도록 주기적으로
+// 메인 스레드를 양보(yield)한다.
+async function splitTextIntoPagesDOM(text, containerWidth, containerHeight, myGeneration) {
+  // 높이 측정을 위한 보이지 않는 임시 DOM 생성
+  const dummy = document.createElement('div');
+  dummy.className = 'page';
+  dummy.style.visibility = 'hidden';
+  dummy.style.position = 'absolute';
+  dummy.style.left = '-9999px';
+  dummy.style.top = '-9999px';
+  dummy.style.width = containerWidth + 'px';
+  dummy.style.height = containerHeight + 'px';
+
+  const dummyContent = document.createElement('div');
+  dummyContent.className = 'page-content';
+
+  const dummyFooter = document.createElement('div');
+  dummyFooter.className = 'page-footer';
+  dummyFooter.textContent = '- 0 / 0 -';
+
+  dummy.appendChild(dummyContent);
+  dummy.appendChild(dummyFooter);
+  document.body.appendChild(dummy);
+
+  // 실제 텍스트 영역의 가용 최대 높이 측정을 위해 렌더링
+  const maxHeight = dummyContent.clientHeight;
+
+  const pages = [];
+  // ⚠️ 전역 pageStartIndices를 직접 건드리지 않고 지역 배열에 모은다 — 리사이즈가
+  // 연달아 일어나 이 함수가 겹쳐 실행될 때(비동기 yield 구간에서) 서로 다른 실행이
+  // 같은 전역 배열에 뒤섞여 쓰는 걸 방지한다. 결과는 buildFlipBook이 최신 빌드일
+  // 때만 전역에 반영한다.
+  const localPageStarts = [];
+  let currentIndex = 0;
+  let pagesSinceYield = 0;
+  const textLength = text.length;
+
+  while (currentIndex < textLength) {
+    localPageStarts.push(currentIndex);
+
+    // 1단계: 갤로핑 탐색 — 문서 전체가 아니라 작은 구간에서 시작해 2배씩 넓혀가며
+    // "안 들어가는 지점"을 빠르게 찾는다.
+    let fitsIndex = currentIndex; // 여기까지는 확실히 들어감
+    let step = 300;
+    let probeIndex = Math.min(currentIndex + step, textLength);
+    dummyContent.textContent = text.substring(currentIndex, probeIndex);
+
+    while (dummyContent.scrollHeight <= maxHeight && probeIndex < textLength) {
+      fitsIndex = probeIndex;
+      step *= 2;
+      probeIndex = Math.min(probeIndex + step, textLength);
+      dummyContent.textContent = text.substring(currentIndex, probeIndex);
+    }
+
+    let bestFitIndex;
+    if (dummyContent.scrollHeight <= maxHeight) {
+      // 남은 텍스트 전부가 한 페이지에 들어감 (문서 끝)
+      bestFitIndex = probeIndex;
+    } else {
+      // 2단계: [fitsIndex(들어감), probeIndex(안 들어감)] 좁은 구간 안에서만 이진 탐색
+      let low = fitsIndex + 1;
+      let high = probeIndex;
+      bestFitIndex = fitsIndex;
+
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        dummyContent.textContent = text.substring(currentIndex, mid);
+
+        if (dummyContent.scrollHeight <= maxHeight) {
+          bestFitIndex = mid;
+          low = mid + 1;
+        } else {
+          high = mid - 1;
+        }
+      }
+    }
+
+    // 최소 1글자 진행 보장
+    if (bestFitIndex === currentIndex) bestFitIndex = currentIndex + 1;
+
+    pages.push(text.substring(currentIndex, bestFitIndex));
+    currentIndex = bestFitIndex;
+
+    // 대용량 문서에서도 브라우저가 멈추지 않도록 주기적으로 렌더링 프레임을 양보
+    pagesSinceYield++;
+    if (pagesSinceYield >= 30) {
+      pagesSinceYield = 0;
+      setStatus(`페이지 나누는 중... (${pages.length}p, ${Math.round(currentIndex / textLength * 100)}%)`);
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // 💡 기다리는 사이 화면 크기가 또 바뀌어서 더 최신 재빌드(buildGeneration 증가)가
+      // 이미 시작됐다면, 이 결과는 buildFlipBook에서 결국 버려질 게 뻔하다 — 그런데도
+      // 끝까지 계속 돌면, 새로 시작된 분할과 이 낡은 분할이 동시에 돌면서 DOM 실측을
+      // 두 배로 반복하는 문제가 있었다(리사이즈가 연달아 일어나는 모바일에서 특히
+      // 체감됨). 여기서 바로 멈추고 자신의 임시 DOM만 정리한 뒤 null을 반환한다.
+      if (myGeneration !== buildGeneration) {
+        document.body.removeChild(dummy);
+        return null;
+      }
+    }
+  }
+
+  document.body.removeChild(dummy);
+  return { pages, pageStartIndices: localPageStarts };
+}
+
+// 5. 페이지 창(window) 요소 생성 헬퍼
+// [start, end) 구간(전역 페이지 번호 기준)의 페이지 DOM 요소를 "만들기만" 하고 배열로 반환한다.
+// ⚠️ 여기서 어디에도 append하지 않는다 — PageFlip은 초기 구성 시 내부에 자기만의 래퍼
+// (ui.getDistElement())를 만들어서 페이지를 관리하는데, 우리가 #my-book의 innerHTML을
+// 직접 비우면 그 래퍼까지 같이 지워져서 updateFromHtml이 있는데도 화면이 빈 채로 남는
+// 버그가 있었다. 그래서 요소만 만들어 넘기고, 어디에 붙일지는 호출부(초기 로드 vs
+// updateFromHtml)에 맡긴다.
+// 쪽 번호(footer)는 전역 번호/전역 총 페이지 수를 그대로 쓰기 때문에,
+// 일부만 그려져 있어도 사용자에게는 "- 1234 / 5000 -" 처럼 항상 정확하게 보인다.
+function createPageElements(start, end, total) {
+  const elements = [];
+  for (let i = start; i < end; i++) {
+    const pageDiv = document.createElement('div');
+    pageDiv.className = 'page';
+
+    const pageContent = document.createElement('div');
+    pageContent.className = 'page-content';
+    pageContent.textContent = allTextPages[i];
+
+    const pageFooter = document.createElement('div');
+    pageFooter.className = 'page-footer';
+    pageFooter.textContent = `- ${i + 1} / ${total} -`;
+
+    pageDiv.appendChild(pageContent);
+    pageDiv.appendChild(pageFooter);
+    elements.push(pageDiv);
+  }
+  return elements;
+}
+
+// 특정 전역 페이지를 중심으로 앞뒤 PAGE_WINDOW_RADIUS만큼의 구간을 계산
+//
+// ⚠️ start는 항상 짝수여야 한다 — PageFlip 라이브러리는 두 쪽 스프레드를 "이 창에
+// 로드된 요소들의 로컬 인덱스" (0,1)/(2,3)/(4,5)... 기준으로 고정 짝짓기 한다
+// (page-flip 소스의 createSpread: 로컬 e부터 2씩 증가하며 [e,e+1] 페어링, 전역
+// 페이지 번호는 전혀 모른다). 책 전체의 첫 창은 항상 0(짝수)부터 시작해서 전역
+// 짝수=왼쪽/홀수=오른쪽으로 스프레드가 정해지는데, PAGE_WINDOW_RADIUS(15)가 홀수라
+// start를 그대로 쓰면 센터 페이지 홀짝에 따라 창이 홀수로 시작해버리는 경우가 생기고,
+// 그러면 로컬 (0,1) 페어링이 실제로는 전역 (홀수,짝수)를 묶어버려서 스프레드 좌우가
+// 한 칸씩 밀린다 — 페이지를 넘기면 방금 봤던 오른쪽 페이지가 새 왼쪽 페이지 자리에
+// 다시 나타나는 버그로 보였던 게 이것. start를 항상 짝수로 내림해서 로컬↔전역 홀짝
+// 정렬을 창이 몇 번 바뀌어도 계속 유지시킨다.
+function computeWindowRange(centerIndex, total) {
+  let start = Math.max(0, centerIndex - PAGE_WINDOW_RADIUS);
+  if (start % 2 !== 0) start -= 1;
+  start = Math.max(0, start);
+  const end = Math.min(total, centerIndex + PAGE_WINDOW_RADIUS + 1);
+  return { start, end };
+}
+
+// 사용자가 현재 로드된 창의 가장자리 근처까지 넘겼으면, 그 다음 구간을 중심으로
+// 새 페이지 요소들을 만들어서 pageFlip.updateFromHtml로 조용히 교체한다
+// (문서 전체를 다시 쓰지 않고, #my-book의 기존 내부 구조도 건드리지 않는다).
+function maybeShiftPageWindow(globalIndex) {
+  if (isShiftingWindow || !pageFlip) return;
+
+  const nearStart = windowStartIndex > 0 && (globalIndex - windowStartIndex) <= PAGE_WINDOW_EDGE_MARGIN;
+  const nearEnd = windowEndIndex < totalPages && (windowEndIndex - 1 - globalIndex) <= PAGE_WINDOW_EDGE_MARGIN;
+  if (!nearStart && !nearEnd) return;
+
+  isShiftingWindow = true;
+  try {
+    const { start, end } = computeWindowRange(globalIndex, totalPages);
+    windowStartIndex = start;
+    windowEndIndex = end;
+
+    const newElements = createPageElements(start, end, totalPages);
+    pageFlip.updateFromHtml(newElements);
+    // 창이 바뀌어도 지금 보고 있던 전역 페이지는 그대로 유지 (애니메이션 없이 재정렬)
+    pageFlip.turnToPage(globalIndex - windowStartIndex);
+  } finally {
+    isShiftingWindow = false;
+  }
+}
+
+// 하단 슬라이더/카운터 + 상단 책갈피 토글 버튼을 현재 전역 페이지 번호에 맞춰 갱신
+// (호출되는 곳 전부 — jumpToPrevPage/jumpToGlobalPage/buildFlipBook 초기화/'flip' 이벤트 —
+// 가 곧 "지금 보고 있는 페이지가 바뀌는 모든 순간"이라 여기 한 곳에서 같이 처리한다)
+let currentDisplayedGlobalPage = 0;
+
+// "3 / 47 (6%)" 형태로 카운터 문자열을 만든다 — 슬라이더를 드래그하는 동안의
+// 실시간 미리보기(input 이벤트)와 실제로 페이지가 넘어갔을 때(updatePageIndicator)
+// 둘 다 같은 포맷을 쓰도록 한 곳에 모아둔다.
+function formatPageCounter(globalIndex, total) {
+  if (total <= 0) return `${globalIndex + 1} / ${total}`;
+  const percent = Math.round(((globalIndex + 1) / total) * 100);
+  return `${globalIndex + 1} / ${total} (${percent}%)`;
+}
+
+function updatePageIndicator(globalIndex) {
+  pageSlider.min = 0;
+  pageSlider.max = Math.max(0, totalPages - 1);
+  pageSlider.value = globalIndex;
+  updateSliderProgress(pageSlider);
+  pageCounter.textContent = formatPageCounter(globalIndex, totalPages);
+  currentDisplayedGlobalPage = globalIndex;
+  updateBookmarkToggleButton();
+}
+
+// 상단바 🔖 버튼을 "지금 페이지가 책갈피됐는지"에 맞춰 채움/테두리로 표시
+function updateBookmarkToggleButton() {
+  const btn = document.getElementById('page-bookmark-toggle-btn');
+  if (!btn) return;
+  const bookmarked = !!currentFileName && isPageBookmarked(currentDisplayedGlobalPage);
+  btn.classList.toggle('active', bookmarked);
+}
+
+// 💡 "이전 페이지"는 next와 똑같은 넘기기(curl) 애니메이션을 쓰면 부자연스럽다 —
+// page-flip 라이브러리의 PageCollection.getFlippingPage/getBottomPage가 portrait(한
+// 페이지) 모드에서 방향별로 비대칭이기 때문이다(소스 확인 완료). next는 "현재 페이지의
+// 임시 복사본이 위에서 말려 넘어가고, 그 밑에 진짜 다음 페이지가 고정돼 있다가 드러나는"
+// 2겹 구조라 자연스럽지만, prev는 flippingPage와 bottomPage가 같은 객체(이전 페이지
+// 원본)라서 2겹 합성 자체가 안 되고 페이지 한 장이 그냥 회전하며 나타나는 것처럼
+// 보인다. 이건 앱 코드가 아니라 라이브러리 자체의 설계라 고칠 수 없어서, 아예
+// 애니메이션 없이 즉시 전환한다 — jumpToGlobalPage(슬라이더 이동)와 같은 패턴으로
+// turnToPage를 조용히 호출하고, 페이지 인디케이터/진행률 저장/창 재정렬은 우리가
+// 직접 처리한다.
+function jumpToPrevPage() {
+  if (!pageFlip || isShiftingWindow) return;
+  const globalIndex = windowStartIndex + pageFlip.getCurrentPageIndex();
+  if (globalIndex <= 0) return; // 이미 첫 페이지
+  const targetGlobal = globalIndex - 1;
+
+  isShiftingWindow = true; // turnToPage가 내부적으로 쏘는 'flip' 이벤트를 무시시키기 위한 가드
+  try {
+    pageFlip.turnToPage(targetGlobal - windowStartIndex);
+  } finally {
+    isShiftingWindow = false;
+  }
+
+  currentLastCharIndex = pageStartIndices[targetGlobal] || 0;
+  updatePageIndicator(targetGlobal);
+
+  clearTimeout(debounceSaveTimer);
+  debounceSaveTimer = setTimeout(() => {
+    saveProgress(currentFileName, currentLastCharIndex);
+  }, 300);
+
+  maybeShiftPageWindow(targetGlobal);
+}
+
+// 슬라이더로 임의의 페이지로 바로 이동 — maybeShiftPageWindow와 달리 "가장자리 근처"인지
+// 따지지 않고 항상 목표 페이지를 중심으로 창을 새로 구성한다.
+function jumpToGlobalPage(targetPage) {
+  if (!pageFlip || isShiftingWindow || totalPages === 0) return;
+  targetPage = Math.max(0, Math.min(targetPage, totalPages - 1));
+
+  isShiftingWindow = true;
+  try {
+    const { start, end } = computeWindowRange(targetPage, totalPages);
+    windowStartIndex = start;
+    windowEndIndex = end;
+
+    const newElements = createPageElements(start, end, totalPages);
+    pageFlip.updateFromHtml(newElements);
+    pageFlip.turnToPage(targetPage - windowStartIndex);
+  } finally {
+    isShiftingWindow = false;
+  }
+
+  currentLastCharIndex = pageStartIndices[targetPage] || 0;
+  updatePageIndicator(targetPage);
+
+  clearTimeout(debounceSaveTimer);
+  debounceSaveTimer = setTimeout(() => {
+    saveProgress(currentFileName, currentLastCharIndex);
+  }, 300);
+}
+
+// 💡 뷰어 설정 저장/적용 — "책 자체"가 아니라 "이 사람이 어떻게 읽고 싶은지"에 대한
+// 설정이라 파일별이 아니라 계정+기기 단위로 저장한다. 실제 사용자는 Firestore
+// users/{uid}/settings/readerPrefs 문서에 {mobile:{...}, pc:{...}} 두 프로필을
+// 나눠서 저장하고, 개발자(dev) 세션은 실제 계정이 없으니 localStorage로 대신한다.
+const READER_PREFS_LOCAL_KEY = 'txtViewerReaderPrefs';
+
+// 지금 이 화면이 "모바일 프로필"인지 "PC 프로필"인지 — 새 기준을 만들지 않고
+// 한 페이지/두 페이지 스프레드를 가르는 기존 900px 기준을 그대로 재사용한다.
+function getDeviceCategory() {
+  return window.innerWidth < 900 ? 'mobile' : 'pc';
+}
+
+export async function loadReaderPrefs() {
+  const category = getDeviceCategory();
+  let profile = null;
+  try {
+    if (isDevUser()) {
+      const raw = localStorage.getItem(READER_PREFS_LOCAL_KEY);
+      const all = raw ? JSON.parse(raw) : null;
+      profile = all && all[category];
+    } else if (currentUser) {
+      const snap = await getDoc(doc(db, "users", currentUser.uid, "settings", "readerPrefs"));
+      profile = snap.exists() ? snap.data()[category] : null;
+    }
+  } catch (err) {
+    // 여기서 실패하면 조용히 기본값으로 넘어가버려서 "설정이 저장 안 된다"는
+    // 신고를 받아도 원인(주로 Firestore 보안 규칙)을 알 방법이 없었다 — 눈에 보이게 알린다.
+    console.error('뷰어 설정 불러오기 실패:', err);
+    setStatus('뷰어 설정을 불러오지 못했어요 (' + (err.code || err.message) + ')');
+  }
+
+  readerPrefs = {
+    themeId: (profile && profile.themeId) || 'default',
+    fontId: (profile && profile.fontId) || 'system',
+    fontSizeStep: (profile && typeof profile.fontSizeStep === 'number') ? profile.fontSizeStep : DEFAULT_FONT_SIZE_STEP,
+    paragraphWidthStep: (profile && typeof profile.paragraphWidthStep === 'number') ? profile.paragraphWidthStep : DEFAULT_PARAGRAPH_WIDTH_STEP,
+    brightness: (profile && typeof profile.brightness === 'number') ? profile.brightness : 100,
+  };
+  readerPrefsLoaded = true;
+  applyReaderPrefs();
+}
+
+let saveReaderPrefsTimer = null;
+async function persistReaderPrefsNow() {
+  const category = getDeviceCategory();
+  const snapshot = { ...readerPrefs };
+  try {
+    if (isDevUser()) {
+      const raw = localStorage.getItem(READER_PREFS_LOCAL_KEY);
+      const all = raw ? JSON.parse(raw) : {};
+      all[category] = snapshot;
+      localStorage.setItem(READER_PREFS_LOCAL_KEY, JSON.stringify(all));
+    } else if (currentUser) {
+      // merge:true — 지금 안 쓰는 쪽(PC에서 저장하면 mobile) 프로필을 덮어쓰지 않는다
+      await setDoc(doc(db, "users", currentUser.uid, "settings", "readerPrefs"), {
+        [category]: snapshot
+      }, { merge: true });
+    }
+  } catch (err) {
+    // 마찬가지로 저장 실패가 조용히 묻히지 않도록 — 주로 Firestore 보안 규칙이
+    // users/{uid}/settings 경로를 막고 있을 때(reading_progress는 허용하면서
+    // settings는 빠뜨린 경우 등) permission-denied로 여기 걸린다.
+    console.error('뷰어 설정 저장 실패:', err);
+    setStatus('뷰어 설정을 저장하지 못했어요 (' + (err.code || err.message) + ')');
+  }
+}
+function saveReaderPrefsDebounced() {
+  if (!readerPrefsLoaded) return; // 아직 원래 값도 못 읽어온 상태에서 기본값으로 덮어쓰지 않는다
+  clearTimeout(saveReaderPrefsTimer);
+  saveReaderPrefsTimer = setTimeout(persistReaderPrefsNow, 500);
+}
+// 글꼴/글자크기 등을 바꾸자마자(500ms debounce가 끝나기 전에) 새로고침하거나 탭을 벗어나면
+// 저장이 통째로 씹힌다 — flushProgressSave와 같은 이유로, 탭이 숨겨지는/닫히는 순간엔
+// debounce 없이 즉시 저장한다.
+function flushReaderPrefsSave() {
+  if (!readerPrefsLoaded) return;
+  clearTimeout(saveReaderPrefsTimer);
+  persistReaderPrefsNow();
+}
+
+// 뷰어 설정을 실제 CSS에 반영 — .page/#book-stage는 --reading-* 변수만 참조하므로
+// 여기서 :root에 세팅해두면 이미 그려진 페이지에도 즉시 반영된다.
+// ⚠️ readerPrefs(확정값)에만 반영한다 — 설정 시트를 열어놓고 이것저것 눌러보는 동안은
+// draftReaderPrefs만 바뀌고 여긴 호출되지 않는다("적용" 버튼 핸들러 참고).
+function applyReaderPrefs() {
+  const theme = READING_THEMES.find(t => t.id === readerPrefs.themeId) || READING_THEMES[0];
+  const font = READING_FONTS.find(f => f.id === readerPrefs.fontId) || READING_FONTS[0];
+  const scale = FONT_SIZE_SCALES[readerPrefs.fontSizeStep] ?? 1;
+  const paddingX = PARAGRAPH_WIDTH_PADDINGS[readerPrefs.paragraphWidthStep] ?? PARAGRAPH_WIDTH_PADDINGS[DEFAULT_PARAGRAPH_WIDTH_STEP];
+
+  const root = document.documentElement.style;
+  root.setProperty('--reading-bg', theme.bg);
+  root.setProperty('--reading-text', theme.text);
+  root.setProperty('--reading-font-family', font.stack);
+  root.setProperty('--reading-font-scale', String(scale));
+  root.setProperty('--reading-padding-x', paddingX);
+
+  const overlay = document.getElementById('brightness-overlay');
+  if (overlay) {
+    // 밝기 100 → 오버레이 없음, 40(최소) → 최대 45% 정도까지 어둡게
+    const dimAmount = Math.max(0, (100 - readerPrefs.brightness) / 100) * 0.75;
+    overlay.style.opacity = String(dimAmount);
+  }
+
+  updateSettingsPanelUI();
+}
+
+// 뷰어 설정 패널 안의 스와치/칩/스텝퍼를 "초안"(시트가 열려있으면 draftReaderPrefs,
+// 아니면 readerPrefs)에 맞춰 다시 그린다 (패널을 열 때, 그리고 값이 바뀔 때마다 호출)
+function updateSettingsPanelUI() {
+  const prefs = draftReaderPrefs || readerPrefs;
+  document.querySelectorAll('#theme-swatches .theme-swatch').forEach((el) => {
+    el.classList.toggle('active', el.dataset.themeId === prefs.themeId);
+  });
+  document.querySelectorAll('#font-options .font-chip').forEach((el) => {
+    el.classList.toggle('active', el.dataset.fontId === prefs.fontId);
+  });
+
+  const label = document.getElementById('font-size-label');
+  if (label) label.textContent = FONT_SIZE_LABELS[prefs.fontSizeStep] || '보통';
+  const minusBtn = document.getElementById('font-size-minus');
+  const plusBtn = document.getElementById('font-size-plus');
+  if (minusBtn) minusBtn.disabled = prefs.fontSizeStep <= 0;
+  if (plusBtn) plusBtn.disabled = prefs.fontSizeStep >= FONT_SIZE_SCALES.length - 1;
+
+  const widthLabel = document.getElementById('paragraph-width-label');
+  if (widthLabel) widthLabel.textContent = PARAGRAPH_WIDTH_LABELS[prefs.paragraphWidthStep] || '보통';
+  const widthMinusBtn = document.getElementById('paragraph-width-minus');
+  const widthPlusBtn = document.getElementById('paragraph-width-plus');
+  if (widthMinusBtn) widthMinusBtn.disabled = prefs.paragraphWidthStep <= 0;
+  if (widthPlusBtn) widthPlusBtn.disabled = prefs.paragraphWidthStep >= PARAGRAPH_WIDTH_PADDINGS.length - 1;
+}
+
+// 미리보기 카드를 draftReaderPrefs 기준으로 다시 칠한다 — 실제 책(.page)에는 손대지 않는다.
+function updateSettingsPreview() {
+  if (!draftReaderPrefs) return;
+  const theme = READING_THEMES.find(t => t.id === draftReaderPrefs.themeId) || READING_THEMES[0];
+  const font = READING_FONTS.find(f => f.id === draftReaderPrefs.fontId) || READING_FONTS[0];
+  const scale = FONT_SIZE_SCALES[draftReaderPrefs.fontSizeStep] ?? 1;
+  // 실제 책과 똑같이 PARAGRAPH_WIDTH_PADDINGS(vw 기반 clamp)를 그대로 재사용한다 —
+  // 뷰포트 기준 단위라 미리보기 카드 안에서도 실제 페이지와 같은 px로 계산된다.
+  const paddingX = PARAGRAPH_WIDTH_PADDINGS[draftReaderPrefs.paragraphWidthStep] ?? PARAGRAPH_WIDTH_PADDINGS[DEFAULT_PARAGRAPH_WIDTH_STEP];
+
+  const preview = document.getElementById('settings-preview-page');
+  if (!preview) return;
+  preview.style.backgroundColor = theme.bg;
+  preview.style.color = theme.text;
+  preview.style.fontFamily = font.stack;
+  // --reading-font-scale/--reading-padding-x(실제 책)는 절대 안 건드리고, 미리보기
+  // 전용 변수만 채운다 — "적용" 전까지 실제 화면에 새어나가지 않게 하기 위함.
+  preview.style.setProperty('--preview-font-scale', String(scale));
+  preview.style.setProperty('--preview-padding-x', paddingX);
+}
+
+// 테마 스와치/글꼴 칩을 (한 번만) 그린다 — 위 배열이 그대로 UI가 된다.
+// 클릭하면 draftReaderPrefs만 바꾸고 미리보기만 갱신한다 — 실제 책은 "적용"을 눌러야 바뀐다.
+function renderThemeSwatches() {
+  const container = document.getElementById('theme-swatches');
+  if (!container) return;
+  container.innerHTML = '';
+  READING_THEMES.forEach((theme) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'theme-swatch';
+    btn.dataset.themeId = theme.id;
+    btn.title = theme.name;
+    btn.style.backgroundColor = theme.bg;
+    btn.style.color = theme.text;
+    btn.textContent = '가';
+    btn.addEventListener('click', () => {
+      draftReaderPrefs.themeId = theme.id;
+      updateSettingsPreview();
+      updateSettingsPanelUI();
+    });
+    container.appendChild(btn);
+  });
+}
+
+function renderFontOptions() {
+  const container = document.getElementById('font-options');
+  if (!container) return;
+  container.innerHTML = '';
+  READING_FONTS.forEach((font) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'font-chip';
+    btn.dataset.fontId = font.id;
+    btn.style.fontFamily = font.stack;
+    btn.textContent = font.name;
+    btn.addEventListener('click', () => {
+      if (draftReaderPrefs.fontId === font.id) return;
+      draftReaderPrefs.fontId = font.id;
+      updateSettingsPreview();
+      updateSettingsPanelUI();
+    });
+    container.appendChild(btn);
+  });
+}
+
+// 글꼴/글자크기/문단너비는 줄바꿈 위치를 바꾸므로 다시 나눠야 한다(테마색은 그럴 필요
+// 없음 — applyReaderPrefs가 CSS 변수만 바꿔서 이미 그려진 페이지에도 바로 반영되기 때문).
+// "적용" 버튼을 눌렀을 때 딱 한 번만 호출된다 — 예전엔 스테퍼를 누를 때마다 매번
+// 돌아서, 특히 큰 책에서 설정을 이것저것 눌러볼 때마다 버벅이는 게 불편했다.
+function requestRepaginationForReaderPrefsChange() {
+  if (!rawTextData || viewerScreen.classList.contains('screen-hidden')) return;
+  setStatus("글꼴 반영 중...");
+  buildFlipBook();
+}
+
+document.getElementById('font-size-minus').addEventListener('click', () => {
+  if (draftReaderPrefs.fontSizeStep <= 0) return;
+  draftReaderPrefs.fontSizeStep -= 1;
+  updateSettingsPreview();
+  updateSettingsPanelUI();
+});
+document.getElementById('font-size-plus').addEventListener('click', () => {
+  if (draftReaderPrefs.fontSizeStep >= FONT_SIZE_SCALES.length - 1) return;
+  draftReaderPrefs.fontSizeStep += 1;
+  updateSettingsPreview();
+  updateSettingsPanelUI();
+});
+document.getElementById('paragraph-width-minus').addEventListener('click', () => {
+  if (draftReaderPrefs.paragraphWidthStep <= 0) return;
+  draftReaderPrefs.paragraphWidthStep -= 1;
+  updateSettingsPreview();
+  updateSettingsPanelUI();
+});
+document.getElementById('paragraph-width-plus').addEventListener('click', () => {
+  if (draftReaderPrefs.paragraphWidthStep >= PARAGRAPH_WIDTH_PADDINGS.length - 1) return;
+  draftReaderPrefs.paragraphWidthStep += 1;
+  updateSettingsPreview();
+  updateSettingsPanelUI();
+});
+
+// "적용" — draft를 실제 readerPrefs에 옮기고, 그때만 화면/저장/재분할을 실행한다.
+// brightness는 draft에 손대지 않는다 — 읽기 화면 스와이프로 언제든 별도로 바뀔 수 있는
+// 값이라, 여기서 그대로 덮어쓰면 시트가 열려있는 동안 스와이프로 바꾼 밝기가 "적용" 클릭
+// 한 번에 시트를 열었을 때의 옛 값으로 되돌아가 버리는 문제가 생긴다.
+document.getElementById('apply-reader-prefs-btn').addEventListener('click', () => {
+  if (!draftReaderPrefs) return;
+  const layoutChanged =
+    draftReaderPrefs.fontId !== readerPrefs.fontId ||
+    draftReaderPrefs.fontSizeStep !== readerPrefs.fontSizeStep ||
+    draftReaderPrefs.paragraphWidthStep !== readerPrefs.paragraphWidthStep;
+
+  readerPrefs.themeId = draftReaderPrefs.themeId;
+  readerPrefs.fontId = draftReaderPrefs.fontId;
+  readerPrefs.fontSizeStep = draftReaderPrefs.fontSizeStep;
+  readerPrefs.paragraphWidthStep = draftReaderPrefs.paragraphWidthStep;
+
+  applyReaderPrefs();
+  saveReaderPrefsDebounced();
+  if (layoutChanged) requestRepaginationForReaderPrefsChange();
+
+  closeSheet('viewer-settings-panel');
+});
+
+renderThemeSwatches();
+renderFontOptions();
+
+document.getElementById('open-viewer-settings-btn').addEventListener('click', () => {
+  // readerPrefs를 복사해서 초안을 새로 만든다 — 이 시트 안에서의 조작은 전부
+  // 이 사본에만 반영되고, "적용"을 눌러야 비로소 실제 책에 반영된다.
+  draftReaderPrefs = { ...readerPrefs };
+  updateSettingsPanelUI();
+  updateSettingsPreview();
+  openSheet('viewer-settings-panel');
+});
+document.getElementById('open-search-btn').addEventListener('click', () => {
+  openSheet('search-panel');
+  document.getElementById('search-input').focus();
+});
+document.getElementById('open-bookmark-btn').addEventListener('click', () => {
+  renderBookmarkList();
+  openSheet('bookmark-panel');
+});
+
+// 상단바 🔖 — 페이지 위에 따로 표시하지 않고, 지금 보고 있는 페이지를 여기서 바로 토글한다
+document.getElementById('page-bookmark-toggle-btn').addEventListener('click', () => {
+  if (!currentFileName) return;
+  toggleBookmark(currentDisplayedGlobalPage, document.getElementById('page-bookmark-toggle-btn'));
+});
+
+// 검색 — allTextPages(전체 페이지 텍스트, 가상화와 무관하게 항상 메모리에 있음) 안에서
+// 검색어가 포함된 모든 페이지를 찾아 앞뒤 문맥과 함께 리스트로 보여준다.
+// (페이지 하나에 같은 단어가 여러 번 나와도 페이지당 첫 매치 하나만 대표로 보여준다 —
+// 흔한 단어를 검색하면 결과가 너무 많아지는 걸 막기 위함)
+function buildSearchResults(query) {
+  const lowerQuery = query.toLowerCase();
+  const CONTEXT_CHARS = 16;
+  const results = [];
+  for (let i = 0; i < allTextPages.length; i++) {
+    const pageText = allTextPages[i] || '';
+    const idx = pageText.toLowerCase().indexOf(lowerQuery);
+    if (idx === -1) continue;
+    const start = Math.max(0, idx - CONTEXT_CHARS);
+    const end = Math.min(pageText.length, idx + query.length + CONTEXT_CHARS);
+    results.push({
+      page: i,
+      before: (start > 0 ? '…' : '') + pageText.slice(start, idx),
+      match: pageText.slice(idx, idx + query.length),
+      after: pageText.slice(idx + query.length, end) + (end < pageText.length ? '…' : ''),
+    });
+  }
+  return results;
+}
+
+function renderSearchResults(query) {
+  const listEl = document.getElementById('search-result-list');
+  listEl.innerHTML = '';
+  if (!query) return;
+
+  if (!allTextPages.length) {
+    const li = document.createElement('li');
+    li.className = 'search-empty';
+    li.textContent = '책을 먼저 열어주세요.';
+    listEl.appendChild(li);
+    return;
+  }
+
+  const results = buildSearchResults(query);
+  if (results.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'search-empty';
+    li.textContent = `"${query}" 검색 결과가 없습니다.`;
+    listEl.appendChild(li);
+    return;
+  }
+
+  results.forEach((r) => {
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'search-result-btn';
+
+    const pageLabel = document.createElement('span');
+    pageLabel.className = 'search-result-page';
+    pageLabel.textContent = `${r.page + 1}페이지`;
+
+    const snippet = document.createElement('span');
+    snippet.className = 'search-result-snippet';
+    snippet.appendChild(document.createTextNode(r.before));
+    const mark = document.createElement('mark');
+    mark.className = 'search-match-highlight';
+    mark.textContent = r.match;
+    snippet.appendChild(mark);
+    snippet.appendChild(document.createTextNode(r.after));
+
+    btn.appendChild(pageLabel);
+    btn.appendChild(snippet);
+    btn.addEventListener('click', () => {
+      closeSheet('search-panel');
+      jumpToGlobalPage(r.page);
+    });
+    li.appendChild(btn);
+    listEl.appendChild(li);
+  });
+}
+
+let searchDebounceTimer = null;
+document.getElementById('search-input').addEventListener('input', (e) => {
+  clearTimeout(searchDebounceTimer);
+  const query = e.target.value.trim();
+  searchDebounceTimer = setTimeout(() => renderSearchResults(query), 250);
+});
+document.getElementById('search-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  clearTimeout(searchDebounceTimer);
+  renderSearchResults(document.getElementById('search-input').value.trim());
+});
+
+// 책갈피 — users/{uid}/bookmarks/{fileId} 문서에 파일당 배열 하나로 저장해서
+// 기기 간에도 동기화된다(이어보기 위치와 같은 구조). 개발자 세션은 Firestore를
+// 건드리지 않고 localStorage에만 저장(devProgress와 동일한 관례). 등록은 페이지
+// 우측 상단 🔖 아이콘으로, 여기 함수들은 등록/해제/목록 렌더링을 맡는다.
+//
+// ⚠️ 각 항목은 {charIndex, snippet, addedAt}이지 {page, ...}가 아니다 — "페이지 번호"는
+// 화면 크기/글꼴/문단 너비가 바뀌어 페이지가 다시 나뉘면(기기 변경 등) 같은 숫자가
+// 다른 내용을 가리키게 된다. currentBookmarks는 항상 findPageForCharIndex()로 "지금
+// 분할 기준 몇 번째 페이지인지"를 다시 계산해서 쓴다.
+function bookmarksDevKey(fileName) {
+  return 'devBookmarks:' + fileName;
+}
+function legacyBookmarksStorageKey(fileName) {
+  // 이 파일 첫 버전(2026-08 이전)에서 쓰던 {page,...} 형식의 저장 키.
+  // migrateLegacyBookmarksIfNeeded()가 한 번만 읽고 새 형식으로 옮긴 뒤 지운다.
+  return 'txtViewerBookmarks_' + (currentUser ? currentUser.uid : 'anon') + '_' + fileName;
+}
+
+async function loadBookmarksForFile(fileName) {
+  if (!currentUser) return [];
+  if (isDevUser()) {
+    try {
+      const raw = localStorage.getItem(bookmarksDevKey(fileName));
+      const list = raw ? JSON.parse(raw) : [];
+      return Array.isArray(list) ? list : [];
+    } catch (err) {
+      return [];
+    }
+  }
+  try {
+    const fileId = fileDocId(fileName);
+    const docSnap = await getDoc(doc(db, "users", currentUser.uid, "bookmarks", fileId));
+    if (docSnap.exists() && Array.isArray(docSnap.data().bookmarks)) {
+      return docSnap.data().bookmarks;
+    }
+  } catch (err) {
+    console.error('책갈피 불러오기 실패:', err);
+    setStatus('책갈피를 불러오지 못했습니다');
+  }
+  return [];
+}
+
+async function saveBookmarksForFile(fileName, bookmarks) {
+  if (!currentUser) return;
+  if (isDevUser()) {
+    try {
+      localStorage.setItem(bookmarksDevKey(fileName), JSON.stringify(bookmarks));
+    } catch (err) {
+      // 저장 실패해도(용량 초과 등) 책갈피 없이 계속 읽을 수 있으니 조용히 무시
+    }
+    return;
+  }
+  try {
+    const fileId = fileDocId(fileName);
+    await setDoc(doc(db, "users", currentUser.uid, "bookmarks", fileId), {
+      fileName: fileName,
+      bookmarks: bookmarks,
+      updatedAt: new Date()
+    });
+  } catch (err) {
+    console.error('책갈피 저장 실패:', err);
+    setStatus('책갈피 저장 실패');
+  }
+}
+
+// 예전 형식({page, snippet, addedAt})으로 남아있는 책갈피를 새 형식(charIndex)으로
+// 한 번만 옮긴다. 그 당시 페이지 분할 기준을 알 수 없어 완벽히 같은 위치는 아니지만
+// (지금 분할 기준으로 그 페이지 번호가 있던 자리를 그대로 씀), 통째로 잃어버리는
+// 것보다는 낫다. buildFlipBook 이후(=pageStartIndices가 준비된 뒤) 호출해야 한다.
+function migrateLegacyBookmarksIfNeeded(fileName) {
+  if (currentBookmarks.length > 0) return; // 이미 새 형식 데이터가 있으면 건드리지 않는다
+  const legacyKey = legacyBookmarksStorageKey(fileName);
+  let legacy;
+  try {
+    const raw = localStorage.getItem(legacyKey);
+    legacy = raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    legacy = null;
+  }
+  if (!Array.isArray(legacy) || legacy.length === 0) return;
+
+  currentBookmarks = legacy.map((b) => ({
+    charIndex: pageStartIndices[b.page] || 0,
+    snippet: b.snippet || '',
+    addedAt: b.addedAt || Date.now()
+  }));
+  saveBookmarksForFile(fileName, currentBookmarks);
+  localStorage.removeItem(legacyKey);
+  setStatus('예전 책갈피를 새 방식으로 옮겼습니다');
+}
+
+function isPageBookmarked(page) {
+  return currentBookmarks.some((b) => findPageForCharIndex(b.charIndex) === page);
+}
+
+// 페이지 우측 상단 🔖 아이콘 클릭 시 호출 — 그 페이지를 책갈피에 추가/해제하고
+// 아이콘 자신의 채움 상태도 바로 갱신한다 (목록을 다시 그릴 필요 없음)
+function toggleBookmark(page, buttonEl) {
+  if (!currentFileName) return;
+  const existingIndex = currentBookmarks.findIndex((b) => findPageForCharIndex(b.charIndex) === page);
+
+  if (existingIndex !== -1) {
+    currentBookmarks.splice(existingIndex, 1);
+    if (buttonEl) buttonEl.classList.remove('active');
+    setStatus('책갈피를 해제했어요');
+  } else {
+    const charIndex = pageStartIndices[page] || 0;
+    const snippet = (allTextPages[page] || '').trim().slice(0, 40);
+    currentBookmarks.push({ charIndex, snippet, addedAt: Date.now() });
+    if (buttonEl) buttonEl.classList.add('active');
+    setStatus('책갈피에 추가했어요');
+  }
+  saveBookmarksForFile(currentFileName, currentBookmarks);
+}
+
+function renderBookmarkList() {
+  const listEl = document.getElementById('bookmark-list');
+  listEl.innerHTML = '';
+  if (!currentFileName) {
+    const li = document.createElement('li');
+    li.className = 'bookmark-empty';
+    li.textContent = '책을 먼저 열어주세요.';
+    listEl.appendChild(li);
+    return;
+  }
+
+  const bookmarks = currentBookmarks.slice().sort((a, b) => a.charIndex - b.charIndex);
+  if (bookmarks.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'bookmark-empty';
+    li.textContent = '저장된 책갈피가 없습니다.';
+    listEl.appendChild(li);
+    return;
+  }
+
+  bookmarks.forEach((bm) => {
+    const page = findPageForCharIndex(bm.charIndex);
+    const li = document.createElement('li');
+    li.className = 'bookmark-item';
+
+    const jumpBtn = document.createElement('button');
+    jumpBtn.type = 'button';
+    jumpBtn.className = 'bookmark-jump-btn';
+    const pageLabel = document.createElement('span');
+    pageLabel.className = 'bookmark-page';
+    pageLabel.textContent = `${page + 1}페이지`;
+    const snippet = document.createElement('span');
+    snippet.className = 'bookmark-snippet';
+    snippet.textContent = bm.snippet;
+    jumpBtn.appendChild(pageLabel);
+    jumpBtn.appendChild(snippet);
+    jumpBtn.addEventListener('click', () => {
+      closeSheet('bookmark-panel');
+      jumpToGlobalPage(page);
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'bookmark-delete-btn';
+    delBtn.textContent = '삭제';
+    delBtn.addEventListener('click', () => {
+      currentBookmarks = currentBookmarks.filter((b) => b.addedAt !== bm.addedAt);
+      saveBookmarksForFile(currentFileName, currentBookmarks);
+      renderBookmarkList();
+      // 지금 보고 있는 페이지의 책갈피를 목록에서 지웠다면, 상단바 🔖 아이콘도
+      // 바로 비워줘야 한다 — toggleBookmark를 안 거치는 경로라 따로 챙겨야 한다.
+      updateBookmarkToggleButton();
+    });
+
+    li.appendChild(jumpBtn);
+    li.appendChild(delBtn);
+    listEl.appendChild(li);
+  });
+}
+
+// 6. 플립북 재빌드
+// 대용량 텍스트는 페이지 분할(splitTextIntoPagesDOM)이 비동기로 오래 걸릴 수 있어서,
+// 리사이즈 등으로 재빌드가 연속으로 호출되면 먼저 시작된(느린) 빌드가 나중에 끝나면서
+// 최신 빌드 결과를 덮어쓰는 경합이 생길 수 있다. 세대(generation) 번호로 그걸 막는다.
+//
+// 💡 페이지 가상화: 전체 페이지 텍스트는 한 번에 계산해두지만(빠름), 실제로 DOM에
+// 그려서 PageFlip에 올리는 건 현재 위치 근처(창)뿐이다. 문서가 수천 페이지여도
+// 항상 최대 (PAGE_WINDOW_RADIUS*2+1)개 정도의 DOM만 다루기 때문에 초기 로딩과
+// 넘기기 애니메이션 모두 문서 크기와 무관하게 가볍다.
+async function buildFlipBook() {
+  if (!rawTextData) return;
+  // 뷰어 화면이 숨겨져 있으면(서재로 돌아간 상태) #book-stage 크기가 0이 되므로
+  // 여기서 계산을 시도하면 안 된다 — 초소형 크기로 페이지를 재분할하려다
+  // 멈춰버리는 문제로 이어질 수 있다.
+  if (viewerScreen.classList.contains('screen-hidden')) return;
+
+  const myBuildGeneration = ++buildGeneration;
+
+  if (pageFlip) {
+    pageFlip.destroy();
+    pageFlip = null;
+  }
+
+  // #book-stage에 더 이상 여백(padding)이 없으므로 책이 화면 전체를 그대로 채운다
+  const stageRect = stageContainer.getBoundingClientRect();
+  const stageWidth = Math.max(stageRect.width, 100);
+  const stageHeight = Math.max(stageRect.height, 100);
+
+  let isSinglePage = stageWidth < 900;
+  let bookWidth = Math.floor(isSinglePage ? stageWidth : stageWidth / 2);
+  let bookHeight = Math.floor(stageHeight);
+
+  // 💡 같은 파일을 같은 창 크기로 다시 열면(책 재방문, 창 크기 원복 등) 페이지 분할을
+  // 다시 계산하지 않고 캐시에서 즉시 가져온다. 순서: 메모리 캐시 → localStorage(다른
+  // 세션에서 이미 계산해둔 값) → 그래도 없으면 DOM 실측.
+  // fontKey: 글꼴/글자크기/문단너비 모두 줄바꿈 위치(=페이지 경계)에 영향을 주므로
+  // 캐시 키에 포함한다 — 이름은 예전 그대로 두지만 셋 다 여기 들어간다.
+  const fontKey = readerPrefs.fontId + ':' + readerPrefs.fontSizeStep + ':' + readerPrefs.paragraphWidthStep;
+  const cacheKey = currentFileName + '::' + bookWidth + '::' + bookHeight + '::' + fontKey;
+  let paginationResult = paginationCache.get(cacheKey)
+    || loadPersistedPagination(currentFileName, bookWidth, bookHeight, rawTextData, fontKey);
+
+  if (!paginationResult) {
+    // DOM 실측으로 글자 텍스트 분할 (실제 렌더링될 크기와 반드시 동일해야 잘림이 없음)
+    // myBuildGeneration을 넘겨서, 쪼개는 도중 더 최신 재빌드가 시작되면 끝까지
+    // 다 돌지 않고 중간에 스스로 멈추게 한다 (아래 splitTextIntoPagesDOM 참고).
+    paginationResult = await splitTextIntoPagesDOM(rawTextData, bookWidth, bookHeight, myBuildGeneration);
+
+    // 분할 도중 취소됐거나(null), 다 끝났어도 그 사이 더 최신 재빌드가 시작됐다면
+    // 이 낡은 결과는 버린다 (캐시에도 안 남긴다).
+    if (!paginationResult || myBuildGeneration !== buildGeneration) return;
+
+    savePersistedPagination(currentFileName, bookWidth, bookHeight, rawTextData, paginationResult.pageStartIndices, fontKey);
+  }
+  paginationCache.set(cacheKey, paginationResult);
+
+  // 이번에 실제로 빌드에 쓴 무대 크기를 기억해둔다 — scheduleFlipbookRebuild가
+  // 다음 리사이즈 이벤트에서 "의미있는 변화인지" 판단할 기준이 된다.
+  lastBuiltStageWidth = stageWidth;
+  lastBuiltStageHeight = stageHeight;
+
+  allTextPages = paginationResult.pages;
+  pageStartIndices = paginationResult.pageStartIndices;
+  totalPages = allTextPages.length;
+
+  stageContainer.innerHTML = '<div id="my-book"></div>';
+  const bookElement = document.getElementById('my-book');
+
+  // 💡 현재 저장된 글자 위치(currentLastCharIndex)에 가장 가까운 전역 페이지 번호 찾기
+  let targetGlobalPage = 0;
+  for (let i = pageStartIndices.length - 1; i >= 0; i--) {
+    if (currentLastCharIndex >= pageStartIndices[i]) {
+      targetGlobalPage = i;
+      break;
+    }
+  }
+  targetGlobalPage = Math.max(0, Math.min(targetGlobalPage, totalPages - 1));
+
+  // 전체가 아니라 그 위치 근처만 미리 그려서 창을 구성한다
+  const initialWindow = computeWindowRange(targetGlobalPage, totalPages);
+  windowStartIndex = initialWindow.start;
+  windowEndIndex = initialWindow.end;
+  createPageElements(windowStartIndex, windowEndIndex, totalPages)
+    .forEach(el => bookElement.appendChild(el));
+
+  // PageFlip 인스턴스 생성
+  // ⚠️ minWidth/minHeight가 실제 계산된 bookWidth/bookHeight보다 크면
+  // PageFlip이 그보다 크게 강제 렌더링하면서 #book-stage(overflow:hidden)에
+  // 텍스트가 잘리는 문제가 생긴다. 그래서 min 값은 항상 실제 크기 이하로 클램프한다.
+  //
+  // 페이지 넘기기는 라이브러리의 기본 클릭/드래그 대신 우리가 만든
+  // 좌/중/우 3분할 클릭 영역으로만 제어한다 (아래 #book-stage 클릭 핸들러 참고).
+  // useMouseEvents:false만으로 라이브러리 자체의 mousedown/touchstart 리스너가
+  // 아예 붙지 않으므로, 우리 클릭 핸들러와 겹쳐서 두 페이지씩 넘어가는 문제는 이걸로 충분히 막힌다.
+  //
+  // ⚠️ disableFlipByClick:true는 절대 켜지 마라 — 모바일 "이전 페이지"가 먹통이 되는
+  // 원인이었다. page-flip 라이브러리 내부에서 disableFlipByClick이 true면 flip() 호출마다
+  // isPointOnCorners()로 "페이지 모서리 근처를 클릭했는지"부터 검사하는데, flipNext()는
+  // 좌표 계산에 렌더 사각형의 left 오프셋을 더해서(e.left + 2*pageWidth - 10) 넘기는 반면
+  // flipPrev()는 그 오프셋을 빼먹고 x:10을 그대로 넘긴다. 그런데 우리처럼 좁은 화면이라
+  // 한 페이지만 보이는 "portrait" 모드에서는 이 라이브러리가 내부적으로 boundsRect.left를
+  // -pageWidth만큼 음수로 잡기 때문에(2페이지 스프레드 좌표계를 그대로 쓰면서 왼쪽 페이지를
+  // 화면 밖으로 밀어두는 방식), flipPrev()가 넘기는 x:10은 모서리 판정 범위에서 한참
+  // 벗어나 버려서 isPointOnCorners가 항상 false → flip()이 조용히 아무 일도 안 하고 끝난다.
+  // (flipNext()는 오프셋을 더했기 때문에 우연히 이 문제를 피해간다 — 그래서 다음 페이지는
+  // 되는데 이전 페이지만 안 되는 것처럼 보였다.) useMouseEvents:false로 이미 클릭/터치
+  // 리스너 자체를 꺼뒀으니 disableFlipByClick은 우리에게 아무 이점 없이 이 버그만 유발한다.
+  pageFlip = new St.PageFlip(bookElement, {
+    width: bookWidth,
+    height: bookHeight,
+    size: "fixed",
+    minWidth: Math.min(200, bookWidth),
+    maxWidth: Math.max(2000, bookWidth),
+    minHeight: Math.min(250, bookHeight),
+    maxHeight: Math.max(2500, bookHeight),
+    maxShadowOpacity: 0.5,
+    showCover: false,
+    mobileScrollSupport: false,
+    useMouseEvents: false
+  });
+
+  pageFlip.loadFromHTML(document.querySelectorAll('#my-book .page'));
+  pageFlip.turnToPage(targetGlobalPage - windowStartIndex);
+  updatePageIndicator(targetGlobalPage);
+
+  // 두 페이지 스프레드일 때만 가운데 책등 그림자를 보여준다.
+  // ⚠️ loadFromHTML 이후에 붙인다 — PageFlip이 초기화하면서 bookElement 안에
+  // 자기만의 래퍼로 페이지들을 옮기는데, 그 전에 넣으면 이 요소까지 페이지로
+  // 취급되거나 위치가 꼬일 수 있어서, 이미 자리 잡은 다음 위에 겹쳐 올린다.
+  const spineElement = document.createElement('div');
+  spineElement.id = 'book-spine';
+  spineElement.style.display = isSinglePage ? 'none' : 'block';
+  bookElement.appendChild(spineElement);
+
+  // 페이지 넘길 때 글자 인덱스 저장 + 창 가장자리 근처면 다음 구간 미리 당겨오기
+  pageFlip.on('flip', (e) => {
+    if (isShiftingWindow) return; // 창 재정렬 중 발생하는 합성 이벤트는 무시
+
+    const globalIndex = windowStartIndex + e.data;
+    currentLastCharIndex = pageStartIndices[globalIndex] || 0;
+    updatePageIndicator(globalIndex);
+
+    clearTimeout(debounceSaveTimer);
+    debounceSaveTimer = setTimeout(() => {
+      saveProgress(currentFileName, currentLastCharIndex);
+    }, 300);
+
+    maybeShiftPageWindow(globalIndex);
+    resetWakeLockIdleTimer();
+  });
+}
+
+// 7. 화면/무대 크기 변경 시 자동 정밀 재구축
+// window resize뿐 아니라 사이드바 크기 변화, 브라우저 확대/축소, 미디어쿼리 전환 등
+// #book-stage 자체의 실제 크기 변화를 직접 감지해서 항상 실측값과 렌더링 크기를 일치시킨다.
+function scheduleFlipbookRebuild() {
+  if (!rawTextData) return;
+  // 서재 화면으로 돌아가 뷰어가 숨겨진 동안의 크기 변화(0으로 수축 등)는 무시한다
+  if (viewerScreen.classList.contains('screen-hidden')) return;
+
+  // 💡 모바일에서 주소창이 나타났다 사라지거나 키보드가 뜨는 정도의 자잘한 세로
+  // 흔들림은 무시한다 — 그 정도로는 페이지 분할이 사실상 달라지지 않는데도,
+  // 그때마다 pageFlip을 통째로 destroy·재생성하면서 "화면 맞춤 중..." 토스트가
+  // 계속 뜨고 읽던 자리가 깜빡이는 것처럼 보였다. 마지막으로 실제 빌드에 쓴
+  // 크기와 비교해서 진짜 의미있는 변화(회전, 창 크기 조절 등)일 때만 재빌드한다.
+  // 단, 한 페이지/두 페이지 스프레드 전환 경계(900px)를 넘나드는 경우는 크기
+  // 차이가 작아도 레이아웃이 실제로 바뀌므로 예외로 둔다.
+  const WIDTH_JITTER_THRESHOLD = 40;
+  const HEIGHT_JITTER_THRESHOLD = 80;
+  const stageRect = stageContainer.getBoundingClientRect();
+  const widthDelta = Math.abs(stageRect.width - lastBuiltStageWidth);
+  const heightDelta = Math.abs(stageRect.height - lastBuiltStageHeight);
+  const crossedSinglePageBoundary = (stageRect.width < 900) !== (lastBuiltStageWidth < 900);
+
+  if (!crossedSinglePageBoundary && widthDelta < WIDTH_JITTER_THRESHOLD && heightDelta < HEIGHT_JITTER_THRESHOLD) {
+    return;
+  }
+
+  setStatus("화면 맞춤 조절 중...");
+
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(async () => {
+    await buildFlipBook();
+    setStatus("화면 맞춤 완료!");
+  }, 400);
+}
+
+if (typeof ResizeObserver !== 'undefined') {
+  const stageResizeObserver = new ResizeObserver(() => scheduleFlipbookRebuild());
+  stageResizeObserver.observe(stageContainer);
+} else {
+  // 구형 브라우저 폴백
+  window.addEventListener('resize', scheduleFlipbookRebuild);
+}
+
+window.addEventListener('orientationchange', scheduleFlipbookRebuild);
+
+// 7-1. 읽기 몰입 모드 + 3분할 클릭 내비게이션
+// - 책이 열리면 즉시 숨김 상태로 시작한다 (loadFileFromStorage에서 처리)
+// - 화면(book-stage)을 좌/중/우로 3등분: 좌측 클릭 = 이전 페이지, 우측 클릭 = 다음 페이지,
+//   가운데 클릭 = UI 보이기/숨기기 토글. 방향키(←/→)로도 페이지를 넘길 수 있다.
+// - 사이드바/헤더 위에 마우스가 있는 동안은 숨기지 않는다 (파일 고를 때 방해 안 되게)
+// - UI가 보이는 상태로 2.5초간 별다른 동작이 없으면 다시 조용히 숨는다
+function showChrome() {
+  if (!rawTextData) return; // 아직 책을 안 열었으면 UI는 항상 보임
+  document.body.classList.remove('immersive');
+  scheduleImmersiveHide();
+}
+
+function hideChrome() {
+  if (!rawTextData) return;
+  clearTimeout(immersiveTimer);
+  document.body.classList.add('immersive');
+}
+
+function toggleChrome() {
+  if (document.body.classList.contains('immersive')) {
+    showChrome();
+  } else {
+    hideChrome();
+  }
+}
+
+function scheduleImmersiveHide() {
+  clearTimeout(immersiveTimer);
+  if (!rawTextData) return;
+  immersiveTimer = setTimeout(() => {
+    if (!isHoveringChrome) {
+      document.body.classList.add('immersive');
+    }
+  }, 2500);
+}
+
+const bottomBarElement = document.getElementById('bottom-bar');
+[sidebarElement, bottomBarElement].forEach((el) => {
+  el.addEventListener('mouseenter', () => {
+    isHoveringChrome = true;
+    clearTimeout(immersiveTimer);
+    document.body.classList.remove('immersive');
+  });
+  el.addEventListener('mouseleave', () => {
+    isHoveringChrome = false;
+    scheduleImmersiveHide();
+  });
+});
+
+// 하단 슬라이더: 드래그 중엔 카운터 텍스트만 가볍게 갱신하고, 손을 뗐을 때(change)만
+// 실제로 페이지를 이동한다 — 매 픽셀마다 창을 다시 그리면 버벅이기 때문
+pageSlider.addEventListener('input', () => {
+  const target = parseInt(pageSlider.value, 10);
+  updateSliderProgress(pageSlider);
+  pageCounter.textContent = formatPageCounter(target, totalPages);
+});
+pageSlider.addEventListener('change', () => {
+  jumpToGlobalPage(parseInt(pageSlider.value, 10));
+});
+
+// 화면을 3등분해서 좌/중/우 탭/클릭에 각각 다른 동작을 배정하고,
+// 가로로 충분히 빠르게 스와이프하면 그것만으로도 페이지를 넘긴다.
+// (페이지 넘기기는 PageFlip 자체 클릭/드래그를 꺼뒀기 때문에 여기서만 일어난다)
+// ⚠️ 'click' 이벤트에 의존했더니 데스크톱에서는 useMouseEvents:false를 줘도
+// PageFlip이 내부적으로 마우스 포인터 핸들러를 붙여서 버블 단계 이벤트를
+// 가로채는 경우가 있었고, 실제 휴대폰 터치에서는 (같은 원인으로 추정되는)
+// 왼쪽(이전 페이지) 탭이 아예 씹히는 문제가 있었다.
+// → 'click' 대신 pointerdown/pointerup을 window에서 캡처 단계로 직접 잡는다.
+// 캡처는 window → ... → 실제로 클릭/터치된 요소 순으로 흐르기 때문에,
+// PageFlip이 자기 내부 요소에 무슨 핸들러를 붙였든 우리가 항상 먼저 본다.
+let tapStartX = null;
+let tapStartY = null;
+let tapStartTime = 0;
+let isDraggingBrightness = false; // 지금 이 드래그가 밝기 조절로 판정됐는지
+let brightnessDragStartValue = 100; // 밝기 드래그를 시작한 시점의 밝기값(기준점)
+const TAP_MAX_MOVE = 12;      // 이 이상 움직이면 탭이 아니라 드래그/스와이프로 간주
+const TAP_MAX_DURATION = 600; // 이보다 오래 누르고 있으면 탭으로 치지 않음
+const SWIPE_MIN_DISTANCE = 50; // 스와이프로 인정할 최소 가로 이동 거리(px)
+const SWIPE_MAX_DURATION = 800; // 이보다 오래 걸린 움직임은 스와이프가 아니라 느린 드래그로 간주
+
+window.addEventListener('pointerdown', (e) => {
+  if (!stageContainer.contains(e.target)) return;
+  tapStartX = e.clientX;
+  tapStartY = e.clientY;
+  tapStartTime = Date.now();
+  isDraggingBrightness = false;
+}, true);
+
+// 💡 위/아래로 드래그하면 밝기 조절 — 가로 스와이프(페이지 넘기기)와 같은 손짓 체계 안에
+// 있어야 해서, 별도 영역을 나누지 않고 "이 드래그가 가로보다 세로로 뚜렷한지"로 구분한다
+// (가로 스와이프 판정 기준 dx>dy*1.5와 자연스럽게 안 겹친다). 손을 떼기 전까지 실시간으로
+// 반영해야 자연스러워서 pointerup이 아니라 pointermove에서 처리한다.
+const BRIGHTNESS_DRAG_ENGAGE_PX = 15; // 이만큼은 세로로 움직여야 "밝기 조절 중"으로 본다
+const BRIGHTNESS_DRAG_RANGE_PX = 220; // 이 거리를 다 드래그하면 밝기 범위(40~100) 끝까지
+window.addEventListener('pointermove', (e) => {
+  if (tapStartX === null || !stageContainer.contains(e.target)) return;
+  if (!rawTextData || !pageFlip) return;
+
+  const dx = e.clientX - tapStartX;
+  const dy = e.clientY - tapStartY;
+
+  if (!isDraggingBrightness) {
+    // 아직 "탭인지 스와이프인지 밝기조절인지" 판가름 나기 전 — 세로 움직임이 가로보다
+    // 뚜렷하게 커지는 순간에만 밝기 조절 모드로 들어간다. 가로 스와이프 쪽으로 이미
+    // 판정 났으면(다음 pointerup에서 처리) 여기서 손대지 않는다.
+    if (Math.abs(dy) < BRIGHTNESS_DRAG_ENGAGE_PX || Math.abs(dy) <= Math.abs(dx)) return;
+    isDraggingBrightness = true;
+    brightnessDragStartValue = readerPrefs.brightness;
+    document.getElementById('brightness-drag-indicator').classList.add('visible');
+  }
+
+  e.preventDefault();
+  // 위로 드래그(dy 음수) → 밝게, 아래로 드래그(dy 양수) → 어둡게
+  const delta = (-dy / BRIGHTNESS_DRAG_RANGE_PX) * (100 - 40);
+  const nextBrightness = Math.max(40, Math.min(100, Math.round(brightnessDragStartValue + delta)));
+  readerPrefs.brightness = nextBrightness;
+  applyReaderPrefs();
+  const indicator = document.getElementById('brightness-drag-indicator');
+  indicator.textContent = `☀️ 밝기 ${nextBrightness}%`;
+}, { capture: true, passive: false });
+
+// 💡 밝기 드래그 중간 상태를 확실히 정리하는 공통 헬퍼.
+// ⚠️ 버그였던 지점: 아래 pointerup 핸들러의 앞부분(target이 book-stage 밖이거나
+// rawTextData/pageFlip이 없는 경우)은 그동안 isDraggingBrightness를 정리하지 않고
+// tapStartX만 초기화한 채 그냥 return 해버렸다. 밝기 조절을 위해 위로 스와이프하다가
+// 화면 가장자리를 넘어가면(예: 손가락이 사이드바 위로 올라가거나 뷰포트 밖으로 나가면)
+// 그 순간의 pointerup은 target이 book-stage 밖이라 이 경로를 타서, isDraggingBrightness가
+// true로 영원히 남고 "☀️ 밝기 NN%" 안내가 화면에 계속 떠 있는 문제로 이어졌다.
+// 제스처가 어떻게 끝나든(정상 pointerup, target 이탈, pointercancel) 항상 이 함수로
+// 정리해서 그런 경우가 없도록 한다.
+function endBrightnessDrag() {
+  if (!isDraggingBrightness) return;
+  isDraggingBrightness = false;
+  document.getElementById('brightness-drag-indicator').classList.remove('visible');
+  saveReaderPrefsDebounced();
+}
+
+// 💡 터치가 정상적인 pointerup 없이 도중에 끊기는 경우(OS 제스처가 가로채거나,
+// 멀티터치, 브라우저가 스크롤/줌으로 판단해서 넘겨받는 등) 브라우저는 pointerup 대신
+// pointercancel을 보낸다. 이것도 못 받으면 위와 같은 "밝기 UI가 안 사라지는" 문제가
+// 똑같이 재현되므로, 탭/스와이프 판정 없이 상태만 조용히 정리한다.
+window.addEventListener('pointercancel', () => {
+  endBrightnessDrag();
+  tapStartX = null;
+}, true);
+
+window.addEventListener('pointerup', (e) => {
+  if (tapStartX === null || !stageContainer.contains(e.target)) {
+    endBrightnessDrag();
+    tapStartX = null;
+    return;
+  }
+  if (!rawTextData || !pageFlip) {
+    endBrightnessDrag();
+    tapStartX = null;
+    return;
+  }
+
+  // 밝기 드래그 중이었다면 여기서 마무리(저장)만 하고 끝낸다 — 페이지 넘기기/UI 토글
+  // 판정으로 넘어가지 않는다. 손을 뗀 그 순간의 밝기가 이미 pointermove에서 반영돼 있다.
+  if (isDraggingBrightness) {
+    endBrightnessDrag();
+    tapStartX = null;
+    return;
+  }
+
+  const dx = e.clientX - tapStartX;
+  const dy = e.clientY - tapStartY;
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+  const dt = Date.now() - tapStartTime;
+  tapStartX = null;
+
+  // 1) 가로 스와이프: 세로보다 가로로 뚜렷하게, 충분히 멀리, 너무 느리지 않게 움직였으면
+  //    영역(좌/중/우) 상관없이 스와이프 방향만으로 페이지를 넘긴다 (모바일 습관적 제스처)
+  if (absDx >= SWIPE_MIN_DISTANCE && absDx > absDy * 1.5 && dt <= SWIPE_MAX_DURATION) {
+    if (dx < 0) {
+      pageFlip.flipNext(); // 왼쪽으로 스와이프 → 다음 페이지
+    } else {
+      jumpToPrevPage(); // 오른쪽으로 스와이프 → 이전 페이지 (애니메이션 없이 즉시 전환)
+    }
+    return;
+  }
+
+  // 2) 탭(제자리 클릭): 거의 움직이지 않고 짧게 눌렀다 뗀 경우만 좌/중/우 영역으로 반응
+  if (absDx > TAP_MAX_MOVE || absDy > TAP_MAX_MOVE || dt > TAP_MAX_DURATION) return; // 애매한 느린 드래그는 무시
+
+  const third = window.innerWidth / 3;
+  if (e.clientX < third) {
+    jumpToPrevPage();
+  } else if (e.clientX > third * 2) {
+    pageFlip.flipNext();
+  } else {
+    toggleChrome();
+  }
+}, true);
+
+// 마우스 휠로 페이지 넘기기: 아래로 굴리면 다음 페이지, 위로 굴리면 이전 페이지.
+// 휠(특히 트랙패드)은 한 번 굴릴 때 이벤트가 짧은 시간에 여러 번 발생하므로,
+// 쿨다운 없이 그대로 받으면 한 번 스크롤했는데 페이지가 여러 장 넘어가 버린다 —
+// 그래서 마지막으로 페이지를 넘긴 뒤 일정 시간은 추가 휠 이벤트를 무시한다.
+let wheelCooldownUntil = 0;
+stageContainer.addEventListener('wheel', (e) => {
+  if (!pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
+  if (Math.abs(e.deltaY) < 10) return; // 아주 미세한 휠 움직임(관성 스크롤 꼬리 등)은 무시
+
+  const now = Date.now();
+  if (now < wheelCooldownUntil) return;
+  wheelCooldownUntil = now + 500;
+
+  e.preventDefault();
+  if (e.deltaY > 0) {
+    pageFlip.flipNext(); // 아래로 스크롤 → 다음 페이지
+  } else {
+    jumpToPrevPage(); // 위로 스크롤 → 이전 페이지 (애니메이션 없이 즉시 전환)
+  }
+}, { passive: false });
+
+// 8. 위치 저장/로드
+// 💡 기기 간 이어보기의 기준 시각. 이 기기가 "지금 화면에 보여주고 있는 위치가
+// 서버 기준 몇 시에 저장된 것까지 반영한 상태인지"를 기록해둔다.
+// 탭이 다시 화면에 보일 때(visibilitychange) 서버 값의 updatedAt이 이보다 최신이면
+// 다른 기기에서 더 앞서 읽은 것으로 보고 그 위치로 자동으로 넘어간다.
+let lastKnownProgressUpdatedAt = 0;
+
+// 💡 사용자별 저장: 진행 상황을 전역 컬렉션이 아니라 users/{uid}/reading_progress/{fileId}에
+// 저장해서, 같은 파일을 읽어도 로그인한 사람마다 각자 자기 위치만 보게 한다.
+async function saveProgress(fileName, charIndex) {
+  if (!currentUser) return;
+  if (isDevUser()) {
+    // 개발자 세션은 Firestore를 쓰지 않고 localStorage에만 저장한다 (실제 백엔드 미접촉)
+    localStorage.setItem('devProgress:' + fileName, String(charIndex));
+    return;
+  }
+  try {
+    const fileId = fileDocId(fileName);
+    await setDoc(doc(db, "users", currentUser.uid, "reading_progress", fileId), {
+      fileName: fileName,
+      charIndex: charIndex,
+      updatedAt: new Date()
+    });
+    // 서버에 방금 우리가 쓴 시각을 기준점으로 삼는다 (거의 지금 시각과 같음)
+    lastKnownProgressUpdatedAt = Date.now();
+    // 💡 페이지를 넘길 때마다 매번 일어나는 정상적인 백그라운드 동작이라, 성공했을 때는
+    // 굳이 토스트로 알리지 않는다 (저장 "실패"는 사용자가 알아야 할 정보라 계속 알림).
+  } catch (err) {
+    setStatus("저장 실패");
+  }
+}
+
+async function loadProgress(fileName) {
+  if (!currentUser) return 0;
+  if (isDevUser()) {
+    return parseInt(localStorage.getItem('devProgress:' + fileName) || '0', 10);
+  }
+  try {
+    const fileId = fileDocId(fileName);
+    const docRef = doc(db, "users", currentUser.uid, "reading_progress", fileId);
+    const docSnap = await getDoc(docRef);
+
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      lastKnownProgressUpdatedAt = (data.updatedAt && data.updatedAt.toMillis) ? data.updatedAt.toMillis() : Date.now();
+      return data.charIndex || 0;
+    }
+  } catch (err) {
+    console.error(err);
+  }
+  return 0;
+}
+
+// 저장된 글자 위치(charIndex)가 현재 문서 분할 기준으로 몇 번째 전역 페이지인지 찾는다
+function findPageForCharIndex(charIndex) {
+  let page = 0;
+  for (let i = pageStartIndices.length - 1; i >= 0; i--) {
+    if (charIndex >= pageStartIndices[i]) { page = i; break; }
+  }
+  return Math.max(0, Math.min(page, totalPages - 1));
+}
+
+// 💡 다른 기기에서 더 최근에 읽은 기록이 있으면 그 위치로 자동으로 이어준다.
+// 폰 탭을 완전히 닫지 않고 배경으로만 보냈다가 다시 열면(브라우저가 새로고침 없이
+// 메모리 상태를 그대로 복원) 이 기기는 PC에서 새로 저장된 위치를 전혀 모른 채
+// 자기가 마지막으로 보던 옛날 페이지를 계속 보여주는 문제가 있었다.
+// → 탭이 다시 화면에 보일 때마다 서버 기록을 재확인해서, 우리가 알던 것보다
+// 최신이면(=다른 기기에서 더 나중에 저장했으면) 그 위치로 자동으로 이동한다.
+async function syncProgressFromServer() {
+  if (!currentUser || isDevUser() || !currentFileName || !pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
+  try {
+    const fileId = btoa(encodeURIComponent(currentFileName));
+    const docSnap = await getDoc(doc(db, "users", currentUser.uid, "reading_progress", fileId));
+    if (!docSnap.exists()) return;
+
+    const data = docSnap.data();
+    const serverUpdatedAt = (data.updatedAt && data.updatedAt.toMillis) ? data.updatedAt.toMillis() : 0;
+
+    // 서버가 우리보다 최신 기록을 갖고 있으면 (다른 기기에서 더 나중에 읽었으면)
+    if (serverUpdatedAt > lastKnownProgressUpdatedAt) {
+      lastKnownProgressUpdatedAt = serverUpdatedAt;
+      const targetPage = findPageForCharIndex(data.charIndex || 0);
+      const currentPage = windowStartIndex + pageFlip.getCurrentPageIndex();
+      if (targetPage !== currentPage) {
+        jumpToGlobalPage(targetPage);
+        setStatus("다른 기기에서 이어보던 위치로 이동했습니다");
+      }
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+// 💡 기기 간 위치 동기화 안정화: 페이지를 넘길 때마다 300ms 기다렸다가 저장하는데,
+// 모바일에서는 그 사이에 앱을 벗어나면(화면 끄기, 다른 앱 전환 등) 브라우저가
+// 곧바로 실행을 멈춰버려서 마지막 몇 페이지의 저장이 아예 유실될 수 있다.
+// (예: 폰에서 2페이지까지 저장된 채로 남아있는데, PC에서 5페이지까지 읽고
+// 폰으로 다시 열면 여전히 2페이지로 보이는 문제 — 5페이지 저장 자체가 씹혔을 가능성)
+// → 탭이 백그라운드로 가는 순간(visibilitychange/pagehide)을 감지해서, 대기 중인
+// 저장을 debounce 없이 즉시 실행한다. 100% 보장은 아니지만 훨씬 안정적이다.
+function flushProgressSave() {
+  if (!currentFileName || !pageFlip) return;
+  clearTimeout(debounceSaveTimer);
+  saveProgress(currentFileName, currentLastCharIndex);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    flushProgressSave();
+    flushReaderPrefsSave();
+    // 브라우저가 탭 백그라운드 진입 시 wake lock을 자동으로 풀어버리므로 우리 쪽
+    // 상태(sentinel/타이머)도 같이 정리해둔다 — 안 그러면 복귀했을 때 "이미 걸려있는
+    // 줄 알고" 재요청을 건너뛸 수 있다.
+    releaseWakeLock();
+  } else {
+    // 탭이 백그라운드에 있다가 다시 보이는 순간 — 새로고침 없이 메모리 상태 그대로
+    // 복귀하는 경우가 많아서, 그 사이 다른 기기에서 더 앞서 읽었을 수 있는
+    // 최신 위치를 서버에서 다시 확인한다.
+    syncProgressFromServer();
+    // 뷰어가 보이는 채로 돌아왔다면 화면 항상 켜짐도 다시 건다(=최근 조작으로 취급).
+    resetWakeLockIdleTimer();
+  }
+});
+
+// 페이지 넘김 외의 조작(설정 열기, 스크롤, 화면 탭 등)도 "책 읽는 중"으로 쳐서
+// 화면 항상 켜짐 유휴 타이머를 리셋한다.
+viewerScreen.addEventListener('pointerdown', resetWakeLockIdleTimer);
+window.addEventListener('pagehide', () => {
+  flushProgressSave();
+  flushReaderPrefsSave();
+});
+
+// 방향키 제어 (서재 화면에서는 무시 — 뷰어가 보일 때만 동작)
+window.addEventListener('keydown', (e) => {
+  if (!pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
+  if (e.key === "ArrowRight") pageFlip.flipNext();
+  if (e.key === " " || e.code === "Space") {
+    e.preventDefault(); // 스페이스바 클릭 시 기본 스크롤 동작 방지
+    pageFlip.flipNext();
+  }
+  if (e.code === "NumpadEnter" || e.key === "Enter") pageFlip.flipNext();
+  if (e.key === "ArrowLeft") jumpToPrevPage();
+});
+
+// 뷰어 → 서재로 돌아가기
+document.getElementById('back-to-library').addEventListener('click', showLibraryScreen);
