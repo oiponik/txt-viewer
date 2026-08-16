@@ -6,12 +6,13 @@ import {
   doc, getDoc, setDoc, deleteDoc,
   collection, query, orderBy, limit, getDocs,
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { ref, uploadBytes, listAll, getBytes, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+import { ref, uploadBytes, listAll, getBytes, getMetadata, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
 import { db, storage } from "./firebase-init.js";
 import { currentUser, isDevUser, isAdminUser, lastOpenedFileKey, fileDocId, DEV_BOOK_FILENAME } from "./session.js";
 import { setStatus, showViewerScreen, openSheet, closeSheet } from "./ui-shared.js";
-import { currentFileName, setCurrentFileName, loadFileFromStorage, loadDevTestFile } from "./reader.js";
+import { currentFileName, setCurrentFileName, loadFileFromStorage, loadDevTestFile, clearOfflineProgressAndBookmarks } from "./reader.js";
+import { isBookCached, renameCachedBook, removeCachedBook, refreshStaleFlags } from "./offline-cache.js";
 
 const fileListElement = document.getElementById("file-list");
 
@@ -83,13 +84,34 @@ function createFileListItem(fileName, onClick) {
 
   li.appendChild(icon);
   li.appendChild(nameSpan);
+
+  // 오프라인에서도 열 수 있는 책인지 표시 — 캐싱된 책은 작은 "저장됨" 뱃지를,
+  // 캐싱 안 된 책은 흐리게 표시한다. "최근 본 파일" 카드(createRecentFileListItem)는
+  // 완전히 별개 UI라 이 처리를 하지 않는다.
+  if (isBookCached(fileName)) {
+    const badge = document.createElement('span');
+    badge.className = 'offline-cached-badge';
+    badge.textContent = '저장됨';
+    badge.title = '오프라인에서도 열 수 있어요';
+    li.appendChild(badge);
+  } else {
+    li.classList.add('file-offline-unavailable');
+  }
+
   // 이름변경/이동/삭제/순서변경은 전부 관리자만 — 버튼 자체를 안 보여준다(isAdminUser 주석 참고)
   if (isAdminUser()) {
     li.appendChild(createReorderHandle());
     li.appendChild(createItemMenuButton(() => openFileActionSheet(fileName)));
   }
   // suppressClick: 방금 드래그로 옮겼을 때 이어서 뜨는 클릭까지 "열기"로 처리되지 않게 막는다
-  li.onclick = () => { if (li.dataset.suppressClick) return; onClick(); };
+  li.onclick = () => {
+    if (li.dataset.suppressClick) return;
+    if (!navigator.onLine && !isBookCached(fileName)) {
+      setStatus('오프라인 상태에서는 열 수 없어요');
+      return;
+    }
+    onClick();
+  };
   return li;
 }
 
@@ -150,6 +172,15 @@ let itemOrder = {};
 // 개발자 로그인 시 서재 탐색 상태를 루트로 되돌린다(auth.js의 loginAsDevUser 전용).
 export function resetLibraryNavigation() {
   currentFolderId = null;
+}
+
+// 폴더/파일을 바꾸는 모든 쓰기 동작(생성/이름변경/이동/삭제/업로드/순서변경)의 진입점마다
+// 이걸 먼저 불러서 막는다 — 오프라인 중엔 실패할 요청을 굳이 보내는 대신, 애초에 시도하지
+// 않고 조용히 안내만 한다. 막아야 했으면 true를 돌려준다.
+function blockedWhileOffline() {
+  if (navigator.onLine) return false;
+  setStatus('오프라인 상태에서는 작업이 불가능합니다');
+  return true;
 }
 
 function newFolderId() {
@@ -278,20 +309,90 @@ async function loadRecentFileNames() {
   }
 }
 
+// 💡 오프라인 폴백 — 서재 화면(파일 목록/폴더 구조/최근 본 파일)을 통째로 로컬에 스냅샷
+// 해뒀다가, 온라인 요청이 실패하면(주로 오프라인) 그대로 복원해서 보여준다. 그래야
+// "온라인이든 오프라인이든 내 서재는 항상 같은 목록을 보여준다"는 원칙이 지켜진다 —
+// 캐싱된 책인지 아닌지(흐림 표시)는 이 목록 자체와 무관하게 renderLibraryView가
+// offline-cache.js를 따로 확인해서 표시한다.
+function offlineLibrarySnapshotKey() {
+  return 'offlineLibrarySnapshot:' + (currentUser ? currentUser.uid : 'anon');
+}
+function saveOfflineLibrarySnapshot() {
+  try {
+    localStorage.setItem(offlineLibrarySnapshotKey(), JSON.stringify({
+      allStorageFileNames, folders: libraryFolders, fileFolder: fileFolderMap, itemOrder, recentFileNames
+    }));
+  } catch (err) {
+    // 캐싱 실패해도(용량 초과 등) 방금 온라인으로 받아온 목록 자체는 정상 표시되니 조용히 넘어간다
+  }
+}
+// 성공하면 true를 돌려주며 모듈 상태(allStorageFileNames 등)를 스냅샷 값으로 채운다.
+function loadOfflineLibrarySnapshot() {
+  try {
+    const raw = localStorage.getItem(offlineLibrarySnapshotKey());
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    allStorageFileNames = Array.isArray(data.allStorageFileNames) ? data.allStorageFileNames : [];
+    libraryFolders = Array.isArray(data.folders) ? data.folders : [];
+    fileFolderMap = (data.fileFolder && typeof data.fileFolder === 'object') ? data.fileFolder : {};
+    itemOrder = (data.itemOrder && typeof data.itemOrder === 'object') ? data.itemOrder : {};
+    recentFileNames = Array.isArray(data.recentFileNames) ? data.recentFileNames : [];
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+// 캐싱된 책들의 서버 내용이 바뀌었는지 가볍게(다운로드 없이 메타데이터만) 확인한다.
+// 결과는 지금 당장 반영되지 않는다 — reader.js의 loadFileFromStorage가 다음에 그
+// 책을 열 때 isBookStale()로 확인해서, 낡았으면 캐시 대신 새로 받아온다. 즉 "책을
+// 열 때마다"가 아니라 "내 서재가 열릴 때" 한 번, 그것도 화면 렌더링을 막지 않고
+// 백그라운드로 조용히 돈다.
+function checkOfflineCacheFreshness() {
+  refreshStaleFlags(async (fileName) => {
+    try {
+      const meta = await getMetadata(ref(storage, 'books/' + fileName));
+      return { updated: meta.updated, size: meta.size };
+    } catch (err) {
+      return null; // 그 파일이 삭제됐거나 권한 문제 등 — 이번엔 건너뛰고 다음 기회에 다시 확인
+    }
+  }).catch((err) => console.error('오프라인 캐시 신선도 확인 실패:', err));
+}
+
 // 1. Storage 파일 목록 불러오기 (+ 폴더 메타데이터 + 최근 본 파일)
 export async function fetchFileList() {
-  renderLibraryMessage('Storage 목록 불러오는 중...');
-  const listRef = ref(storage, 'books/');
+  renderLibraryMessage('서재 불러오는 중...');
 
+  if (!navigator.onLine) {
+    // 이미 오프라인인 걸 아는 상태면 굳이 네트워크 요청을 시도해서 실패를 기다릴 필요 없이
+    // 곧바로 로컬 스냅샷으로 보여준다. (신선도 확인도 당연히 건너뛴다 — 서버에 물어볼 수 없다)
+    if (loadOfflineLibrarySnapshot()) {
+      renderLibraryView();
+    } else {
+      renderLibraryMessage('오프라인 상태이고, 저장된 서재 정보가 아직 없어요', true);
+    }
+    return;
+  }
+
+  const listRef = ref(storage, 'books/');
   try {
     const [res] = await Promise.all([listAll(listRef), loadLibraryState(), loadRecentFileNames()]);
     allStorageFileNames = res.items.map((itemRef) => itemRef.name);
     // Storage에 더 이상 없는(개명 등으로 사라진) 이름이 최근 목록에 남아있지 않게 거른다
     recentFileNames = recentFileNames.filter((name) => allStorageFileNames.includes(name));
+    saveOfflineLibrarySnapshot();
     renderLibraryView();
+    checkOfflineCacheFreshness();
   } catch (err) {
     console.error(err);
-    renderLibraryMessage('목록 로드 실패', true);
+    // navigator.onLine은 "온라인"으로 보고했는데 실제 요청은 실패하는 경우(와이파이는
+    // 잡히지만 인터넷은 안 되는 등)에도 마찬가지로 로컬 스냅샷으로 대체한다.
+    if (loadOfflineLibrarySnapshot()) {
+      setStatus('최신 목록을 불러오지 못해 저장된 정보로 보여드려요');
+      renderLibraryView();
+    } else {
+      renderLibraryMessage('목록 로드 실패', true);
+    }
   }
 }
 
@@ -506,6 +607,7 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
     setStatus('.txt 파일만 업로드할 수 있어요');
     return;
   }
+  if (blockedWhileOffline()) return;
 
   // 개발자 세션은 실제 Storage 계정이 없어서 업로드가 될 수 없다 — 버튼 자체는
   // 실사용자 화면과 똑같이 보여주되(요청사항), 시도하면 실패할 real 네트워크
@@ -645,6 +747,7 @@ function openFolderActionSheet(folderId) {
 // ── 폴더: 새로 만들기 / 이름수정 / 이동(경로변경) / 삭제 ─────────────────
 document.getElementById('new-folder-btn').addEventListener('click', () => {
   promptTextInput('새 폴더 이름', '', async (name) => {
+    if (blockedWhileOffline()) return;
     libraryFolders.push({ id: newFolderId(), name, parentId: currentFolderId });
     const ok = await saveLibraryState();
     renderLibraryView();
@@ -656,6 +759,7 @@ function renameFolderPrompt(folderId) {
   const folder = getFolderById(folderId);
   if (!folder) return;
   promptTextInput('폴더 이름 변경', folder.name, async (name) => {
+    if (blockedWhileOffline()) return;
     folder.name = name;
     await saveLibraryState();
     renderLibraryView();
@@ -668,6 +772,7 @@ function moveFolderPrompt(folderId) {
 }
 
 async function moveFolderTo(folderId, targetFolderId) {
+  if (blockedWhileOffline()) return;
   if (targetFolderId === folderId) return;
   if (getFolderAndDescendantIds(folderId).includes(targetFolderId)) return; // 순환 방지
   const folder = getFolderById(folderId);
@@ -683,6 +788,7 @@ async function moveFolderTo(folderId, targetFolderId) {
 // 폴더를 지우면 그 안의 파일/하위 폴더는 사라지지 않고 상위 폴더로 올라간다 —
 // 책 파일을 실수로 잃는 게 폴더 정리보다 훨씬 치명적이라 "폴더만 없애기"를 기본으로 한다.
 async function deleteFolderConfirm(folderId) {
+  if (blockedWhileOffline()) return;
   const folder = getFolderById(folderId);
   if (!folder) return;
   const confirmed = confirm(`"${folder.name}" 폴더를 삭제할까요?\n안에 있던 파일/폴더는 상위 폴더로 옮겨집니다.`);
@@ -708,6 +814,7 @@ async function deleteFolderConfirm(folderId) {
 // ── 파일: 이름변경 / 이동(저장 경로 변경) ────────────────────────────
 function moveFilePrompt(fileName) {
   promptFolderPicker('이 파일을 옮길 위치', [], async (targetFolderId) => {
+    if (blockedWhileOffline()) return;
     if (targetFolderId) fileFolderMap[fileName] = targetFolderId; else delete fileFolderMap[fileName];
     removeFromItemOrder(fileItemKey(fileName));
     const ok = await saveLibraryState();
@@ -728,6 +835,7 @@ function renameFilePrompt(fileName) {
 // 흉내낸다. 진행상황/책갈피는 파일명 기반 문서 ID(fileDocId)로 저장돼 있으므로,
 // migrateFileDocs로 그 문서들도 새 ID로 옮겨야 이어보기/책갈피가 끊기지 않는다.
 async function renameFile(oldName, newName) {
+  if (blockedWhileOffline()) return;
   newName = newName.trim();
   if (!newName || newName === oldName) return;
   if (allStorageFileNames.includes(newName)) {
@@ -742,6 +850,8 @@ async function renameFile(oldName, newName) {
     const bytes = await getBytes(oldRef);
     await uploadBytes(newRef, bytes);
     await deleteObject(oldRef);
+    // 오프라인 책 캐시가 옛 이름으로 고아처럼 남지 않도록 같이 옮겨준다.
+    renameCachedBook(oldName, newName);
 
     // 실패해도(권한 문제 등) 이름 변경 자체는 이미 끝났으니 조용히 넘어간다 —
     // 최악의 경우 이어보기 위치/책갈피만 리셋되는 정도라 파일을 잃는 것보단 낫다.
@@ -793,12 +903,16 @@ async function deleteFileConfirm(fileName) {
     setStatus('개발자 모드에서는 삭제를 지원하지 않아요');
     return;
   }
+  if (blockedWhileOffline()) return;
   const confirmed = confirm(`"${fileName}" 파일을 완전히 삭제할까요?\n이 동작은 되돌릴 수 없습니다.`);
   if (!confirmed) return;
 
   setStatus('삭제 중...');
   try {
     await deleteObject(ref(storage, 'books/' + fileName));
+    // 지운 파일의 오프라인 캐시(원문·진행상황·책갈피 로컬 캐시)도 같이 정리한다.
+    removeCachedBook(fileName);
+    clearOfflineProgressAndBookmarks(fileName);
 
     if (fileFolderMap[fileName]) delete fileFolderMap[fileName];
     removeFromItemOrder(fileItemKey(fileName));
@@ -941,6 +1055,7 @@ function onLibraryItemPointerDown(e) {
 }
 
 async function performLibraryMove(kind, id, targetFolderId) {
+  if (blockedWhileOffline()) return;
   if (kind === 'file') {
     if ((fileFolderMap[id] || null) === (targetFolderId || null)) return;
     if (targetFolderId) fileFolderMap[id] = targetFolderId; else delete fileFolderMap[id];
@@ -1072,6 +1187,7 @@ function onReorderHandlePointerDown(e) {
 // 끌던 항목만 새 위치에 끼워 넣은 뒤 저장한다 — 화면에 안 보이는 항목까지
 // 신경 쓸 필요 없이 "보이는 그대로"가 곧 저장되는 순서가 되는 셈.
 async function applyReorder(draggedLi, insertBeforeLi) {
+  if (blockedWhileOffline()) return;
   const siblings = Array.from(fileListElement.querySelectorAll('li[data-draggable]')).filter((el) => el !== draggedLi);
   const keys = siblings.map(libraryItemKeyFromLi);
   const draggedKey = libraryItemKeyFromLi(draggedLi);

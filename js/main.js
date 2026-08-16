@@ -6,6 +6,17 @@
 import './session.js';
 import './firebase-init.js';
 import './ui-shared.js';
+import './offline-cache.js';
 import './reader.js';
 import './library.js';
 import './auth.js';
+
+// 앱 셸(정적 파일) 오프라인 캐싱 — sw.js 참고. 서비스워커는 보안 컨텍스트(https 또는
+// localhost)에서만 등록 가능하므로 없는 척 조용히 넘어간다(구형 브라우저 등).
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch((err) => {
+      console.error('서비스워커 등록 실패 (오프라인 앱 셸 캐싱 없이 동작):', err);
+    });
+  });
+}

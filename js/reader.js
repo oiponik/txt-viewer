@@ -9,12 +9,13 @@
 // 안에서만 일어나(모듈 최상단에서 즉시 실행되는 게 아니라) ES 모듈 스펙상 문제없이 동작한다.
 
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { ref, getBytes } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+import { ref, getBytes, getMetadata } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
 import { db, storage } from "./firebase-init.js";
 import { currentUser, isDevUser, lastOpenedFileKey, fileDocId, DEV_BOOK_FILENAME } from "./session.js";
 import { setStatus, showLibraryScreen, openSheet, closeSheet, releaseWakeLock, resetWakeLockIdleTimer } from "./ui-shared.js";
 import { markActiveFileRow } from "./library.js";
+import { isBookCached, isBookStale, getCachedBookText, cacheBookText } from "./offline-cache.js";
 
 export let currentFileName = "";
 export function setCurrentFileName(name) {
@@ -221,40 +222,67 @@ export async function loadDevTestFile() {
 }
 let fileLoadGeneration = 0;
 
-// 3. Storage에서 파일 다운로드 및 인코딩 자동 처리
+// 3. 책 원문 준비 — 캐싱돼 있고 낡지 않았으면 즉시 그걸 쓰고(오프라인에서도 항상 이
+// 경로), 아니면 Storage에서 새로 받아 인코딩을 자동 처리한 뒤 다음을 위해 캐싱해둔다.
+// "낡았다(stale)" 표시는 book-open 시점이 아니라 내 서재 화면이 열릴 때 미리 확인해둔
+// 것을 여기서 그냥 읽기만 한다 (checkLibraryCacheFreshness 참고) — 읽는 도중에 책
+// 내용이 갑자기 바뀌는 일이 없도록, 신선도 확인 자체는 여기서 하지 않는다.
 export async function loadFileFromStorage(fileName) {
   const myLoadGeneration = ++fileLoadGeneration;
   currentFileName = fileName;
   localStorage.setItem(lastOpenedFileKey(), fileName);
-  setStatus("파일 다운로드 중...");
   showBookLoadingOverlay();
 
   markActiveFileRow(fileName);
 
+  const hasFreshCache = isBookCached(fileName) && !isBookStale(fileName);
+
   try {
-    const fileRef = ref(storage, 'books/' + fileName);
-    const arrayBuffer = await getBytes(fileRef);
-    // 응답을 기다리는 동안 다른 책이 더 최근에 선택됐다면, 이 낡은 응답은 그냥 버린다.
-    if (myLoadGeneration !== fileLoadGeneration) return;
+    let text = null;
 
-    const uint8Array = new Uint8Array(arrayBuffer);
-
-    if (uint8Array.length >= 2 && uint8Array[0] === 0xFF && uint8Array[1] === 0xFE) {
-      rawTextData = new TextDecoder("utf-16le").decode(arrayBuffer);
-    } else if (uint8Array.length >= 2 && uint8Array[0] === 0xFE && uint8Array[1] === 0xFF) {
-      rawTextData = new TextDecoder("utf-16be").decode(arrayBuffer);
-    } else {
-      try {
-        rawTextData = new TextDecoder("utf-8", { fatal: true }).decode(arrayBuffer);
-      } catch (e) {
-        try {
-          rawTextData = new TextDecoder("euc-kr", { fatal: true }).decode(arrayBuffer);
-        } catch (e2) {
-          rawTextData = new TextDecoder("utf-16le").decode(arrayBuffer);
-        }
-      }
+    if (hasFreshCache) {
+      setStatus("저장된 책 여는 중...");
+      const cached = await getCachedBookText(fileName);
+      if (myLoadGeneration !== fileLoadGeneration) return;
+      text = cached ? cached.text : null;
     }
 
+    if (text === null) {
+      if (!navigator.onLine) {
+        // 캐시도 없고 오프라인이면 열 수 없다 — 서재 화면에서 이미 흐리게 표시되고
+        // 클릭도 막혀있어야 정상이지만(library.js), 혹시 몰라 여기서도 한 번 더 막는다.
+        setStatus("오프라인 상태에서는 열 수 없어요");
+        return;
+      }
+      setStatus("파일 다운로드 중...");
+      const fileRef = ref(storage, 'books/' + fileName);
+      const [arrayBuffer, meta] = await Promise.all([
+        getBytes(fileRef),
+        getMetadata(fileRef).catch(() => null), // 메타데이터는 못 가져와도(권한 등) 책은 열려야 하니 실패를 삼킨다
+      ]);
+      // 응답을 기다리는 동안 다른 책이 더 최근에 선택됐다면, 이 낡은 응답은 그냥 버린다.
+      if (myLoadGeneration !== fileLoadGeneration) return;
+
+      const uint8Array = new Uint8Array(arrayBuffer);
+      if (uint8Array.length >= 2 && uint8Array[0] === 0xFF && uint8Array[1] === 0xFE) {
+        text = new TextDecoder("utf-16le").decode(arrayBuffer);
+      } else if (uint8Array.length >= 2 && uint8Array[0] === 0xFE && uint8Array[1] === 0xFF) {
+        text = new TextDecoder("utf-16be").decode(arrayBuffer);
+      } else {
+        try {
+          text = new TextDecoder("utf-8", { fatal: true }).decode(arrayBuffer);
+        } catch (e) {
+          try {
+            text = new TextDecoder("euc-kr", { fatal: true }).decode(arrayBuffer);
+          } catch (e2) {
+            text = new TextDecoder("utf-16le").decode(arrayBuffer);
+          }
+        }
+      }
+      cacheBookText(fileName, text, meta ? { updated: meta.updated, size: meta.size } : null);
+    }
+
+    rawTextData = text;
     document.getElementById('current-title').textContent = fileName;
 
     // 다른 책(파일)의 기록 기준 시각이 남아있지 않도록 새로 여는 책마다 초기화
@@ -955,6 +983,20 @@ function legacyBookmarksStorageKey(fileName) {
   // migrateLegacyBookmarksIfNeeded()가 한 번만 읽고 새 형식으로 옮긴 뒤 지운다.
   return 'txtViewerBookmarks_' + (currentUser ? currentUser.uid : 'anon') + '_' + fileName;
 }
+// 💡 오프라인 폴백용 로컬 캐시 — 개발자 모드 전용이었던 "Firestore 대신 localStorage"
+// 패턴을 실사용자까지 일반화한 것. devBookmarks:와 달리 uid를 키에 포함해서, 같은
+// 기기를 여러 계정이 나눠 쓸 때 서로의 책갈피가 섞이지 않게 한다. 온라인일 땐 항상
+// Firestore가 기준(authority)이고, 이건 어디까지나 오프라인일 때의 대체 수단이다.
+function bookmarksCacheKey(fileName) {
+  return 'offlineBookmarks:' + (currentUser ? currentUser.uid : 'anon') + ':' + fileName;
+}
+
+// library.js의 deleteFileConfirm이 파일을 완전히 지울 때 같이 부른다 — 그래야 나중에
+// 같은 이름으로 다른 내용의 파일이 올라와도 예전 진행상황/책갈피를 이어받지 않는다.
+export function clearOfflineProgressAndBookmarks(fileName) {
+  try { localStorage.removeItem(progressCacheKey(fileName)); } catch (err) {}
+  try { localStorage.removeItem(bookmarksCacheKey(fileName)); } catch (err) {}
+}
 
 async function loadBookmarksForFile(fileName) {
   if (!currentUser) return [];
@@ -967,17 +1009,30 @@ async function loadBookmarksForFile(fileName) {
       return [];
     }
   }
+  let cached = null;
+  try {
+    const raw = localStorage.getItem(bookmarksCacheKey(fileName));
+    cached = raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    cached = null;
+  }
+  if (!navigator.onLine) {
+    return Array.isArray(cached) ? cached : [];
+  }
   try {
     const fileId = fileDocId(fileName);
     const docSnap = await getDoc(doc(db, "users", currentUser.uid, "bookmarks", fileId));
     if (docSnap.exists() && Array.isArray(docSnap.data().bookmarks)) {
-      return docSnap.data().bookmarks;
+      const bookmarks = docSnap.data().bookmarks;
+      try { localStorage.setItem(bookmarksCacheKey(fileName), JSON.stringify(bookmarks)); } catch (err) {}
+      return bookmarks;
     }
   } catch (err) {
     console.error('책갈피 불러오기 실패:', err);
+    if (Array.isArray(cached)) return cached; // 로컬 캐시로 대체 가능하면 조용히 넘어간다
     setStatus('책갈피를 불러오지 못했습니다');
   }
-  return [];
+  return Array.isArray(cached) ? cached : [];
 }
 
 async function saveBookmarksForFile(fileName, bookmarks) {
@@ -990,6 +1045,12 @@ async function saveBookmarksForFile(fileName, bookmarks) {
     }
     return;
   }
+  try {
+    localStorage.setItem(bookmarksCacheKey(fileName), JSON.stringify(bookmarks));
+  } catch (err) {
+    // 로컬 캐시 저장 실패해도(용량 초과 등) Firestore 저장은 아래에서 계속 시도한다
+  }
+  if (!navigator.onLine) return; // 오프라인 — 로컬엔 남았으니, 다음 저장 때(온라인 복귀 후) 자연히 따라잡는다
   try {
     const fileId = fileDocId(fileName);
     await setDoc(doc(db, "users", currentUser.uid, "bookmarks", fileId), {
@@ -1535,6 +1596,12 @@ stageContainer.addEventListener('wheel', (e) => {
 // 다른 기기에서 더 앞서 읽은 것으로 보고 그 위치로 자동으로 넘어간다.
 let lastKnownProgressUpdatedAt = 0;
 
+// devProgress:와 같은 목적이지만 uid로 구분되는, 실사용자용 오프라인 폴백 캐시 키.
+// bookmarksCacheKey와 같은 이유로 uid를 포함한다.
+function progressCacheKey(fileName) {
+  return 'offlineProgress:' + (currentUser ? currentUser.uid : 'anon') + ':' + fileName;
+}
+
 // 💡 사용자별 저장: 진행 상황을 전역 컬렉션이 아니라 users/{uid}/reading_progress/{fileId}에
 // 저장해서, 같은 파일을 읽어도 로그인한 사람마다 각자 자기 위치만 보게 한다.
 async function saveProgress(fileName, charIndex) {
@@ -1544,6 +1611,12 @@ async function saveProgress(fileName, charIndex) {
     localStorage.setItem('devProgress:' + fileName, String(charIndex));
     return;
   }
+  try {
+    localStorage.setItem(progressCacheKey(fileName), String(charIndex));
+  } catch (err) {
+    // 로컬 캐시 저장 실패해도(용량 초과 등) Firestore 저장은 아래에서 계속 시도한다
+  }
+  if (!navigator.onLine) return; // 오프라인 — 로컬엔 남았으니, 다음 저장 때(온라인 복귀 후) 자연히 따라잡는다
   try {
     const fileId = fileDocId(fileName);
     await setDoc(doc(db, "users", currentUser.uid, "reading_progress", fileId), {
@@ -1565,6 +1638,16 @@ async function loadProgress(fileName) {
   if (isDevUser()) {
     return parseInt(localStorage.getItem('devProgress:' + fileName) || '0', 10);
   }
+  let cached = null;
+  try {
+    const raw = localStorage.getItem(progressCacheKey(fileName));
+    cached = raw !== null ? parseInt(raw, 10) : null;
+  } catch (err) {
+    cached = null;
+  }
+  if (!navigator.onLine) {
+    return cached || 0;
+  }
   try {
     const fileId = fileDocId(fileName);
     const docRef = doc(db, "users", currentUser.uid, "reading_progress", fileId);
@@ -1573,10 +1656,12 @@ async function loadProgress(fileName) {
     if (docSnap.exists()) {
       const data = docSnap.data();
       lastKnownProgressUpdatedAt = (data.updatedAt && data.updatedAt.toMillis) ? data.updatedAt.toMillis() : Date.now();
+      try { localStorage.setItem(progressCacheKey(fileName), String(data.charIndex || 0)); } catch (err) {}
       return data.charIndex || 0;
     }
   } catch (err) {
     console.error(err);
+    if (cached !== null) return cached; // 온라인인 줄 알았는데 요청이 실패하면 로컬 캐시로 대체
   }
   return 0;
 }

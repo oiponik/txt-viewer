@@ -263,6 +263,13 @@
       flex: 1; min-width: 0; white-space: nowrap;
       overflow: hidden; text-overflow: ellipsis;
     }
+    /* 오프라인 캐싱 여부 표시 — 캐싱된 책은 .recent-file-folder-hint와 같은 배지 모양으로
+       "저장됨"을, 캐싱 안 된 책은 흐리게(dragging-source와 비슷한 정도로) 표시한다. */
+    .offline-cached-badge {
+      flex-shrink: 0; font-size: 11px; opacity: 0.75;
+      background-color: var(--bg-color); padding: 3px 9px; border-radius: 999px;
+    }
+    #file-list li.file-offline-unavailable { opacity: 0.4; }
     .file-list-message {
       color: #6B5D48; cursor: default; background-color: transparent !important;
     }
