@@ -86,15 +86,17 @@ function createFileListItem(fileName, onClick) {
   li.appendChild(nameSpan);
 
   // 오프라인에서도 열 수 있는 책인지 표시 — 캐싱된 책은 작은 "저장됨" 뱃지를,
-  // 캐싱 안 된 책은 흐리게 표시한다. "이어보기" 카드(createRecentFileListItem)는
-  // 완전히 별개 UI라 이 처리를 하지 않는다.
+  // 캐싱 안 된 책은 흐리게 표시한다 — 단, 온라인일 때는 어차피 캐싱 여부와 무관하게
+  // 아무 책이나 열 수 있어서 흐림 표시가 의미가 없으니 오프라인일 때만 흐리게 한다.
+  // "저장됨" 배지는 반대로 온/오프라인 상관없이 항상 보여준다(정보 자체는 유용하니까).
+  // "이어보기" 카드(createRecentFileListItem)는 완전히 별개 UI라 이 처리를 하지 않는다.
   if (isBookCached(fileName)) {
     const badge = document.createElement('span');
     badge.className = 'offline-cached-badge';
     badge.textContent = '저장됨';
     badge.title = '오프라인에서도 열 수 있어요';
     li.appendChild(badge);
-  } else {
+  } else if (!navigator.onLine) {
     li.classList.add('file-offline-unavailable');
   }
 
@@ -103,9 +105,13 @@ function createFileListItem(fileName, onClick) {
     li.appendChild(createReorderHandle());
     li.appendChild(createItemMenuButton(() => openFileActionSheet(fileName)));
   }
-  // suppressClick: 방금 드래그로 옮겼을 때 이어서 뜨는 클릭까지 "열기"로 처리되지 않게 막는다
+  // suppressClick: 방금 드래그였다면(성공했든 아무 데도 못 놓고 그냥 들었다 놨든) 이어서
+  // 뜨는 클릭까지 "열기"로 처리되지 않게 막는다 — suppressNextClick 참고.
   li.onclick = () => {
-    if (li.dataset.suppressClick) return;
+    if (li.dataset.suppressClick) {
+      delete li.dataset.suppressClick;
+      return;
+    }
     if (!navigator.onLine && !isBookCached(fileName)) {
       setStatus('오프라인 상태에서는 열 수 없어요');
       return;
@@ -147,7 +153,10 @@ function createFolderListItem(folder) {
     li.appendChild(createItemMenuButton(() => openFolderActionSheet(folder.id)));
   }
   li.onclick = () => {
-    if (li.dataset.suppressClick) return;
+    if (li.dataset.suppressClick) {
+      delete li.dataset.suppressClick;
+      return;
+    }
     currentFolderId = folder.id;
     renderLibraryView();
   };
@@ -184,6 +193,18 @@ function blockedWhileOffline() {
   if (navigator.onLine) return false;
   setStatus('오프라인 상태에서는 작업이 불가능합니다');
   return true;
+}
+
+// 드래그 직후(성공했든, 아무 데도 못 옮기고 그냥 놓았든) 뒤이어 뜨는 click을 한 번
+// 무시한다 — 안 그러면 "옮기려고 들었다가 아무 폴더에도 안 놓고 놓았을 뿐"인데도
+// 파일이 열리거나 폴더로 들어가 버린다. li.onclick 쪽에서 플래그를 보고 스스로
+// 지우는 걸 기본으로 하고(타이밍에 안전), 혹시 그 click 자체가 안 오는 경우(드래그가
+// pointercancel로 끝나는 등)를 대비해 넉넉한 시간 뒤에도 한 번 더 지워서 영영
+// 막혀있는 일이 없게 한다.
+function suppressNextClick(li) {
+  li.dataset.suppressClick = '1';
+  clearTimeout(li._suppressClickTimer);
+  li._suppressClickTimer = setTimeout(() => { delete li.dataset.suppressClick; }, 300);
 }
 
 function newFolderId() {
@@ -1081,9 +1102,9 @@ function onLibraryItemPointerDown(e) {
       performLibraryMove(kind, id, targetFolderId);
     }
 
-    // 방금 드래그였다면, 뒤이어 뜨는 click(=열기/이동) 이벤트를 한 번 무시한다.
-    li.dataset.suppressClick = '1';
-    setTimeout(() => { delete li.dataset.suppressClick; }, 0);
+    // 방금 드래그였다면(아무 데도 못 놓고 그냥 들었다 놨어도), 뒤이어 뜨는
+    // click(=열기/이동) 이벤트를 한 번 무시한다.
+    suppressNextClick(li);
   }
 
   function cleanup() {
@@ -1095,6 +1116,10 @@ function onLibraryItemPointerDown(e) {
       li.classList.remove('dragging-source');
       if (ghost) ghost.remove();
       if (currentDropTarget) currentDropTarget.classList.remove('drop-target-hover');
+      // pointercancel로 드래그가 중간에 끊겨도(제스처를 OS/브라우저가 가로채는 등)
+      // finish()와 똑같이 뒤이어 올 수 있는 click을 무시해야 한다 — 여기 빠져있던
+      // 게 "드래그했다가 아무 데도 안 놓았는데 파일이 열리는" 버그의 한 경로였다.
+      suppressNextClick(li);
     }
     dragging = true; // onMove가 더 이상 armDrag를 시도하지 않도록
   }
@@ -1216,8 +1241,7 @@ function onReorderHandlePointerDown(e) {
 
     applyReorder(li, insertBefore);
 
-    li.dataset.suppressClick = '1';
-    setTimeout(() => { delete li.dataset.suppressClick; }, 0);
+    suppressNextClick(li);
   }
 
   function cleanup() {
@@ -1229,6 +1253,7 @@ function onReorderHandlePointerDown(e) {
       fileListElement.classList.remove('reordering');
       if (ghost) ghost.remove();
       clearInsertMarkers();
+      suppressNextClick(li); // finish()와 마찬가지로 pointercancel로 끝나도 뒤이은 click을 무시
     }
   }
 

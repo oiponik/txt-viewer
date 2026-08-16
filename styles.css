@@ -312,7 +312,10 @@
       flex-shrink: 0; font-size: 11px; opacity: 0.75;
       background-color: var(--bg-color); padding: 3px 9px; border-radius: 999px;
     }
-    #file-list li.file-offline-unavailable { opacity: 0.4; }
+    /* li 자체에 opacity를 주면 그 li가 그리는 border-bottom(구분선)까지 같이 흐려져서
+       옆 줄들과 구분선 두께가 들쭉날쭉해 보였다 — 자식 요소들만 흐리게 해서 구분선은
+       온전하게 남긴다. */
+    #file-list li.file-offline-unavailable > * { opacity: 0.4; }
     .file-list-message {
       color: #6B5D48; cursor: default; background-color: transparent !important;
     }
@@ -439,11 +442,22 @@
 
     [data-draggable] { user-select: none; }
     #file-list li.dragging-source { opacity: 0.35; }
+    /* 드래그 중 커서를 따라다니는 미리보기 — onLibraryItemPointerDown 등이 원본 <li>를
+       cloneNode해서 document.body에 붙이는데, 그러면 "#file-list li"처럼 부모(#file-list)를
+       전제로 한 ID 스코프 스타일(패딩/가로 배치/배경 등)이 전부 빠져서 아이콘과 글자가
+       세로로 풀어지는 등 모양이 깨져 보였다 — 여기서 그 배치를 직접 다시 선언한다.
+       (아이콘/이름 자체의 스타일은 .file-item-icon/.file-item-name처럼 일반 class라
+       그대로 적용되니 건드릴 필요 없다. 너비는 JS가 원본 크기 그대로 인라인으로 맞춰준다.) */
     .drag-ghost {
       position: fixed; top: 0; left: 0; z-index: 999;
       transform: translate(-50%, -50%);
       box-shadow: 0 10px 24px rgba(0,0,0,0.35);
       opacity: 0.95; pointer-events: none;
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 10px; font-size: 14px;
+      background-color: var(--sidebar-bg);
+      border-radius: 10px;
+      list-style: none;
     }
     #file-list li.drop-target-hover,
     .breadcrumb-item.drop-target-hover {
