@@ -43,9 +43,21 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(CACHE_VERSION);
+      // ⚠️ cache.addAll()은 "전부 성공 아니면 전부 실패"라서, 17개 파일 중 하나라도
+      // (일시적 네트워크 문제 등으로) 실패하면 설치 전체가 실패해서 단 하나도
+      // 캐싱되지 않는다 — 그러면 서비스워커가 영영 활성화되지 못해 오프라인 지원 자체가
+      // 통째로 죽는다. 그래서 하나씩 개별 실패를 허용하며 캐싱한다: 안 되는 파일이
+      // 있어도 나머지는 정상적으로 캐싱되고, 다음 설치 시도(새로고침 등) 때 다시
+      // 채워질 기회가 있다.
+      await Promise.all(
+        PRECACHE_URLS.map((url) =>
+          cache.add(url).catch((err) => {
+            console.error('[sw] 사전 캐싱 실패:', url, err);
+          })
+        )
+      );
       // 같은 출처는 no-cors 걱정 없이 그대로, CDN은 opaque 응답이라도 캐싱은 된다
       // (내용 검사는 못 하지만 오프라인에서 그대로 돌려줄 수는 있다).
-      await cache.addAll(PRECACHE_URLS);
       await Promise.all(
         PRECACHE_CROSS_ORIGIN_URLS.map((url) =>
           cache.add(new Request(url, { mode: 'no-cors' })).catch(() => {
