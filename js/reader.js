@@ -1400,11 +1400,12 @@ function toggleChrome() {
 function scheduleImmersiveHide() {
   clearTimeout(immersiveTimer);
   if (!rawTextData) return;
+  // 어차피 가운데를 다시 누르면 바로 숨길 수 있어서, 자동으로 빨리 사라질 필요는 없다.
   immersiveTimer = setTimeout(() => {
     if (!isHoveringChrome) {
       document.body.classList.add('immersive');
     }
-  }, 2500);
+  }, 10000);
 }
 
 const bottomBarElement = document.getElementById('bottom-bar');
