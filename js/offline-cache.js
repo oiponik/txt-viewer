@@ -5,12 +5,20 @@
 // ⚠️ 개발자 모드(dev-test-book.txt)는 이 캐시를 안 거친다 — 이미 정적 파일이라
 // sw.js의 앱 셸 캐싱만으로 오프라인에서도 항상 열리므로, 여기 끼워넣을 이유가 없다.
 //
-// LRU 정책: 최근 "연" 순서로 최대 OFFLINE_CACHE_LIMIT권만 원문을 들고 있는다.
-// 한도를 넘기면 가장 오래전에 연 책의 원문만 지운다 — 진행상황/책갈피는 용량이
-// 작으니 지우지 않는다(reader.js의 로컬 캐시 쪽에 그대로 남아서, 나중에 온라인으로
-// 다시 열어도 이어보기가 그대로 된다).
+// LRU 정책: 권 수가 아니라 총 용량(OFFLINE_CACHE_BYTES_LIMIT) 기준으로 관리한다 —
+// 원래 "최근 10권"으로 개수를 세는 방식이었는데, 텍스트 소설 파일은 애초에 용량이
+// 작아서(대부분 몇백 KB~몇 MB) 개수로 막는 게 실제 목적(기기 저장공간 보호)에
+// 비해 너무 빡빡했다. 짧은 책이면 자연히 훨씬 많이 들어가고, 큰 파일이 섞여도
+// 안전장치는 그대로 유지된다. 한도를 넘기면 가장 오래전에 연 책부터 원문을 지운다
+// — 진행상황/책갈피는 용량이 작으니 지우지 않는다(reader.js의 로컬 캐시 쪽에
+// 그대로 남아서, 나중에 온라인으로 다시 열어도 이어보기가 그대로 된다).
+export const OFFLINE_CACHE_BYTES_LIMIT = 500 * 1024 * 1024; // 500MB
 
-export const OFFLINE_CACHE_LIMIT = 10;
+// 문자열 하나의 대략적인 저장 용량 추정치 — JS 문자열은 UTF-16이라 글자당 2바이트로
+// 어림잡는다. 딱 맞을 필요 없이 "대략 몇 MB인지" 판단용이라 이 정도 근사면 충분하다.
+function estimateBytes(text) {
+  return text ? text.length * 2 : 0;
+}
 
 const DB_NAME = 'bookify-offline';
 const DB_VERSION = 1;
@@ -105,24 +113,26 @@ export async function cacheBookText(fileName, text, storageMeta) {
     );
     cachedFileNames.add(fileName);
     staleFileNames.delete(fileName); // 방금 새로 받았으니 더 이상 낡지 않았다
-    await evictOverLimit(db);
+    await evictOverBudget(db);
   } catch (err) {
     // 캐싱 실패해도(용량 초과 등) 방금 다운로드한 책을 읽는 데는 지장 없으니 조용히 넘어간다
     console.error('오프라인 책 캐시 저장 실패:', err);
   }
 }
 
-async function evictOverLimit(db) {
+async function evictOverBudget(db) {
   const all = await reqToPromise(tx(db, 'readonly').getAll());
-  if (all.length <= OFFLINE_CACHE_LIMIT) return;
+  let totalBytes = all.reduce((sum, r) => sum + estimateBytes(r.text), 0);
+  if (totalBytes <= OFFLINE_CACHE_BYTES_LIMIT) return;
   all.sort((a, b) => a.lastAccessAt - b.lastAccessAt); // 오래전에 연 것부터
-  const toEvict = all.slice(0, all.length - OFFLINE_CACHE_LIMIT);
   const store = tx(db, 'readwrite');
-  toEvict.forEach((record) => {
+  for (const record of all) {
+    if (totalBytes <= OFFLINE_CACHE_BYTES_LIMIT) break;
     store.delete(record.fileName);
     cachedFileNames.delete(record.fileName);
     staleFileNames.delete(record.fileName);
-  });
+    totalBytes -= estimateBytes(record.text);
+  }
 }
 
 // 이름변경 성공 시(library.js의 renameFile) 캐시가 옛 이름으로 고아처럼 남지 않도록
