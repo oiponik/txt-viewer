@@ -103,13 +103,14 @@
         <div id="library-breadcrumb" class="library-breadcrumb"></div>
         <ul id="file-list"></ul>
       </div>
-      <!-- 최근 본 파일 — 아래 목록이랑 행 스타일이 같아서 구분선/배경 정도로는 "이어진
-           같은 목록"처럼 보인다는 피드백 → 독립된 카드로 분리한 데 이어, 화면 맨 아래에
-           고정(position:fixed)해서 "내 서재" 카드 크기/스크롤과 무관하게 항상 같은
-           자리에 떠 있게 했다. #library-panel의 max-height는 JS(reserveSpaceForRecentCard)가
-           이 카드의 실제 높이를 재서 겹치지 않게 매번 다시 계산해준다. -->
+      <!-- 이어보기 — 소설 리더 앱 성격상 "최근 여러 권 중 고르기"가 아니라 "읽던 책
+           하나로 바로 이어지기"가 맞다고 판단해 1권만 보여주고 카드도 크게 키웠다
+           (RECENT_FILES_LIMIT 참고). 화면 맨 아래에 고정(position:fixed)해서 "내 서재"
+           카드 크기/스크롤과 무관하게 항상 같은 자리에 떠 있게 했다. #library-panel의
+           max-height는 JS(reserveSpaceForRecentCard)가 이 카드의 실제 높이를 재서
+           겹치지 않게 매번 다시 계산해준다. -->
       <div id="recent-files-section" class="recent-files-section" style="display:none;">
-        <div class="recent-files-label">최근 본 파일</div>
+        <div class="recent-files-label">이어보기</div>
         <ul id="recent-file-list"></ul>
       </div>
   </div>

@@ -48,7 +48,7 @@
 
     .library-panel {
       width: min(480px, 92vw);
-      /* "최근 본 파일" 카드가 화면 아래에 고정으로 떠 있을 때, 그 카드 높이만큼을
+      /* "이어보기" 카드가 화면 아래에 고정으로 떠 있을 때, 그 카드 높이만큼을
          --recent-card-reserve로 빼서 겹치지 않게 한다. JS(reserveSpaceForRecentCard)가
          카드가 보이거나/숨겨지거나/내용이 바뀔 때마다 실제 높이를 재서 갱신해준다. */
       max-height: calc(82vh - var(--recent-card-reserve, 0px));
@@ -275,11 +275,13 @@
     }
     .file-list-message.error { color: #c0392b; }
 
-    /* 최근 본 파일 — 루트 화면에서만 보이고, 아래로 스크롤되는 목록(#file-list)과 같은
-       줄 스타일이라 옅은 카드 배경/하단바 정도로는 여전히 "이어진 같은 목록"처럼
-       보인다는 피드백이 있었다 — .library-panel과 별개인 독립된 카드로 분리한 데
-       이어, 화면 맨 아래에 고정(position:fixed)해서 "내 서재" 카드 크기나 스크롤과
-       무관하게 항상 같은 자리에 떠 있게 했다. */
+    /* 이어보기 — 소설 리더 앱 성격상 "최근 여러 권 중 고르기"가 아니라 "읽던 책 하나로
+       바로 이어지기"가 맞다고 판단해 1권만(RECENT_FILES_LIMIT) 보여주고, 그만큼 카드도
+       눈에 띄게 크게 키웠다. 아래로 스크롤되는 목록(#file-list)과 같은 줄 스타일이라
+       옅은 카드 배경/하단바 정도로는 여전히 "이어진 같은 목록"처럼 보인다는 피드백이
+       있었다 — .library-panel과 별개인 독립된 카드로 분리한 데 이어, 화면 맨 아래에
+       고정(position:fixed)해서 "내 서재" 카드 크기나 스크롤과 무관하게 항상 같은
+       자리에 떠 있게 했다. */
     .recent-files-section {
       position: fixed; left: 50%; bottom: 0;
       transform: translateX(-50%);
@@ -288,25 +290,25 @@
       background-color: var(--sidebar-bg);
       border-radius: 16px 16px 0 0; /* 화면 맨 아래에 딱 붙으니 아래쪽 모서리는 각지게 */
       box-shadow: 0 12px 40px rgba(0,0,0,0.18);
-      padding: 10px 4px max(10px, env(safe-area-inset-bottom));
+      padding: 12px 4px max(12px, env(safe-area-inset-bottom));
     }
     .recent-files-label {
-      font-size: 11px; font-weight: 700; letter-spacing: 0.3px;
-      opacity: 0.55; padding: 4px 14px 2px;
+      font-size: 12px; font-weight: 700; letter-spacing: 0.3px;
+      opacity: 0.6; padding: 4px 18px 4px;
     }
     #recent-file-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
     #recent-file-list li {
-      padding: 12px 10px;
-      cursor: pointer; font-size: 14px;
-      display: flex; align-items: center; gap: 12px;
+      padding: 18px 16px;
+      cursor: pointer; font-size: 18px; font-weight: 600;
+      display: flex; align-items: center; gap: 16px;
       background-color: transparent;
       transition: background-color 0.15s ease;
     }
     #recent-file-list li:hover { background-color: rgba(58,42,24,0.08); }
     #recent-file-list li.active { background-color: var(--active-item); color: var(--accent-color); font-weight: bold; }
     .recent-file-folder-hint {
-      flex-shrink: 0; font-size: 11px; opacity: 0.6;
-      background-color: var(--bg-color); padding: 3px 9px; border-radius: 999px;
+      flex-shrink: 0; font-size: 12.5px; opacity: 0.6;
+      background-color: var(--bg-color); padding: 4px 11px; border-radius: 999px;
     }
 
     /* 목록 바로 위, 목록과 같은 좌우 여백(padding)으로 붙여서 "이 경로 = 이 목록"이라는

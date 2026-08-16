@@ -1,5 +1,5 @@
 // library.js — "내 서재" 화면: 폴더/파일 목록, 폴더 생성/이름변경/이동/삭제, 파일
-// 이름변경/이동/삭제, 업로드(.txt만), 드래그(폴더 이동 + 순서변경 손잡이), 최근 본 파일.
+// 이름변경/이동/삭제, 업로드(.txt만), 드래그(폴더 이동 + 순서변경 손잡이), 이어보기.
 // ⚠️ reader.js와 서로 가져다 쓰는 순환 참조가 있다 — reader.js 상단 주석 참고.
 
 import {
@@ -86,7 +86,7 @@ function createFileListItem(fileName, onClick) {
   li.appendChild(nameSpan);
 
   // 오프라인에서도 열 수 있는 책인지 표시 — 캐싱된 책은 작은 "저장됨" 뱃지를,
-  // 캐싱 안 된 책은 흐리게 표시한다. "최근 본 파일" 카드(createRecentFileListItem)는
+  // 캐싱 안 된 책은 흐리게 표시한다. "이어보기" 카드(createRecentFileListItem)는
   // 완전히 별개 UI라 이 처리를 하지 않는다.
   if (isBookCached(fileName)) {
     const badge = document.createElement('span');
@@ -286,10 +286,11 @@ function folderBreadcrumbPath(id) {
   return path;
 }
 
-// 최근 연 파일 이름 목록(최신순) — reading_progress에 이미 파일마다 updatedAt이 찍혀
-// 있어서, 따로 "최근 목록"을 유지하지 않고 그 문서들을 최신순으로 조회해서 얻는다.
+// 이어보기 — reading_progress에 이미 파일마다 updatedAt이 찍혀 있어서, 따로 목록을
+// 유지하지 않고 가장 최근 문서 하나를 조회해서 얻는다. 소설 리더 앱은 "여러 권 중
+// 고르기"보다 "읽던 책 하나로 바로 이어지기"가 성격에 맞아 1권만 보여준다.
 // (개발자 세션은 Firestore를 안 쓰니, devProgress: 키가 있으면 그 파일 하나만.)
-const RECENT_FILES_LIMIT = 2;
+const RECENT_FILES_LIMIT = 1;
 async function loadRecentFileNames() {
   if (isDevUser()) {
     recentFileNames = (localStorage.getItem('devProgress:' + DEV_BOOK_FILENAME) !== null) ? [DEV_BOOK_FILENAME] : [];
@@ -304,12 +305,12 @@ async function loadRecentFileNames() {
     const snap = await getDocs(q);
     recentFileNames = snap.docs.map((d) => d.data().fileName).filter(Boolean);
   } catch (err) {
-    console.error('최근 본 파일 불러오기 실패:', err);
+    console.error('이어보기 불러오기 실패:', err);
     recentFileNames = [];
   }
 }
 
-// 💡 오프라인 폴백 — 서재 화면(파일 목록/폴더 구조/최근 본 파일)을 통째로 로컬에 스냅샷
+// 💡 오프라인 폴백 — 서재 화면(파일 목록/폴더 구조/이어보기)을 통째로 로컬에 스냅샷
 // 해뒀다가, 온라인 요청이 실패하면(주로 오프라인) 그대로 복원해서 보여준다. 그래야
 // "온라인이든 오프라인이든 내 서재는 항상 같은 목록을 보여준다"는 원칙이 지켜진다 —
 // 캐싱된 책인지 아닌지(흐림 표시)는 이 목록 자체와 무관하게 renderLibraryView가
@@ -359,7 +360,7 @@ function checkOfflineCacheFreshness() {
   }).catch((err) => console.error('오프라인 캐시 신선도 확인 실패:', err));
 }
 
-// 1. Storage 파일 목록 불러오기 (+ 폴더 메타데이터 + 최근 본 파일)
+// 1. Storage 파일 목록 불러오기 (+ 폴더 메타데이터 + 이어보기)
 export async function fetchFileList() {
   renderLibraryMessage('서재 불러오는 중...');
 
@@ -475,7 +476,7 @@ function orderedLibraryItems(parentId, folders, fileNames) {
   return items;
 }
 
-// 최근 본 파일 — 루트(내 서재) 화면에서만 보인다. 폴더 안까지 들어가서도 보이면
+// 이어보기 — 루트(내 서재) 화면에서만 보인다. 폴더 안까지 들어가서도 보이면
 // "지금 이 폴더의 내용물"이라는 목록의 의미가 흐려지고, 어차피 루트에서 한 번
 // 누르면 그 폴더로 안 들어가고도 바로 열리니 목적(빠른 접근)에도 안 맞기 때문.
 function renderRecentFilesSection() {
@@ -490,7 +491,7 @@ function renderRecentFilesSection() {
   }
   section.style.display = '';
   recentFileNames.forEach((name) => listEl.appendChild(createRecentFileListItem(name)));
-  // "최근 본 파일"이 화면 아래에 딱 붙어 고정돼 있어서, "내 서재" 카드가 그 밑에
+  // "이어보기"가 화면 아래에 딱 붙어 고정돼 있어서, "내 서재" 카드가 그 밑에
   // 깔려 가려지지 않도록 실제 렌더된 높이만큼 위쪽에 여백을 남겨준다(카드 자체는
   // 화면 하단 여백이 없으니, 두 카드 사이 숨쉴 틈만 더하면 된다).
   const height = section.getBoundingClientRect().height;
@@ -505,13 +506,14 @@ function createRecentFileListItem(fileName) {
   const li = document.createElement('li');
   if (fileName === currentFileName) li.classList.add('active');
 
+  // 1권만 남은 카드라 아이콘도 목록용(20px)보다 눈에 띄게 키운다.
   const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   icon.setAttribute('viewBox', '0 0 24 24');
-  icon.setAttribute('width', '20');
-  icon.setAttribute('height', '20');
+  icon.setAttribute('width', '30');
+  icon.setAttribute('height', '30');
   icon.setAttribute('fill', 'none');
   icon.setAttribute('stroke', 'currentColor');
-  icon.setAttribute('stroke-width', '2');
+  icon.setAttribute('stroke-width', '1.8');
   icon.setAttribute('stroke-linecap', 'round');
   icon.setAttribute('stroke-linejoin', 'round');
   icon.setAttribute('class', 'file-item-icon');
