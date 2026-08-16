@@ -86,7 +86,9 @@ async function loginAsDevUser() {
 // 상태로 한 번 불려서, "로그인 유지"가 저절로 이루어진다.
 // ⚠️ 개발자 계정(dev)은 Firebase 세션이 아예 없으므로 이 콜백을 거치지 않는다 —
 // loginAsDevUser()가 화면 전환까지 직접 처리한다.
+let authStateResolved = false;
 onAuthStateChanged(auth, async (user) => {
+  authStateResolved = true;
   if (user) {
     setCurrentUser(user);
     if (user.email) localStorage.setItem(LAST_EMAIL_KEY, user.email);
@@ -111,6 +113,19 @@ onAuthStateChanged(auth, async (user) => {
     showAuthScreen();
   }
 });
+
+// 🛟 안전장치 — 화면 3개(auth/library/viewer)는 전부 기본이 screen-hidden이라, 어떤
+// 이유로든(예: 오프라인 상태에서 특정 환경의 IndexedDB 이슈 등으로 Firebase Auth 초기화가
+// 멈추는 경우) onAuthStateChanged가 끝내 한 번도 안 불리면 앱이 영원히 빈 화면으로
+// 보인다. 일정 시간 안에 응답이 없으면 일단 로그인 화면이라도 띄워서 "앱이 멈춘 게
+// 아니다"라는 걸 보여준다 — 오프라인 상태에서 로그인 자체는 안 될 수 있지만, 최소한
+// 빈 화면보다는 사용자가 상황을 알 수 있다.
+setTimeout(() => {
+  if (authStateResolved) return;
+  console.error('로그인 상태 확인이 지연되고 있어요 — 로그인 화면을 대신 띄웁니다.');
+  showAuthScreen();
+  setStatus('연결 상태를 확인하지 못했어요. 온라인 상태에서 다시 시도해주세요.');
+}, 4000);
 
 // 로그인/회원가입 폼 — 같은 폼을 모드 전환으로 재사용한다
 let isSignupMode = false;

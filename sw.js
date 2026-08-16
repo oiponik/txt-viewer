@@ -105,14 +105,14 @@ self.addEventListener('fetch', (event) => {
     (async () => {
       const cache = await caches.open(CACHE_VERSION);
       const cached = await cache.match(req, { ignoreSearch: isSameOrigin && req.mode === 'navigate' });
+      // ⚠️ 예전엔 캐시를 즉시 돌려주면서 동시에 event.waitUntil()로 백그라운드 갱신
+      // (stale-while-revalidate)까지 같이 했는데, respondWith() 안에서 waitUntil()을
+      // 또 거는 조합이 iOS Safari(WebKit)에서 불안정하게 동작한다는 보고가 있어 —
+      // "온라인에서 한 번 설치 후 완전 종료했다가 오프라인으로 재실행하면 빈 화면에서
+      // 멈춘다"는 증상과 정확히 맞아떨어진다. 그래서 캐시가 있으면 그냥 그대로 즉시
+      // 돌려주기만 한다(정적 파일 갱신은 install 단계 — CACHE_VERSION을 올릴 때 —
+      // 에서만 일어난다). 덜 "똑똑"하지만 훨씬 덜 위험하다.
       if (cached) {
-        // 오프라인에서도 즉시 뜨도록 캐시를 먼저 주고, 온라인이면 백그라운드로
-        // 최신본을 받아 다음 방문을 위해 캐시를 갱신한다(stale-while-revalidate).
-        event.waitUntil(
-          fetch(req).then((res) => {
-            if (res && res.ok) cache.put(req, res.clone());
-          }).catch(() => {})
-        );
         return cached;
       }
       try {
