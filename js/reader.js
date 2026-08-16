@@ -1602,17 +1602,37 @@ function progressCacheKey(fileName) {
   return 'offlineProgress:' + (currentUser ? currentUser.uid : 'anon') + ':' + fileName;
 }
 
+// localStorage에 저장된 진행상황을 읽어온다. {charIndex, totalChars} 형식(새 형식)과
+// 예전에 charIndex 숫자 하나만 문자열로 저장하던 형식을 둘 다 지원한다 — 그래야 이번
+// 변경 전에 이미 저장돼 있던 값도 깨지지 않는다. totalChars가 없으면(예전 데이터) 0.
+function parseStoredProgress(raw) {
+  if (raw === null) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && typeof parsed.charIndex === 'number') {
+      return { charIndex: parsed.charIndex, totalChars: parsed.totalChars || 0 };
+    }
+  } catch (err) {
+    // JSON이 아니면 예전 형식(순수 숫자 문자열)일 수 있으니 아래에서 시도
+  }
+  const num = parseInt(raw, 10);
+  return isNaN(num) ? null : { charIndex: num, totalChars: 0 };
+}
+
 // 💡 사용자별 저장: 진행 상황을 전역 컬렉션이 아니라 users/{uid}/reading_progress/{fileId}에
-// 저장해서, 같은 파일을 읽어도 로그인한 사람마다 각자 자기 위치만 보게 한다.
+// 저장해서, 같은 파일을 읽어도 로그인한 사람마다 각자 자기 위치만 보게 한다. totalChars도
+// 같이 저장해서, library.js의 "이어보기" 카드가 책을 다시 열지 않고도(=다운로드 없이)
+// 진행률을 퍼센트로 보여줄 수 있게 한다.
 async function saveProgress(fileName, charIndex) {
   if (!currentUser) return;
+  const totalChars = rawTextData.length;
   if (isDevUser()) {
     // 개발자 세션은 Firestore를 쓰지 않고 localStorage에만 저장한다 (실제 백엔드 미접촉)
-    localStorage.setItem('devProgress:' + fileName, String(charIndex));
+    localStorage.setItem('devProgress:' + fileName, JSON.stringify({ charIndex, totalChars }));
     return;
   }
   try {
-    localStorage.setItem(progressCacheKey(fileName), String(charIndex));
+    localStorage.setItem(progressCacheKey(fileName), JSON.stringify({ charIndex, totalChars }));
   } catch (err) {
     // 로컬 캐시 저장 실패해도(용량 초과 등) Firestore 저장은 아래에서 계속 시도한다
   }
@@ -1622,6 +1642,7 @@ async function saveProgress(fileName, charIndex) {
     await setDoc(doc(db, "users", currentUser.uid, "reading_progress", fileId), {
       fileName: fileName,
       charIndex: charIndex,
+      totalChars: totalChars,
       updatedAt: new Date()
     });
     // 서버에 방금 우리가 쓴 시각을 기준점으로 삼는다 (거의 지금 시각과 같음)
@@ -1636,17 +1657,12 @@ async function saveProgress(fileName, charIndex) {
 async function loadProgress(fileName) {
   if (!currentUser) return 0;
   if (isDevUser()) {
-    return parseInt(localStorage.getItem('devProgress:' + fileName) || '0', 10);
+    const stored = parseStoredProgress(localStorage.getItem('devProgress:' + fileName));
+    return stored ? stored.charIndex : 0;
   }
-  let cached = null;
-  try {
-    const raw = localStorage.getItem(progressCacheKey(fileName));
-    cached = raw !== null ? parseInt(raw, 10) : null;
-  } catch (err) {
-    cached = null;
-  }
+  const cached = parseStoredProgress(localStorage.getItem(progressCacheKey(fileName)));
   if (!navigator.onLine) {
-    return cached || 0;
+    return cached ? cached.charIndex : 0;
   }
   try {
     const fileId = fileDocId(fileName);
@@ -1656,12 +1672,14 @@ async function loadProgress(fileName) {
     if (docSnap.exists()) {
       const data = docSnap.data();
       lastKnownProgressUpdatedAt = (data.updatedAt && data.updatedAt.toMillis) ? data.updatedAt.toMillis() : Date.now();
-      try { localStorage.setItem(progressCacheKey(fileName), String(data.charIndex || 0)); } catch (err) {}
+      try {
+        localStorage.setItem(progressCacheKey(fileName), JSON.stringify({ charIndex: data.charIndex || 0, totalChars: data.totalChars || 0 }));
+      } catch (err) {}
       return data.charIndex || 0;
     }
   } catch (err) {
     console.error(err);
-    if (cached !== null) return cached; // 온라인인 줄 알았는데 요청이 실패하면 로컬 캐시로 대체
+    if (cached) return cached.charIndex; // 온라인인 줄 알았는데 요청이 실패하면 로컬 캐시로 대체
   }
   return 0;
 }

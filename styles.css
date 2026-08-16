@@ -354,6 +354,30 @@
       background-color: var(--bg-color); padding: 4px 11px; border-radius: 999px;
     }
 
+    /* 제목 + 진행률 바를 세로로 쌓는 컨테이너 — createRecentFileListItem 참고.
+       .file-item-name의 flex:1은 원래 가로 한 줄(li) 기준이라, 이 세로 컨테이너
+       안에서는 growth 대신 자연스러운 너비 + 말줄임표만 쓰도록 무효화한다. */
+    .recent-progress-info {
+      flex: 1; min-width: 0;
+      display: flex; flex-direction: column; gap: 7px;
+    }
+    .recent-progress-info .file-item-name { flex: none; }
+    .recent-progress-row { display: flex; align-items: center; gap: 8px; }
+    .recent-progress-track {
+      flex: 1; height: 5px; border-radius: 999px;
+      background-color: rgba(58,42,24,0.14);
+      overflow: hidden;
+    }
+    .recent-progress-fill {
+      height: 100%; border-radius: 999px;
+      background-color: var(--accent-color);
+    }
+    .recent-progress-pct {
+      flex-shrink: 0; min-width: 2.6em; text-align: right;
+      font-size: 12px; font-weight: 700; opacity: 0.65;
+      font-variant-numeric: tabular-nums;
+    }
+
     /* 목록 바로 위, 목록과 같은 좌우 여백(padding)으로 붙여서 "이 경로 = 이 목록"이라는
        느낌이 나게 한다 — 헤더 쪽(구분선 위)에 있을 때보다 목록에 훨씬 더 가까워 보인다. */
     .library-breadcrumb {

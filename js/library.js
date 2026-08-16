@@ -164,6 +164,9 @@ let libraryFolders = [];      // {id, name, parentId(string|null)}[]
 let fileFolderMap = {};       // { [fileName]: folderId } — 없으면 루트
 let currentFolderId = null;   // 지금 서재 화면에서 보고 있는 폴더 (null=루트)
 let recentFileNames = [];     // 최근 연 순서(최신이 앞) — 폴더 위치와 무관하게 루트 화면에 따로 보여줌
+// 이어보기 카드에 진행률(%)을 보여주기 위한 값 — { [fileName]: { charIndex, totalChars } }.
+// loadRecentFileNames가 이미 불러오는 reading_progress 문서에서 같이 뽑아온다(별도 요청 없음).
+let recentFileProgress = {};
 // 손잡이(⠿)로 직접 끌어 정한 순서 — { [부모 폴더 id 또는 'root']: [itemKey, ...] }.
 // itemKey는 폴더면 "folder:id", 파일이면 "file:fileName". 이 배열에 없는 항목은
 // (아직 손대지 않은 새 파일/폴더) 정렬된 항목들 뒤에 이름순으로 자연히 붙는다.
@@ -292,8 +295,22 @@ function folderBreadcrumbPath(id) {
 // (개발자 세션은 Firestore를 안 쓰니, devProgress: 키가 있으면 그 파일 하나만.)
 const RECENT_FILES_LIMIT = 1;
 async function loadRecentFileNames() {
+  recentFileProgress = {};
   if (isDevUser()) {
-    recentFileNames = (localStorage.getItem('devProgress:' + DEV_BOOK_FILENAME) !== null) ? [DEV_BOOK_FILENAME] : [];
+    const raw = localStorage.getItem('devProgress:' + DEV_BOOK_FILENAME);
+    if (raw === null) {
+      recentFileNames = [];
+      return;
+    }
+    recentFileNames = [DEV_BOOK_FILENAME];
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.charIndex === 'number') {
+        recentFileProgress[DEV_BOOK_FILENAME] = { charIndex: parsed.charIndex, totalChars: parsed.totalChars || 0 };
+      }
+    } catch (err) {
+      // 예전 형식(순수 숫자)이면 totalChars를 모르니 진행률 표시는 생략한다
+    }
     return;
   }
   try {
@@ -304,6 +321,13 @@ async function loadRecentFileNames() {
     );
     const snap = await getDocs(q);
     recentFileNames = snap.docs.map((d) => d.data().fileName).filter(Boolean);
+    // 이미 불러온 문서에서 진행률 표시용 값도 같이 뽑아둔다 — 별도 요청 없이 공짜다.
+    snap.docs.forEach((d) => {
+      const data = d.data();
+      if (data.fileName && typeof data.charIndex === 'number' && data.totalChars) {
+        recentFileProgress[data.fileName] = { charIndex: data.charIndex, totalChars: data.totalChars };
+      }
+    });
   } catch (err) {
     console.error('이어보기 불러오기 실패:', err);
     recentFileNames = [];
@@ -321,7 +345,7 @@ function offlineLibrarySnapshotKey() {
 function saveOfflineLibrarySnapshot() {
   try {
     localStorage.setItem(offlineLibrarySnapshotKey(), JSON.stringify({
-      allStorageFileNames, folders: libraryFolders, fileFolder: fileFolderMap, itemOrder, recentFileNames
+      allStorageFileNames, folders: libraryFolders, fileFolder: fileFolderMap, itemOrder, recentFileNames, recentFileProgress
     }));
   } catch (err) {
     // 캐싱 실패해도(용량 초과 등) 방금 온라인으로 받아온 목록 자체는 정상 표시되니 조용히 넘어간다
@@ -338,6 +362,7 @@ function loadOfflineLibrarySnapshot() {
     fileFolderMap = (data.fileFolder && typeof data.fileFolder === 'object') ? data.fileFolder : {};
     itemOrder = (data.itemOrder && typeof data.itemOrder === 'object') ? data.itemOrder : {};
     recentFileNames = Array.isArray(data.recentFileNames) ? data.recentFileNames : [];
+    recentFileProgress = (data.recentFileProgress && typeof data.recentFileProgress === 'object') ? data.recentFileProgress : {};
     return true;
   } catch (err) {
     return false;
@@ -519,12 +544,39 @@ function createRecentFileListItem(fileName) {
   icon.setAttribute('class', 'file-item-icon');
   icon.innerHTML = '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>';
 
+  // 제목과(있으면) 진행률 바를 세로로 쌓는다 — 아이콘/폴더 배지는 그대로 li의
+  // 가로 flex 줄에 남고, 이 안쪽만 따로 쌓이는 구조.
+  const info = document.createElement('div');
+  info.className = 'recent-progress-info';
+
   const nameSpan = document.createElement('span');
   nameSpan.className = 'file-item-name';
   nameSpan.textContent = fileName;
+  info.appendChild(nameSpan);
+
+  // 진행률(%) — reading_progress에서 이미 불러와둔 charIndex/totalChars가 있을 때만 보여준다.
+  // 예전 형식으로 저장된 진행상황(totalChars 없음)이면 조용히 생략한다.
+  const progress = recentFileProgress[fileName];
+  if (progress && progress.totalChars > 0) {
+    const percent = Math.min(100, Math.max(0, Math.round((progress.charIndex / progress.totalChars) * 100)));
+    const row = document.createElement('div');
+    row.className = 'recent-progress-row';
+    const track = document.createElement('div');
+    track.className = 'recent-progress-track';
+    const fill = document.createElement('div');
+    fill.className = 'recent-progress-fill';
+    fill.style.width = percent + '%';
+    track.appendChild(fill);
+    const pct = document.createElement('span');
+    pct.className = 'recent-progress-pct';
+    pct.textContent = percent + '%';
+    row.appendChild(track);
+    row.appendChild(pct);
+    info.appendChild(row);
+  }
 
   li.appendChild(icon);
-  li.appendChild(nameSpan);
+  li.appendChild(info);
 
   // 이 파일이 실제로 어느 폴더 안에 있는지 작은 배지로 — 폴더를 안 뒤져도 위치를 알 수 있게
   const folder = fileFolderMap[fileName] ? getFolderById(fileFolderMap[fileName]) : null;
