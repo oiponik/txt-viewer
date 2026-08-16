@@ -300,7 +300,9 @@
        hover 배경이 따로 칠해지면 아래 삽입선(reorder-insert-*)이랑 같이 보여서
        헷갈린다 — 드래그 중엔 hover 배경 자체를 끄고 삽입선만 보이게 한다. */
     #file-list:not(.reordering) li:hover { background-color: rgba(58,42,24,0.08); }
-    #file-list li.active { background-color: var(--active-item); color: var(--accent-color); font-weight: bold; }
+    /* 굵게(font-weight:bold)까지는 안 준다 — "지금 읽는 책"은 이제 이어보기 카드가
+       전담해서 보여주니, 여기서는 은은한 배경/글자색 강조 정도로만 충분하다. */
+    #file-list li.active { background-color: var(--active-item); color: var(--accent-color); }
     .file-item-icon { flex-shrink: 0; opacity: 0.6; }
     .file-item-name {
       flex: 1; min-width: 0; white-space: nowrap;

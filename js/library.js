@@ -522,15 +522,17 @@ function orderedLibraryItems(parentId, folders, fileNames) {
   return items;
 }
 
-// 이어보기 — 루트(내 서재) 화면에서만 보인다. 폴더 안까지 들어가서도 보이면
-// "지금 이 폴더의 내용물"이라는 목록의 의미가 흐려지고, 어차피 루트에서 한 번
-// 누르면 그 폴더로 안 들어가고도 바로 열리니 목적(빠른 접근)에도 안 맞기 때문.
+// 이어보기 — 폴더 안까지 들어가도 계속 보인다. "지금 읽던 책 하나로 바로
+// 이어지기"가 목적이라, 서재 어디를 보고 있든(루트든 폴더 안이든) 상관없이
+// 항상 접근 가능해야 자연스럽다 — 예전엔 루트에서만 보이게 했었지만, "최근 파일
+// 여러 개 중 고르는 목록"이 아니라 "이어보기 전용 UI"로 성격이 바뀌면서 이 제약이
+// 안 맞게 됐다.
 function renderRecentFilesSection() {
   const section = document.getElementById('recent-files-section');
   const listEl = document.getElementById('recent-file-list');
   listEl.innerHTML = '';
 
-  if (currentFolderId || recentFileNames.length === 0) {
+  if (recentFileNames.length === 0) {
     section.style.display = 'none';
     reserveSpaceForRecentCard(0);
     return;
