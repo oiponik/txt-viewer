@@ -1,3 +1,46 @@
+    /* 자체 호스팅 웹폰트 — 예전엔 구글 폰트 CDN(fonts.googleapis.com)에서 직접 불러왔는데,
+       구글이 유니코드 범위별로 폰트 하나를 수백 개 조각 파일로 쪼개서 서빙해서
+       (한글 완전 커버리지 기준 500개 이상) 실제로 그 글꼴이 렌더링된 적 없으면 그
+       조각들이 캐싱조차 안 돼 있어 "오프라인에서 글꼴을 바꿔도 안 바뀌는" 문제가
+       있었다. fontTools로 전체 글자 커버리지를 가진 파일 하나씩으로 병합해서
+       fonts/ 아래 직접 저장해뒀다 — sw.js가 다른 정적 파일처럼 항상 미리 캐싱한다.
+       (Gowun Dodum은 원래도 굵기가 하나뿐이라 400만 있다) */
+    @font-face {
+      font-family: 'Gowun Dodum';
+      font-style: normal;
+      font-weight: 400;
+      font-display: swap;
+      src: url('fonts/gowun-dodum.woff2') format('woff2');
+    }
+    @font-face {
+      font-family: 'Noto Sans KR';
+      font-style: normal;
+      font-weight: 400;
+      font-display: swap;
+      src: url('fonts/noto-sans-kr-400.woff2') format('woff2');
+    }
+    @font-face {
+      font-family: 'Noto Sans KR';
+      font-style: normal;
+      font-weight: 700;
+      font-display: swap;
+      src: url('fonts/noto-sans-kr-700.woff2') format('woff2');
+    }
+    @font-face {
+      font-family: 'Noto Serif KR';
+      font-style: normal;
+      font-weight: 400;
+      font-display: swap;
+      src: url('fonts/noto-serif-kr-400.woff2') format('woff2');
+    }
+    @font-face {
+      font-family: 'Noto Serif KR';
+      font-style: normal;
+      font-weight: 700;
+      font-display: swap;
+      src: url('fonts/noto-serif-kr-700.woff2') format('woff2');
+    }
+
     /* 🎨 "조용한 서재(Quiet Study)" 팔레트로 전체 색상 통일: #F2EEE4(가장 밝은 크림 —
        카드·바 표면·강조 버튼) / #B7AC97(밝은 탠 — 배경·구분선) / #6B5D48(중간 브라운 —
        보더·hover) / #3A2A18(가장 어두운 브라운 — 본문 텍스트·강조). 순수 흰/검정은

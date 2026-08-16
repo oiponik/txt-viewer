@@ -9,7 +9,7 @@
 // ⚠️ 정적 파일 목록을 바꿨으면(js/ 새 파일 추가 등) 아래 CACHE_VERSION을 올려야
 // 새 캐시가 만들어지고 옛 캐시가 정리된다 — 안 올리면 사용자는 계속 옛날 파일을
 // 오프라인 캐시에서 받게 된다.
-const CACHE_VERSION = 'bookify-shell-v5';
+const CACHE_VERSION = 'bookify-shell-v6';
 
 // 같은 출처(오리진) 정적 파일 — 설치 시점에 전부 미리 받아둔다.
 const PRECACHE_URLS = [
@@ -31,6 +31,11 @@ const PRECACHE_URLS = [
   './js/reader.js',
   './js/library.js',
   './js/auth.js',
+  './fonts/gowun-dodum.woff2',
+  './fonts/noto-sans-kr-400.woff2',
+  './fonts/noto-sans-kr-700.woff2',
+  './fonts/noto-serif-kr-400.woff2',
+  './fonts/noto-serif-kr-700.woff2',
 ];
 
 // PageFlip 라이브러리와 Firebase SDK도 같이 미리 받아둔다 — 전부 CDN(교차 출처)이지만
@@ -102,11 +107,10 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// 폰트(Gowun Dodum/Noto Sans KR/Noto Serif KR) 요청 — 버전 해시가 붙어있어
-// 미리 정확한 URL을 알 수 없으니, 쓰일 때마다 캐싱해두는 방식(runtime cache)으로 처리.
-function isFontHost(url) {
-  return url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
-}
+// ⚠️ 폰트(Gowun Dodum/Noto Sans KR/Noto Serif KR)는 예전에 구글 폰트 CDN에서 "쓰일 때마다
+// 캐싱"하는 방식이었는데, 실제로 그 글꼴로 렌더링된 적 없으면 캐싱도 안 돼서 오프라인에서
+// 글꼴 변경이 조용히 실패하는 문제가 있었다 — fonts/*.woff2로 자체 호스팅해서
+// PRECACHE_URLS(같은 출처)에 넣는 것으로 해결했다. 더 이상 여기서 다룰 필요 없다.
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
@@ -122,7 +126,7 @@ self.addEventListener('fetch', (event) => {
   // Firestore/Storage/Auth의 실제 데이터 API 요청(firestore.googleapis.com 등)은 그대로
   // 네트워크로 흘려보낸다 — 여긴 우리가 캐싱을 대신 결정할 자리가 아니라, book/library
   // 쪽 자체 오프라인 캐시(js/offline-cache.js, localStorage)가 각자 알아서 처리한다.
-  if (!isSameOrigin && !isPageFlipCdn && !isFirebaseSdkCdn && !isFontHost(url)) return;
+  if (!isSameOrigin && !isPageFlipCdn && !isFirebaseSdkCdn) return;
 
   event.respondWith(
     (async () => {
