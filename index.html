@@ -32,6 +32,72 @@
 </head>
 <body>
 
+  <!-- 🩺 임시 진단 패널 — "오프라인 재실행 시 빈 화면" 버그 원인 파악용. 아래
+       <script type="module" src="js/main.js">가 어떤 이유로든 전혀 안 돌아도(모듈
+       그래프 로딩 실패 등) 이 스크립트는 독립적으로(일반 <script>, import 없음)
+       항상 실행돼서 서비스워커/캐시 상태를 화면에 그대로 찍어준다. 원인 찾으면 지운다. -->
+  <script>
+  (function () {
+    var panel = document.createElement('div');
+    panel.id = 'debug-diag-panel';
+    panel.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:rgba(0,0,0,0.88);color:#0f0;font:11px/1.4 monospace;padding:8px;max-height:50vh;overflow:auto;white-space:pre-wrap;word-break:break-all;';
+    panel.textContent = '진단 정보 로딩 중...';
+    document.documentElement.appendChild(panel);
+
+    var lines = [];
+    function log(s) {
+      lines.push(s);
+      panel.textContent = lines.join('\n');
+    }
+
+    log('=== Bookify 진단(임시) ===');
+    log('시각: ' + new Date().toISOString());
+    log('URL: ' + location.href);
+    log('standalone(iOS): ' + (window.navigator.standalone === true));
+    log('displayMode: ' + (window.matchMedia('(display-mode: standalone)').matches ? 'standalone' : 'browser'));
+    log('onLine: ' + navigator.onLine);
+    log('UA: ' + navigator.userAgent);
+
+    window.addEventListener('error', function (e) {
+      log('[error] ' + (e.message || e) + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''));
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      log('[unhandledrejection] ' + (e.reason && (e.reason.message || e.reason)));
+    });
+
+    if ('serviceWorker' in navigator) {
+      log('serviceWorker: API 지원됨');
+      navigator.serviceWorker.getRegistrations().then(function (regs) {
+        log('등록된 SW 수: ' + regs.length);
+        regs.forEach(function (r, i) {
+          log('  [' + i + '] scope=' + r.scope + ' active=' + (r.active ? r.active.state : 'none'));
+        });
+      }).catch(function (err) { log('getRegistrations 에러: ' + err); });
+    } else {
+      log('serviceWorker: API 미지원!!');
+    }
+
+    if ('caches' in window) {
+      caches.keys().then(function (names) {
+        log('캐시 스토리지: ' + JSON.stringify(names));
+        if (names[0]) {
+          return caches.open(names[0]).then(function (c) { return c.keys(); }).then(function (reqs) {
+            log('  [' + names[0] + '] 파일 수: ' + reqs.length);
+          });
+        }
+      }).catch(function (err) { log('caches 에러: ' + err); });
+    } else {
+      log('caches API 미지원!!');
+    }
+
+    setTimeout(function () {
+      log('--- 5초 경과 ---');
+      var authEl = document.getElementById('auth-screen');
+      log('auth-screen hidden: ' + (authEl ? authEl.classList.contains('screen-hidden') : '요소없음(=main.js가 body를 아직 못 그렸거나 index.html 자체가 옛 캐시)'));
+    }, 5000);
+  })();
+  </script>
+
   <!-- 상태 메시지: UI 패널과 분리된 화면 하단 중앙 토스트 -->
   <div id="sync-status"></div>
 
