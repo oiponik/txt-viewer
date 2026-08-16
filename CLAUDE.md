@@ -1,0 +1,72 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+Bookify — a Korean-language single-page web app that lets a signed-in user upload `.txt` files and read them as a page-flipping book (the `page-flip` library), with Firebase-backed folder/library management, per-user reading progress/bookmarks, and offline support. No build step: plain ES modules served as static files.
+
+## Commands
+
+There is no `package.json` and no build/lint/test tooling — this is plain HTML/CSS/JS served as-is.
+
+- **Local dev server**: use the `"static-server"` launch config (`.claude/launch.json`, not committed to git — see `.gitignore`) via the `preview_start` tool, which runs `.claude/serve.ps1` (a small PowerShell static file server) on port 8934. To run it outside that tool: `powershell -NoProfile -ExecutionPolicy Bypass -File .claude/serve.ps1`.
+- **Dev-mode login** (see also "Dev-mode testing" below): on `localhost`/`127.0.0.1`, enter `dev` as the email on the login screen (any/no password) to bypass Firebase Auth entirely and test without touching production data.
+- Deployment is a plain static-file host (no server-side code anywhere in this repo).
+
+## Architecture
+
+### Module graph (`js/`)
+
+Seven domain modules wired together as ES module imports/exports (no bundler), loaded by `index.html` via a single `<script type="module" src="js/main.js">`:
+
+- `session.js` — `currentUser` state (only this module reassigns it directly; everywhere else calls `setCurrentUser()`), dev-mode/admin permission checks (`isDevUser`, `isAdminUser`). Base of the dependency graph; imports nothing else from this project.
+- `firebase-init.js` — the one place Firebase `app`/`db`/`storage`/`auth` get initialized. Everything else imports `db`/`storage`/`auth` from here rather than re-initializing.
+- `ui-shared.js` — screen transitions (`showLibraryScreen`/`showViewerScreen` — *not* `showAuthScreen`, which lives in `auth.js` because it depends on auth-only state), Wake Lock, the bottom status toast (`setStatus`), and generic sheet open/close (`openSheet`/`closeSheet` + `[data-close-panel]` wiring).
+- `offline-cache.js` — IndexedDB cache of book text (see "Offline support" below).
+- `reader.js` — the viewer screen: pagination/PageFlip, search, bookmarks, reader settings, progress sync, immersive mode, brightness swipe.
+- `library.js` — the "내 서재" (library) screen: folders, file list, drag-and-drop, upload, recent files.
+- `auth.js` — login/signup, dev login, the `onAuthStateChanged` gate, logout. Imports from every other domain module, so it's effectively the app's real entry sequence.
+- `main.js` — the actual module entry point; imports the above for their side effects (each module wires its own event listeners at load time) and registers the service worker.
+
+**`library.js` and `reader.js` import from each other** — a deliberate circular dependency. `library.js` needs `reader.js`'s `loadFileFromStorage`/`loadDevTestFile` to open a book from a list row; `reader.js` needs `library.js`'s `markActiveFileRow` to highlight the open file in the list. This is safe under the ES module spec here because every cross-call happens inside an event handler or async function, never at module top-level.
+
+Cross-module mutable state follows one recurring pattern: the owning module exports `let someState` (readable elsewhere via import) plus a `setSomeState()` function (the *only* way other modules may write it, since ES modules can't reassign an imported binding). See `session.js`'s `currentUser`/`setCurrentUser` or `reader.js`'s `currentFileName`/`setCurrentFileName`.
+
+### Firebase data model
+
+- **Auth**: email/password, `browserLocalPersistence` (stays logged in across reloads, including offline).
+- **Storage**: every uploaded `.txt` file lives flat under `books/` — shared across *all* accounts, not yet per-user (see admin-gating below).
+- **Firestore**:
+  - `library/shared` — one document for the whole app's folder structure (`folders`, a `fileFolder` name→folderId map, drag-reorder `itemOrder`). Shared for the same reason as `books/`.
+  - `users/{uid}/reading_progress/{fileId}` and `users/{uid}/bookmarks/{fileId}` — per-user, per-file. `fileId` is `fileDocId(fileName)` (`btoa(encodeURIComponent(fileName))`), so renaming a file means migrating these docs (`library.js`'s `migrateFileDocs`).
+  - `users/{uid}/settings/readerPrefs` — `{mobile: {...}, pc: {...}}`, keyed by device category (viewport < 900px = mobile), not by file.
+  - Security rules aren't in this repo (managed in the Firebase console) — `library.js` and `session.js` have comments with the exact rule text expected there.
+
+**Admin gating**: because `books/` and `library/shared` are shared across every account, only `kinopioo@naver.com` (`session.js`'s `isAdminUser`) can create/rename/move/delete folders and files — a temporary measure until per-user file scoping exists. This only hides UI; it is not real security without matching Firestore/Storage rules.
+
+### Dev-mode testing
+
+On `localhost`/`127.0.0.1` only, logging in with email `dev` skips Firebase Auth entirely (`auth.js`'s `loginAsDevUser`) and uses a fixed local user (`DEV_USER_UID`). The library shows exactly one file, the static `dev-test-book.txt`, and progress/bookmarks/reader-prefs/library-state all go to `localStorage` instead of Firestore/Storage. Prefer this path for all browser-based verification — it never touches production Firebase data. It does *not* exercise the offline book-text cache (see below) or real Firebase Auth persistence, since it bypasses both by design.
+
+### Reading pipeline (`reader.js`)
+
+The largest module; page rendering is its most complex piece:
+
+1. Book text is split into pages by **DOM height measurement + galloping search** (`splitTextIntoPagesDOM`) — measures real rendered height in a hidden `.page` element rather than estimating, using a galloping/binary-search hybrid so it stays fast on large documents, yielding to the main thread periodically.
+2. Only a **window** of pages around the current position (`PAGE_WINDOW_RADIUS = 15`) is ever mounted into PageFlip (`computeWindowRange`/`maybeShiftPageWindow`) — the rest of the book stays as plain strings in memory. This is necessary because PageFlip pairs *local* page indices into left/right spreads; the window's start index must stay even or spreads drift by one page (see the long comment above `computeWindowRange`).
+3. Pagination results are cached twice: in-memory (`paginationCache`, keyed by file + dimensions + font) and in `localStorage` (`persistedPaginationKey`), storing only `pageStartIndices` — not the page text — since the source text can re-slice itself from those offsets.
+4. Bookmarks/progress are stored by **character index**, not page number — page numbers shift whenever font/size/paragraph-width/screen size changes, character offsets don't.
+5. `buildGeneration`/`fileLoadGeneration` counters guard against races when the user resizes or switches books faster than a previous async pagination/download finishes.
+
+### Offline support (`offline-cache.js` + `sw.js`)
+
+- `sw.js` precaches the static app shell (HTML/CSS/JS/icons/manifest/PageFlip CDN script) so the app still boots with no network. **Bump `CACHE_VERSION` whenever the static file list changes**, or clients keep serving stale files indefinitely.
+- `offline-cache.js` is a separate IndexedDB cache of book *text*, keyed by filename, LRU-capped at `OFFLINE_CACHE_LIMIT` (10) most-recently-opened books. `reader.js`'s `loadFileFromStorage` reads from this cache first (online or offline) unless a background freshness check (`refreshStaleFlags`, run once whenever "내 서재" loads, comparing Storage `getMetadata()`) flagged the cached copy stale — a stale flag only takes effect on the *next* open, never mid-read.
+- Reading progress, bookmarks, and the library folder structure each have their own `localStorage` write-through cache (Firestore/Storage stay authoritative when online; the local copy is purely the offline fallback) — this generalizes the pattern dev-mode already used, rather than enabling Firestore's own offline persistence.
+- Every library write action (folder/file create/rename/move/delete, upload, drag reorder) checks `navigator.onLine` and refuses with a toast when offline, rather than queuing writes for later.
+- Renaming or deleting a file also updates or clears its entry in the offline caches, so a stale cache entry never survives under a reused filename.
+
+### PWA
+
+`manifest.json` + `icons/` support "Add to Home Screen" on iOS/Android; `sw.js` is what makes the installed app work offline.
