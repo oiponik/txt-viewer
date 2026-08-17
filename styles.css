@@ -467,21 +467,28 @@
       background-color: var(--active-item) !important; opacity: 1;
     }
 
-    /* 파일/폴더 "⋮" 액션 시트 */
-    .item-action-list { display: flex; flex-direction: column; gap: 6px; }
+    /* 파일/폴더 "⋮" 액션 시트 · 설정 메뉴 — #file-list와 같은 원칙: 배경 채운 박스로
+       항목을 나누지 않고 얇은 구분선(border-bottom)만으로 나눈다. 리스트/메뉴 형태
+       UI는 배경색 박스보다 이쪽이 더 깔끔하다는 피드백 — 새로 만드는 리스트형 UI도
+       기본으로 이 패턴(배경 없음 + 마지막 항목 제외 구분선)을 따른다. */
+    .item-action-list { display: flex; flex-direction: column; }
     .item-action-btn {
-      text-align: left; padding: 12px 14px; border-radius: 10px;
-      border: none; background-color: var(--bg-color); color: var(--text-color);
+      text-align: left; padding: 14px 4px;
+      border: none; border-bottom: 1px solid var(--border-color);
+      background: transparent; color: var(--text-color);
       font-size: 14px; cursor: pointer;
     }
+    .item-action-list .item-action-btn:last-child { border-bottom: none; }
     .item-action-btn.danger { color: #c0392b; }
 
-    /* 설정 패널 "스토리지 현황" — 카테고리별 한 줄(이름+용량 / 관리·초기화 버튼) */
-    .storage-stats-list { display: flex; flex-direction: column; gap: 8px; }
+    /* 설정 패널 "스토리지 현황" — 카테고리별 한 줄(이름+용량 / 관리·초기화 버튼).
+       위와 같은 이유로 배경 없이 구분선만 쓴다. */
+    .storage-stats-list { display: flex; flex-direction: column; }
     .storage-stats-item {
       display: flex; align-items: center; justify-content: space-between; gap: 10px;
-      padding: 10px 12px; border-radius: 10px; background-color: var(--bg-color);
+      padding: 12px 4px; border-bottom: 1px solid var(--border-color);
     }
+    .storage-stats-list .storage-stats-item:last-child { border-bottom: none; }
     .storage-stats-item-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
     .storage-stats-item-label { font-size: 13px; font-weight: 700; }
     .storage-stats-item-size { font-size: 12px; opacity: 0.7; }
