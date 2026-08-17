@@ -24,7 +24,7 @@
 import { currentUser, isDevUser } from "./session.js";
 import { getAllCachedBooksInfo, clearAllCachedBooks, removeCachedBook } from "./offline-cache.js";
 import { openItemActionSheet } from "./library.js";
-import { setStatus, openSheet } from "./ui-shared.js";
+import { setStatus } from "./ui-shared.js";
 
 // localStorage 문자열 하나의 대략적인 저장 용량 추정치 — offline-cache.js의
 // estimateBytes와 같은 근사(UTF-16, 글자당 2바이트)를 키+값 양쪽에 적용한다.
@@ -303,9 +303,35 @@ async function clearWholeCategory(cat) {
   renderStorageOverview();
 }
 
-// 설정 메뉴의 "스토리지 현황" 항목 — 하위 시트를 열면서 그때마다 다시 계산한다
-// (상시 계산 아님).
-document.getElementById('open-storage-stats-btn').addEventListener('click', () => {
-  openSheet('storage-stats-panel');
-  renderStorageOverview();
-});
+// ── 설정 시트 안에서의 화면 전환(메뉴 ↔ 스토리지 현황) ──────────────────
+// 새 시트를 또 띄우는 대신, #settings-panel 하나 안에서 두 화면을 토글한다 —
+// "스토리지 현황"을 누르면 메뉴 대신 이 화면이 나타나고 왼쪽에 뒤로가기 아이콘이
+// 생긴다(사용자 피드백: 새 창보다 같은 창 안에서 뒤로가기가 낫다).
+const settingsBackBtn = document.getElementById('settings-back-btn');
+const settingsPanelTitle = document.getElementById('settings-panel-title');
+const settingsMenuView = document.getElementById('settings-menu-view');
+const storageStatsView = document.getElementById('storage-stats-view');
+
+function showSettingsMenuView() {
+  settingsMenuView.classList.remove('screen-hidden');
+  storageStatsView.classList.add('screen-hidden');
+  settingsBackBtn.classList.add('screen-hidden');
+  settingsPanelTitle.textContent = '설정';
+}
+
+function showStorageStatsView() {
+  settingsMenuView.classList.add('screen-hidden');
+  storageStatsView.classList.remove('screen-hidden');
+  settingsBackBtn.classList.remove('screen-hidden');
+  settingsPanelTitle.textContent = '스토리지 현황';
+  renderStorageOverview(); // 화면에 들어올 때마다 다시 계산한다(상시 계산 아님)
+}
+
+document.getElementById('open-storage-stats-btn').addEventListener('click', showStorageStatsView);
+settingsBackBtn.addEventListener('click', showSettingsMenuView);
+
+// 설정 시트를 닫았다가 다시 열면(✕/배경 클릭으로 어느 화면에 있었든) 항상 메뉴
+// 화면부터 시작한다 — auth.js가 이미 open-settings-btn에 openSheet('settings-panel')
+// 리스너를 걸어뒀지만, 이 모듈은 그 파일을 몰라도 되게(다른 모듈들처럼) 같은
+// 버튼에 리스너를 하나 더 얹는다.
+document.getElementById('open-settings-btn').addEventListener('click', showSettingsMenuView);
