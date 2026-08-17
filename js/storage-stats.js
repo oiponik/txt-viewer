@@ -222,15 +222,34 @@ async function clearCategory(categoryId) {
 
 // ── 렌더링 ──────────────────────────────────────────────────────────────
 const listEl = document.getElementById('storage-stats-list');
+const summaryEl = document.getElementById('storage-usage-summary');
+const barEl = document.getElementById('storage-usage-bar');
 
-function buildStatRow(labelText, sizeText, button) {
+// 카테고리 → 막대/점 색(styles.css의 --storage-cat-N)의 고정 순서. dataviz 스킬의
+// categorical 규칙대로 "항목의 정체성"에 묶인 순서라, 용량 크기 등으로 재배열하지
+// 않는다 — 항상 이 순서(오프라인 책/진행상황·책갈피/페이지 나누기/서재구조·설정/
+// 앱 실행 파일)로 고정.
+const STORAGE_CATEGORY_COLOR_VARS = {
+  offlineBooks: '--storage-cat-1',
+  progressBookmarks: '--storage-cat-2',
+  pagination: '--storage-cat-3',
+  libraryPrefs: '--storage-cat-4',
+  appShell: '--storage-cat-5',
+};
+
+function buildStatRow(labelText, sizeText, button, colorVar) {
   const row = document.createElement('div');
   row.className = 'storage-stats-item';
   const info = document.createElement('div');
   info.className = 'storage-stats-item-info';
   const label = document.createElement('span');
   label.className = 'storage-stats-item-label';
-  label.textContent = labelText;
+  const dot = document.createElement('span');
+  dot.className = 'storage-stats-item-dot';
+  dot.style.backgroundColor = `var(${colorVar})`;
+  const labelTextEl = document.createElement('span');
+  labelTextEl.textContent = labelText;
+  label.append(dot, labelTextEl);
   const size = document.createElement('span');
   size.className = 'storage-stats-item-size';
   size.textContent = sizeText;
@@ -252,7 +271,35 @@ function makeActionBtn(text, danger, onClick) {
 async function renderStorageOverview() {
   if (!listEl) return;
   listEl.innerHTML = '<p class="sheet-hint">불러오는 중…</p>';
+  barEl.innerHTML = '';
+  summaryEl.textContent = '불러오는 중…';
   const [categories, appShell] = await Promise.all([getStorageOverview(), getAppShellCacheInfo()]);
+  const appShellBytes = appShell ? appShell.bytes : 0;
+  const totalBytes = categories.reduce((sum, cat) => sum + cat.bytes, 0) + appShellBytes;
+
+  // 비율 막대 — 카테고리별 조각 너비를 전체 대비 비율로 채운다. 전부 0바이트면
+  // 조각을 하나도 안 그려서 트랙(빈 상태) 색만 남는다.
+  barEl.innerHTML = '';
+  if (totalBytes > 0) {
+    categories.forEach((cat) => {
+      if (cat.bytes <= 0) return;
+      barEl.appendChild(buildUsageSegment(cat.bytes, STORAGE_CATEGORY_COLOR_VARS[cat.id]));
+    });
+    if (appShellBytes > 0) {
+      barEl.appendChild(buildUsageSegment(appShellBytes, STORAGE_CATEGORY_COLOR_VARS.appShell));
+    }
+  }
+  summaryEl.textContent = totalBytes > 0 ? `총 ${formatBytes(totalBytes)} 사용 중` : '사용 중인 저장공간 없음';
+  // 막대 자체는 장식이 아니라 데이터라 role="img"에 접근성 이름을 붙인다 — 아래
+  // 목록에 정확한 수치가 어차피 다 있으니 스크린리더 사용자에게는 요약만으로 충분하다.
+  const allLabels = [...categories.map((c) => c.label), '앱 실행 파일'];
+  const allBytes = [...categories.map((c) => c.bytes), appShellBytes];
+  barEl.setAttribute(
+    'aria-label',
+    totalBytes > 0
+      ? allLabels.map((label, i) => `${label} ${formatBytes(allBytes[i])}`).join(', ')
+      : '사용 중인 저장공간 없음'
+  );
 
   listEl.innerHTML = '';
   categories.forEach((cat) => {
@@ -264,11 +311,23 @@ async function renderStorageOverview() {
       ? makeActionBtn('관리', false, () => openCategoryManageSheet(cat))
       : makeActionBtn('전체 초기화', true, () => clearWholeCategory(cat));
     btn.disabled = !hasData;
-    listEl.appendChild(buildStatRow(cat.label, sizeText, btn));
+    listEl.appendChild(buildStatRow(cat.label, sizeText, btn, STORAGE_CATEGORY_COLOR_VARS[cat.id]));
   });
 
   const appShellSize = appShell ? formatBytes(appShell.bytes) + ' · 읽기 전용' : '용량 확인 불가';
-  listEl.appendChild(buildStatRow('앱 실행 파일', appShellSize, null));
+  listEl.appendChild(buildStatRow('앱 실행 파일', appShellSize, null, STORAGE_CATEGORY_COLOR_VARS.appShell));
+}
+
+// flex-grow를 바이트 수 그대로 비율로 써서 너비를 나눈다(flex-basis:0) — 퍼센트를
+// 직접 계산해서 넣으면 조각 사이 2px gap만큼 합이 100%를 넘어 마지막 조각이
+// 잘리지만, flex-grow는 gap을 뺀 나머지 공간을 알아서 비율대로 나눠주므로 이
+// 문제가 없다.
+function buildUsageSegment(bytes, colorVar) {
+  const seg = document.createElement('div');
+  seg.className = 'storage-usage-bar-segment';
+  seg.style.flex = `${bytes} 0 0`;
+  seg.style.backgroundColor = `var(${colorVar})`;
+  return seg;
 }
 
 function openCategoryManageSheet(cat) {

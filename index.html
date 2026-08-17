@@ -317,6 +317,11 @@
            화면으로 전환될 때만 js/storage-stats.js가 채워 넣는다 — 아래 목록은
            처음엔 빈 채로 시작한다. -->
       <div id="storage-stats-view" class="screen-hidden">
+        <!-- 카테고리별 비율 막대 — 색은 각 카테고리 행 맨 앞의 작은 점과 1:1로
+             대응해서, 이 막대 자체가 범례를 따로 안 둬도 아래 목록이 곧 범례
+             역할을 한다(정확한 수치는 각 행에 이미 있다). -->
+        <div id="storage-usage-summary" class="storage-usage-summary"></div>
+        <div id="storage-usage-bar" class="storage-usage-bar" role="img"></div>
         <div id="storage-stats-list" class="storage-stats-list"></div>
       </div>
     </div>

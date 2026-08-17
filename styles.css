@@ -54,6 +54,20 @@
       --border-color: #6B5D48;
       --active-item: #F2EEE4;
 
+      /* "기기 저장공간 현황" 비율 막대 전용 카테고리 색 5개 — 앱의 나머지 부분은
+         전부 위 갈색/크림 팔레트 하나만 쓰지만, 여러 항목을 한 막대에서 동시에
+         구분해야 하는 건 여기뿐이라 별도 카테고리 팔레트가 필요했다. dataviz 스킬의
+         검증된 기본 categorical 순서(파랑/주황/청록/노랑/마젠타) 앞 5칸을 그대로
+         가져왔다 — 인접한 색끼리 색맹 시뮬레이션에서도 구별되도록 순서까지 검증된
+         세트라, 임의로 더 차분한 색으로 바꾸면 그 보장이 깨진다. 카테고리↔슬롯
+         순서는 js/storage-stats.js의 STORAGE_CATEGORY_COLOR_VARS와 정확히 같아야 한다.
+         (light 서피스는 --sidebar-bg #F2EEE4 하나뿐이라 dark 모드용 스텝은 없음.) */
+      --storage-cat-1: #2a78d6; /* 오프라인 저장된 책 */
+      --storage-cat-2: #eb6834; /* 읽기 진행상황 · 책갈피 캐시 */
+      --storage-cat-3: #1baf7a; /* 페이지 나누기 캐시 */
+      --storage-cat-4: #eda100; /* 서재 구조 · 환경설정 */
+      --storage-cat-5: #e87ba4; /* 앱 실행 파일 */
+
       /* 📌 뷰어(책 읽기 화면)의 글자색/배경색/글꼴/글자크기 — 이제 "뷰어 설정" 패널에서
          사용자가 직접 바꿀 수 있다(applyReaderPrefs() 참고). 아래 값은 그 전까지의
          기본값(테마 "기본")이자, prefs 로드 전 깜빡임을 막는 폴백이다. .page와
@@ -481,7 +495,7 @@
     .item-action-list .item-action-btn:last-child { border-bottom: none; }
     .item-action-btn.danger { color: #c0392b; }
 
-    /* 설정 패널 "스토리지 현황" — 카테고리별 한 줄(이름+용량 / 관리·초기화 버튼).
+    /* "기기 저장공간 현황" — 카테고리별 한 줄(이름+용량 / 관리·초기화 버튼).
        위와 같은 이유로 배경 없이 구분선만 쓴다. */
     .storage-stats-list { display: flex; flex-direction: column; }
     .storage-stats-item {
@@ -490,7 +504,7 @@
     }
     .storage-stats-list .storage-stats-item:last-child { border-bottom: none; }
     .storage-stats-item-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-    .storage-stats-item-label { font-size: 13px; font-weight: 700; }
+    .storage-stats-item-label { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; }
     .storage-stats-item-size { font-size: 12px; opacity: 0.7; }
     .storage-stats-item-btn {
       flex-shrink: 0; padding: 6px 12px; border-radius: 999px;
@@ -499,6 +513,22 @@
     }
     .storage-stats-item-btn.danger { color: #c0392b; border-color: #c0392b; }
     .storage-stats-item-btn:disabled { opacity: 0.35; cursor: default; }
+
+    /* 카테고리 비율 막대 — 각 조각의 너비는 js가 바이트 비율로 계산해서 inline
+       flex-basis로 채운다. 조각 사이 2px 틈(gap)은 트랙 배경(--bg-color)이 그대로
+       비쳐서 구분선 역할을 한다(테두리를 따로 그리지 않는다 — 그게 데이터가 아닌
+       잉크를 더하는 것이라 dataviz 스킬이 피하라는 방식). 값이 하나도 없을 때는
+       조각 없이 트랙 색만 보여서 "0"이라는 상태 자체가 자연스럽게 드러난다. */
+    .storage-usage-summary { font-size: 12px; opacity: 0.7; margin-bottom: 8px; }
+    .storage-usage-bar {
+      display: flex; gap: 2px; height: 10px; border-radius: 999px;
+      overflow: hidden; background-color: var(--bg-color); margin-bottom: 14px;
+    }
+    .storage-usage-bar-segment { height: 100%; min-width: 3px; }
+    /* 각 목록 행 라벨 앞의 작은 점 — 막대 조각과 같은 색이라 이 목록이 곧 범례다. */
+    .storage-stats-item-dot {
+      flex-shrink: 0; width: 9px; height: 9px; border-radius: 50%;
+    }
 
     /* 이름 입력 시트 */
     #text-input-form { display: flex; flex-direction: column; gap: 12px; }
