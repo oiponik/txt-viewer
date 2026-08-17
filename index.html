@@ -281,8 +281,10 @@
     </div>
   </div>
 
-  <!-- 서재 화면 "설정" — 지금은 로그아웃 하나뿐이지만, 뷰어 설정(책 읽는 화면 전용)과는
-       별개로 앱 전체 단위 설정이 늘어날 자리를 미리 만들어둔다. -->
+  <!-- 서재 화면 "설정" — 메뉴 목록 형태. 로그아웃은 바로 실행되는 항목이고,
+       "스토리지 현황"은 하위 화면(#storage-stats-panel)을 여는 항목이다 — 세부 내용을
+       여기 안에 늘어놓지 않고 한 겹 더 들어가게 해서, 설정 화면 자체는 항상 메뉴
+       목록 하나로 단순하게 유지한다. -->
   <div id="settings-panel" class="sheet-panel screen-hidden">
     <div class="sheet-backdrop" data-close-panel></div>
     <div class="sheet-content">
@@ -294,14 +296,25 @@
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -3px; margin-right: 6px;"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
         로그아웃
       </button>
-      <!-- 스토리지 현황: 이 기기에 로컬로 쌓인 캐시 5종류(오프라인 책 원문/진행상황·책갈피/
-           페이지 나누기/서재 구조·환경설정/앱 실행 파일)의 용량과 정리 버튼. 용량 계산이
-           가벼운 작업이 아니라서(특히 Cache Storage) 패널이 열릴 때만 js/storage-stats.js가
-           채워 넣는다 — 아래 목록은 처음엔 빈 채로 시작한다. -->
-      <div class="settings-row">
-        <span class="settings-label">스토리지 현황</span>
-        <div id="storage-stats-list" class="storage-stats-list"></div>
+      <button type="button" id="open-storage-stats-btn" class="item-action-btn">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -3px; margin-right: 6px;"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+        스토리지 현황
+      </button>
+    </div>
+  </div>
+
+  <!-- 스토리지 현황 하위 화면 — 이 기기에 로컬로 쌓인 캐시 5종류(오프라인 책 원문/
+       진행상황·책갈피/페이지 나누기/서재 구조·환경설정/앱 실행 파일)의 용량과 정리
+       버튼. 용량 계산이 가벼운 작업이 아니라서(특히 Cache Storage) 이 패널이 열릴
+       때만 js/storage-stats.js가 채워 넣는다 — 아래 목록은 처음엔 빈 채로 시작한다. -->
+  <div id="storage-stats-panel" class="sheet-panel screen-hidden">
+    <div class="sheet-backdrop" data-close-panel></div>
+    <div class="sheet-content">
+      <div class="sheet-header">
+        <strong>스토리지 현황</strong>
+        <button type="button" class="icon-btn" data-close-panel title="닫기">✕</button>
       </div>
+      <div id="storage-stats-list" class="storage-stats-list"></div>
     </div>
   </div>
 

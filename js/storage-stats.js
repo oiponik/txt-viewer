@@ -1,5 +1,5 @@
-// storage-stats.js — 설정 패널의 "스토리지 현황" 섹션: 로컬에 쌓이는 캐시 5종류의
-// 용량을 보여주고, 책 단위(또는 전체) 삭제를 지원한다.
+// storage-stats.js — 설정 메뉴 > "스토리지 현황" 하위 화면: 로컬에 쌓이는 캐시
+// 5종류의 용량을 보여주고, 책 단위(또는 전체) 삭제를 지원한다.
 //
 // 여기서 다루는 5개 카테고리와 그 실체:
 //   1. 오프라인 저장된 책 — offline-cache.js의 IndexedDB(책 원문)
@@ -18,13 +18,13 @@
 // 다시 알고 있는 쪽을 택했다(둘 다 이미 서로를 import하는 순환 구조라 더 얽히게
 // 하고 싶지 않았다).
 //
-// 용량은 설정 패널이 열릴 때만 계산한다(상시 계산 아님) — Cache Storage 항목별
+// 용량은 이 하위 화면이 열릴 때만 계산한다(상시 계산 아님) — Cache Storage 항목별
 // blob 크기까지 재는 카테고리 5는 특히 비용이 크다.
 
 import { currentUser, isDevUser } from "./session.js";
 import { getAllCachedBooksInfo, clearAllCachedBooks, removeCachedBook } from "./offline-cache.js";
 import { openItemActionSheet } from "./library.js";
-import { setStatus } from "./ui-shared.js";
+import { setStatus, openSheet } from "./ui-shared.js";
 
 // localStorage 문자열 하나의 대략적인 저장 용량 추정치 — offline-cache.js의
 // estimateBytes와 같은 근사(UTF-16, 글자당 2바이트)를 키+값 양쪽에 적용한다.
@@ -303,9 +303,9 @@ async function clearWholeCategory(cat) {
   renderStorageOverview();
 }
 
-// 설정 시트가 열릴 때마다 다시 계산한다(상시 계산 아님) — auth.js가 이미
-// open-settings-btn에 openSheet('settings-panel') 리스너를 걸어뒀지만, 이 모듈은
-// 그 파일을 몰라도 되게(다른 모듈들처럼) 같은 버튼에 리스너를 하나 더 얹는다.
-document.getElementById('open-settings-btn').addEventListener('click', () => {
+// 설정 메뉴의 "스토리지 현황" 항목 — 하위 시트를 열면서 그때마다 다시 계산한다
+// (상시 계산 아님).
+document.getElementById('open-storage-stats-btn').addEventListener('click', () => {
+  openSheet('storage-stats-panel');
   renderStorageOverview();
 });
