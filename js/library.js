@@ -785,7 +785,7 @@ function promptFolderPicker(title, excludeIds, onPick) {
 }
 
 // ── 서재 시트 공통: 파일/폴더 "⋮" 액션 목록 ────────────────────────────
-// storage-stats.js도 "로컬스토리지 현황" 카테고리별 관리 시트(전체 삭제 + 책별 삭제
+// storage-stats.js도 "기기 저장공간 현황" 카테고리별 관리 시트(전체 삭제 + 책별 삭제
 // 목록)를 여는 데 이 함수를 그대로 재사용한다 — 시트 구조가 완전히 같아서
 // (제목 + danger 버튼 나열) 새로 만들 이유가 없다.
 export function openItemActionSheet(title, actions) {

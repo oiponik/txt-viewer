@@ -1,4 +1,4 @@
-// storage-stats.js — 설정 메뉴 > "로컬스토리지 현황" 하위 화면: 로컬에 쌓이는 캐시
+// storage-stats.js — 설정 메뉴 > "기기 저장공간 현황" 하위 화면: 로컬에 쌓이는 캐시
 // 5종류의 용량을 보여주고, 책 단위(또는 전체) 삭제를 지원한다.
 //
 // 여기서 다루는 5개 카테고리와 그 실체:
@@ -303,9 +303,9 @@ async function clearWholeCategory(cat) {
   renderStorageOverview();
 }
 
-// ── 설정 시트 안에서의 화면 전환(메뉴 ↔ 로컬스토리지 현황) ──────────────────
+// ── 설정 시트 안에서의 화면 전환(메뉴 ↔ 기기 저장공간 현황) ──────────────────
 // 새 시트를 또 띄우는 대신, #settings-panel 하나 안에서 두 화면을 토글한다 —
-// "로컬스토리지 현황"을 누르면 메뉴 대신 이 화면이 나타나고 왼쪽에 뒤로가기 아이콘이
+// "기기 저장공간 현황"을 누르면 메뉴 대신 이 화면이 나타나고 왼쪽에 뒤로가기 아이콘이
 // 생긴다(사용자 피드백: 새 창보다 같은 창 안에서 뒤로가기가 낫다).
 const settingsBackBtn = document.getElementById('settings-back-btn');
 const settingsPanelTitle = document.getElementById('settings-panel-title');
@@ -323,7 +323,7 @@ function showStorageStatsView() {
   settingsMenuView.classList.add('screen-hidden');
   storageStatsView.classList.remove('screen-hidden');
   settingsBackBtn.classList.remove('screen-hidden');
-  settingsPanelTitle.textContent = '로컬스토리지 현황';
+  settingsPanelTitle.textContent = '기기 저장공간 현황';
   renderStorageOverview(); // 화면에 들어올 때마다 다시 계산한다(상시 계산 아님)
 }
 

@@ -135,7 +135,7 @@ async function evictOverBudget(db) {
   }
 }
 
-// 설정 패널의 "로컬스토리지 현황" 섹션이 책별 용량을 나열할 때 쓴다 — cachedFileNames는
+// 설정 패널의 "기기 저장공간 현황" 섹션이 책별 용량을 나열할 때 쓴다 — cachedFileNames는
 // 이름만 갖고 있어서 용량까지 보려면 IndexedDB를 다시 읽어야 한다.
 export async function getAllCachedBooksInfo() {
   try {
@@ -148,7 +148,7 @@ export async function getAllCachedBooksInfo() {
   }
 }
 
-// "로컬스토리지 현황"의 전체 삭제 버튼용 — evictOverBudget처럼 하나씩 지우는 대신
+// "기기 저장공간 현황"의 전체 삭제 버튼용 — evictOverBudget처럼 하나씩 지우는 대신
 // objectStore를 통째로 비운다.
 export async function clearAllCachedBooks() {
   try {
