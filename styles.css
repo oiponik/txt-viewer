@@ -506,6 +506,11 @@
     .storage-stats-item-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
     .storage-stats-item-label { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; }
     .storage-stats-item-size { font-size: 12px; opacity: 0.7; }
+    /* 숫자(값)와 단위가 "126B"처럼 붙어 있으면 어디까지가 숫자인지 헷갈린다는
+       피드백 — 값은 굵게, 단위는 한 단계 작게 만들어서 붙어 있어도 한눈에 갈린다
+       (js 쪽에서 단위 앞에 공백도 같이 넣는다: "126 B"). */
+    .storage-stats-item-size-value { font-weight: 700; }
+    .storage-stats-item-size-unit { font-size: 10px; }
     .storage-stats-item-btn {
       flex-shrink: 0; padding: 6px 12px; border-radius: 999px;
       border: 1px solid var(--border-color); background: transparent;
@@ -514,21 +519,45 @@
     .storage-stats-item-btn.danger { color: #c0392b; border-color: #c0392b; }
     .storage-stats-item-btn:disabled { opacity: 0.35; cursor: default; }
 
-    /* 카테고리 비율 막대 — 각 조각의 너비는 js가 바이트 비율로 계산해서 inline
-       flex-basis로 채운다. 조각 사이 2px 틈(gap)은 트랙 배경(--bg-color)이 그대로
-       비쳐서 구분선 역할을 한다(테두리를 따로 그리지 않는다 — 그게 데이터가 아닌
-       잉크를 더하는 것이라 dataviz 스킬이 피하라는 방식). 값이 하나도 없을 때는
-       조각 없이 트랙 색만 보여서 "0"이라는 상태 자체가 자연스럽게 드러난다. */
+    /* 카테고리 비율 막대 — 각 조각의 너비는 js가 바이트 수를 flex-grow 비율로 그대로
+       써서 채운다(퍼센트를 직접 계산하면 조각 사이 gap만큼 합이 100%를 넘어 마지막
+       조각이 잘리는데, flex-grow는 gap을 뺀 나머지 공간을 알아서 나눠준다). 조각
+       사이 2px 틈(gap)은 트랙 배경(--bg-color)이 그대로 비쳐서 구분선 역할을 한다
+       (테두리를 따로 그리지 않는다 — 그게 데이터가 아닌 잉크를 더하는 것이라
+       dataviz 스킬이 피하라는 방식). 값이 하나도 없을 때는 조각 없이 트랙 색만
+       보여서 "0"이라는 상태 자체가 자연스럽게 드러난다. */
     .storage-usage-summary { font-size: 12px; opacity: 0.7; margin-bottom: 8px; }
     .storage-usage-bar {
       display: flex; gap: 2px; height: 10px; border-radius: 999px;
       overflow: hidden; background-color: var(--bg-color); margin-bottom: 14px;
     }
-    .storage-usage-bar-segment { height: 100%; min-width: 3px; }
+    /* 호버/포커스로 "지금 이 조각"이라는 걸 알려주는 것도 데이터 상호작용이라 —
+       조각 자체를 살짝 밝혀서(들어올리기) 반응을 보여준다(dataviz 스킬: 막대류는
+       막대 자체가 히트타겟이고, hover된 막대가 살짝 반응해야 한다). */
+    .storage-usage-bar-segment {
+      height: 100%; min-width: 3px; cursor: default;
+      transition: filter 0.1s ease;
+    }
+    .storage-usage-bar-segment:hover,
+    .storage-usage-bar-segment:focus-visible { filter: brightness(1.15); outline: none; }
     /* 각 목록 행 라벨 앞의 작은 점 — 막대 조각과 같은 색이라 이 목록이 곧 범례다. */
     .storage-stats-item-dot {
       flex-shrink: 0; width: 9px; height: 9px; border-radius: 50%;
     }
+
+    /* 막대 조각 호버/포커스 툴팁 — dataviz 스킬: 값이 Strong(굵게/크게), 이름은
+       보조. body 최상위에 고정 하나만 두고 위치만 옮겨가며 재사용한다. */
+    .storage-usage-tooltip {
+      position: fixed; z-index: 400; pointer-events: none;
+      background-color: var(--accent-color); color: var(--sidebar-bg);
+      padding: 6px 10px; border-radius: 8px; font-size: 11px;
+      white-space: nowrap; opacity: 0;
+      transform: translate(-50%, calc(-100% - 8px));
+      transition: opacity 0.1s ease;
+    }
+    .storage-usage-tooltip.visible { opacity: 1; }
+    .storage-usage-tooltip-name { display: block; opacity: 0.75; font-size: 10px; margin-bottom: 2px; }
+    .storage-usage-tooltip-value { display: block; font-weight: 700; }
 
     /* 이름 입력 시트 */
     #text-input-form { display: flex; flex-direction: column; gap: 12px; }

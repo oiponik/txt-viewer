@@ -41,8 +41,12 @@ function scanKeysByPrefix(prefix) {
   return out;
 }
 
-function formatBytes(bytes) {
-  if (!bytes) return '0B';
+// 숫자와 단위를 따로 돌려준다 — 목록 행에서는 이 둘을 서로 다른 스타일(굵기/크기)의
+// <span>으로 나눠 그려서 "126B"처럼 붙어 있어도 숫자/단위가 한눈에 갈리게 한다
+// (버튼 라벨·확인창·aria-label처럼 플레인 텍스트만 되는 자리는 formatBytes()가
+// 둘을 공백 하나로 이어 붙여 돌려준다).
+function formatBytesParts(bytes) {
+  if (!bytes) return { value: '0', unit: 'B' };
   const units = ['B', 'KB', 'MB', 'GB'];
   let n = bytes;
   let i = 0;
@@ -50,7 +54,11 @@ function formatBytes(bytes) {
     n /= 1024;
     i++;
   }
-  return (i === 0 ? n : n.toFixed(1)) + units[i];
+  return { value: i === 0 ? String(n) : n.toFixed(1), unit: units[i] };
+}
+function formatBytes(bytes) {
+  const { value, unit } = formatBytesParts(bytes);
+  return `${value} ${unit}`;
 }
 
 // ── 카테고리 2: 읽기 진행상황 · 책갈피 캐시 ─────────────────────────────
@@ -237,7 +245,10 @@ const STORAGE_CATEGORY_COLOR_VARS = {
   appShell: '--storage-cat-5',
 };
 
-function buildStatRow(labelText, sizeText, button, colorVar) {
+// sizeSpec: 보통 { bytes, suffix? } — 값/단위를 서로 다른 스타일의 <span>으로 나눠
+// 그린다. appShell을 못 읽어왔을 때("용량 확인 불가")처럼 바이트 수가 아예 없는
+// 예외적인 경우에만 완성된 문자열을 그대로 넘겨도 된다.
+function buildStatRow(labelText, sizeSpec, button, colorVar) {
   const row = document.createElement('div');
   row.className = 'storage-stats-item';
   const info = document.createElement('div');
@@ -250,13 +261,29 @@ function buildStatRow(labelText, sizeText, button, colorVar) {
   const labelTextEl = document.createElement('span');
   labelTextEl.textContent = labelText;
   label.append(dot, labelTextEl);
-  const size = document.createElement('span');
-  size.className = 'storage-stats-item-size';
-  size.textContent = sizeText;
-  info.append(label, size);
+  info.append(label, buildSizeLine(sizeSpec));
   row.appendChild(info);
   if (button) row.appendChild(button);
   return row;
+}
+
+function buildSizeLine(sizeSpec) {
+  const size = document.createElement('span');
+  size.className = 'storage-stats-item-size';
+  if (typeof sizeSpec === 'string') {
+    size.textContent = sizeSpec;
+    return size;
+  }
+  const { value, unit } = formatBytesParts(sizeSpec.bytes);
+  const valueEl = document.createElement('span');
+  valueEl.className = 'storage-stats-item-size-value';
+  valueEl.textContent = value;
+  const unitEl = document.createElement('span');
+  unitEl.className = 'storage-stats-item-size-unit';
+  unitEl.textContent = ' ' + unit;
+  size.append(valueEl, unitEl);
+  if (sizeSpec.suffix) size.append(document.createTextNode(sizeSpec.suffix));
+  return size;
 }
 
 function makeActionBtn(text, danger, onClick) {
@@ -283,10 +310,10 @@ async function renderStorageOverview() {
   if (totalBytes > 0) {
     categories.forEach((cat) => {
       if (cat.bytes <= 0) return;
-      barEl.appendChild(buildUsageSegment(cat.bytes, STORAGE_CATEGORY_COLOR_VARS[cat.id]));
+      barEl.appendChild(buildUsageSegment(cat.label, cat.bytes, totalBytes, STORAGE_CATEGORY_COLOR_VARS[cat.id]));
     });
     if (appShellBytes > 0) {
-      barEl.appendChild(buildUsageSegment(appShellBytes, STORAGE_CATEGORY_COLOR_VARS.appShell));
+      barEl.appendChild(buildUsageSegment('앱 실행 파일', appShellBytes, totalBytes, STORAGE_CATEGORY_COLOR_VARS.appShell));
     }
   }
   summaryEl.textContent = totalBytes > 0 ? `총 ${formatBytes(totalBytes)} 사용 중` : '사용 중인 저장공간 없음';
@@ -303,31 +330,67 @@ async function renderStorageOverview() {
 
   listEl.innerHTML = '';
   categories.forEach((cat) => {
-    const sizeText = cat.books
-      ? formatBytes(cat.bytes) + (cat.books.length ? ` · 책 ${cat.books.length}권` : '')
-      : formatBytes(cat.bytes);
+    const suffix = cat.books && cat.books.length ? ` · 책 ${cat.books.length}권` : '';
     const hasData = cat.bytes > 0;
     const btn = cat.books
       ? makeActionBtn('관리', false, () => openCategoryManageSheet(cat))
       : makeActionBtn('전체 초기화', true, () => clearWholeCategory(cat));
     btn.disabled = !hasData;
-    listEl.appendChild(buildStatRow(cat.label, sizeText, btn, STORAGE_CATEGORY_COLOR_VARS[cat.id]));
+    listEl.appendChild(buildStatRow(cat.label, { bytes: cat.bytes, suffix }, btn, STORAGE_CATEGORY_COLOR_VARS[cat.id]));
   });
 
-  const appShellSize = appShell ? formatBytes(appShell.bytes) + ' · 읽기 전용' : '용량 확인 불가';
-  listEl.appendChild(buildStatRow('앱 실행 파일', appShellSize, null, STORAGE_CATEGORY_COLOR_VARS.appShell));
+  const appShellSizeSpec = appShell ? { bytes: appShell.bytes, suffix: ' · 읽기 전용' } : '용량 확인 불가';
+  listEl.appendChild(buildStatRow('앱 실행 파일', appShellSizeSpec, null, STORAGE_CATEGORY_COLOR_VARS.appShell));
 }
 
 // flex-grow를 바이트 수 그대로 비율로 써서 너비를 나눈다(flex-basis:0) — 퍼센트를
 // 직접 계산해서 넣으면 조각 사이 2px gap만큼 합이 100%를 넘어 마지막 조각이
 // 잘리지만, flex-grow는 gap을 뺀 나머지 공간을 알아서 비율대로 나눠주므로 이
 // 문제가 없다.
-function buildUsageSegment(bytes, colorVar) {
+// 마우스 오버(및 키보드 포커스)하면 이름·용량·비율을 보여주는 툴팁이 뜬다 —
+// dataviz 스킬: 막대류는 조각 자체가 히트타겟, 값이 툴팁의 주인공(굵게)이고
+// 이름은 보조.
+function buildUsageSegment(label, bytes, totalBytes, colorVar) {
   const seg = document.createElement('div');
   seg.className = 'storage-usage-bar-segment';
   seg.style.flex = `${bytes} 0 0`;
   seg.style.backgroundColor = `var(${colorVar})`;
+  seg.tabIndex = 0;
+  const percent = ((bytes / totalBytes) * 100).toFixed(1);
+  seg.addEventListener('mouseenter', () => showUsageTooltip(seg, label, bytes, percent));
+  seg.addEventListener('mouseleave', hideUsageTooltip);
+  seg.addEventListener('focus', () => showUsageTooltip(seg, label, bytes, percent));
+  seg.addEventListener('blur', hideUsageTooltip);
   return seg;
+}
+
+const usageTooltipEl = document.getElementById('storage-usage-tooltip');
+function showUsageTooltip(segmentEl, label, bytes, percent) {
+  usageTooltipEl.innerHTML = '';
+  const nameEl = document.createElement('span');
+  nameEl.className = 'storage-usage-tooltip-name';
+  nameEl.textContent = label; // 라벨은 카테고리 이름 문자열 — textContent로만 넣는다
+  const valueEl = document.createElement('span');
+  valueEl.className = 'storage-usage-tooltip-value';
+  valueEl.textContent = `${formatBytes(bytes)} (${percent}%)`;
+  usageTooltipEl.append(nameEl, valueEl);
+
+  const rect = segmentEl.getBoundingClientRect();
+  usageTooltipEl.style.left = (rect.left + rect.width / 2) + 'px';
+  usageTooltipEl.style.top = rect.top + 'px';
+  usageTooltipEl.classList.add('visible');
+  // 가장자리 조각은 툴팁이 화면 밖으로 삐져나갈 수 있어, 그려진 뒤 실제 폭으로
+  // 한 번 더 clamp한다.
+  requestAnimationFrame(() => {
+    const tRect = usageTooltipEl.getBoundingClientRect();
+    if (tRect.left < 4) usageTooltipEl.style.left = (rect.left + rect.width / 2 + (4 - tRect.left)) + 'px';
+    if (tRect.right > window.innerWidth - 4) {
+      usageTooltipEl.style.left = (rect.left + rect.width / 2 - (tRect.right - (window.innerWidth - 4))) + 'px';
+    }
+  });
+}
+function hideUsageTooltip() {
+  usageTooltipEl.classList.remove('visible');
 }
 
 function openCategoryManageSheet(cat) {
