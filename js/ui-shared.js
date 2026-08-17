@@ -74,9 +74,17 @@ export function resetWakeLockIdleTimer() {
   wakeLockIdleTimer = setTimeout(releaseWakeLock, WAKE_LOCK_IDLE_MS);
 }
 
-// 검색/책갈피/뷰어설정/서재 쪽 시트들까지 공통으로 쓰는 열기/닫기
+// 검색/책갈피/뷰어설정/서재 쪽 시트들까지 공통으로 쓰는 열기/닫기.
+// ⚠️ 모든 .sheet-panel이 같은 z-index(300)를 쓰기 때문에, 시트 위에 또 다른 시트를
+// 띄우는 경우(예: 설정 패널이 열려 있는 상태에서 storage-stats.js가
+// item-action-panel을 여는 경우) 그냥 두면 HTML에 먼저 적힌 쪽이 항상 나중에 연
+// 시트를 가려버린다(z-index가 같으면 DOM 순서가 그리기 순서를 결정하는데,
+// item-action-panel이 settings-panel보다 앞에 있어서 이 문제가 실제로 있었다).
+// 열 때마다 body 맨 끝으로 옮겨서, "가장 최근에 연 시트가 항상 맨 위"가 되도록 한다.
 export function openSheet(id) {
-  document.getElementById(id).classList.remove('screen-hidden');
+  const el = document.getElementById(id);
+  document.body.appendChild(el); // 이미 마지막 자식이어도 안전(같은 자리로 다시 옮기는 것뿐)
+  el.classList.remove('screen-hidden');
 }
 export function closeSheet(id) {
   document.getElementById(id).classList.add('screen-hidden');
