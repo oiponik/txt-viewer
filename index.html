@@ -281,7 +281,7 @@
     </div>
   </div>
 
-  <!-- 서재 화면 "설정" — 메뉴 목록(로그아웃/스토리지 현황) 화면과 "스토리지 현황"
+  <!-- 서재 화면 "설정" — 메뉴 목록(로그아웃/로컬스토리지 현황) 화면과 "로컬스토리지 현황"
        상세 화면을 같은 시트 안에서 전환한다(새 시트를 또 띄우지 않는다) — "스토리지
        현황"을 누르면 메뉴 대신 상세 목록이 그 자리에 나타나고, 왼쪽에 뒤로가기
        아이콘이 생겨서 메뉴로 돌아갈 수 있다. 시트 자체를 닫았다가(✕/배경 클릭)
@@ -307,11 +307,11 @@
           </button>
           <button type="button" id="open-storage-stats-btn" class="item-action-btn">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -3px; margin-right: 6px;"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
-            스토리지 현황
+            로컬스토리지 현황
           </button>
         </div>
       </div>
-      <!-- 스토리지 현황 상세 — 이 기기에 로컬로 쌓인 캐시 5종류(오프라인 책 원문/
+      <!-- 로컬스토리지 현황 상세 — 이 기기에 로컬로 쌓인 캐시 5종류(오프라인 책 원문/
            진행상황·책갈피/페이지 나누기/서재 구조·환경설정/앱 실행 파일)의 용량과
            정리 버튼. 용량 계산이 가벼운 작업이 아니라서(특히 Cache Storage) 이
            화면으로 전환될 때만 js/storage-stats.js가 채워 넣는다 — 아래 목록은
