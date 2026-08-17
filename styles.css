@@ -476,6 +476,23 @@
     }
     .item-action-btn.danger { color: #c0392b; }
 
+    /* 설정 패널 "스토리지 현황" — 카테고리별 한 줄(이름+용량 / 관리·초기화 버튼) */
+    .storage-stats-list { display: flex; flex-direction: column; gap: 8px; }
+    .storage-stats-item {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 10px 12px; border-radius: 10px; background-color: var(--bg-color);
+    }
+    .storage-stats-item-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .storage-stats-item-label { font-size: 13px; font-weight: 700; }
+    .storage-stats-item-size { font-size: 12px; opacity: 0.7; }
+    .storage-stats-item-btn {
+      flex-shrink: 0; padding: 6px 12px; border-radius: 999px;
+      border: 1px solid var(--border-color); background: transparent;
+      color: var(--text-color); font-size: 12px; cursor: pointer;
+    }
+    .storage-stats-item-btn.danger { color: #c0392b; border-color: #c0392b; }
+    .storage-stats-item-btn:disabled { opacity: 0.35; cursor: default; }
+
     /* 이름 입력 시트 */
     #text-input-form { display: flex; flex-direction: column; gap: 12px; }
     #text-input-field {

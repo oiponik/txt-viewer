@@ -9,7 +9,7 @@
 // ⚠️ 정적 파일 목록을 바꿨으면(js/ 새 파일 추가 등) 아래 CACHE_VERSION을 올려야
 // 새 캐시가 만들어지고 옛 캐시가 정리된다 — 안 올리면 사용자는 계속 옛날 파일을
 // 오프라인 캐시에서 받게 된다.
-const CACHE_VERSION = 'bookify-shell-v7';
+const CACHE_VERSION = 'bookify-shell-v8';
 
 // 같은 출처(오리진) 정적 파일 — 설치 시점에 전부 미리 받아둔다.
 const PRECACHE_URLS = [
@@ -31,6 +31,7 @@ const PRECACHE_URLS = [
   './js/reader.js',
   './js/library.js',
   './js/auth.js',
+  './js/storage-stats.js',
   './fonts/gowun-dodum.woff2',
   './fonts/noto-sans-kr-400.woff2',
   './fonts/noto-sans-kr-700.woff2',

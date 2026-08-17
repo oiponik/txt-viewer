@@ -135,6 +135,33 @@ async function evictOverBudget(db) {
   }
 }
 
+// 설정 패널의 "스토리지 현황" 섹션이 책별 용량을 나열할 때 쓴다 — cachedFileNames는
+// 이름만 갖고 있어서 용량까지 보려면 IndexedDB를 다시 읽어야 한다.
+export async function getAllCachedBooksInfo() {
+  try {
+    const db = await getDb();
+    const all = await reqToPromise(tx(db, 'readonly').getAll());
+    return all.map((record) => ({ fileName: record.fileName, bytes: estimateBytes(record.text) }));
+  } catch (err) {
+    console.error('오프라인 책 캐시 목록 조회 실패:', err);
+    return [];
+  }
+}
+
+// "스토리지 현황"의 전체 삭제 버튼용 — evictOverBudget처럼 하나씩 지우는 대신
+// objectStore를 통째로 비운다.
+export async function clearAllCachedBooks() {
+  try {
+    const db = await getDb();
+    await reqToPromise(tx(db, 'readwrite').clear());
+  } catch (err) {
+    console.error('오프라인 책 캐시 전체 삭제 실패:', err);
+  } finally {
+    cachedFileNames.clear();
+    staleFileNames.clear();
+  }
+}
+
 // 이름변경 성공 시(library.js의 renameFile) 캐시가 옛 이름으로 고아처럼 남지 않도록
 // 같이 옮겨준다. 원문을 다시 받을 필요 없이 레코드의 키만 바꾸면 된다.
 export async function renameCachedBook(oldName, newName) {

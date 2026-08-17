@@ -10,6 +10,7 @@ import './offline-cache.js';
 import './reader.js';
 import './library.js';
 import './auth.js';
+import './storage-stats.js';
 
 // 앱 셸(정적 파일) 오프라인 캐싱 — sw.js 참고. 서비스워커는 보안 컨텍스트(https 또는
 // localhost)에서만 등록 가능하므로 없는 척 조용히 넘어간다(구형 브라우저 등).
