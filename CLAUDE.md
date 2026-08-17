@@ -77,17 +77,14 @@ The largest module; page rendering is its most complex piece:
 
 `manifest.json` + `icons/` support "Add to Home Screen" on iOS/Android; `sw.js` is what makes the installed app work offline.
 
-## 진행 상황 메모 (2026-08-17 기준 — 다른 컴퓨터에서 이어서 작업할 때 참고)
+## 진행 상황 메모 (2026-08-18 기준 — 다른 컴퓨터에서 이어서 작업할 때 참고)
 
 - ✅ **완료·커밋됨**: 로그인 직후 마지막으로 읽던 책을 자동으로 여는 로직 — 페이지 나누기가 지금 화면 크기 기준으로 캐시에 없어서 실제로 새로 돌아야 하는 상황이면, 로딩 중인 뷰어에 계속 머무는 대신 즉시 내 서재로 돌아간다 (`reader.js`의 `bailToLibraryIfPaginationNeeded`/`setBailToLibraryIfPaginationNeeded`, `auth.js`의 두 자동 로그인 경로에서 세팅). 커밋 `e393457`. 캐시 히트(빠른 경우)는 그대로 뷰어에 머무는 것까지 브라우저로 검증 완료.
 - ❌ **논의 후 취소됨**: 폰 전용 세로모드 고정(가로모드 감지 시 전체화면 오버레이로 가리기, 태블릿은 제외). 설계·구현·브라우저 검증까지 마쳤으나 사용자가 최종적으로 "없던 걸로 하자"며 취소 — 관련 코드(`index.html`/`styles.css`/`js/ui-shared.js`/`sw.js`)는 전부 `git checkout`으로 원상복구했고 커밋되지 않았다. **다시 요청받기 전엔 재작업하지 않는다.**
-- 🔜 **다음 작업 (설계는 합의됐지만 아직 코드 작성 전)**: 설정 패널(`index.html`의 `#settings-panel`)에 "스토리지 현황" 섹션 추가.
-  - **카테고리 5개**:
-    1. **오프라인 저장된 책** (IndexedDB `bookify-offline`, `offline-cache.js`) — 용량이 제일 큼(최대 500MB). 책별 개별 삭제 + 전체 삭제.
-    2. **읽기 진행상황 · 책갈피 캐시** (`offlineProgress:*`/`offlineBookmarks:*`/`devProgress:*`/`devBookmarks:*`) — **책별 개별 삭제 + 전체 초기화 둘 다 필요** (사용자가 명시적으로 요구 — 처음엔 카테고리 1만 개별삭제로 제안했다가 "다른부분도 책마다의 삭제가 가능해야해"라는 피드백으로 수정됨).
-    3. **페이지 나누기 캐시** (`txtViewerPagination:{fileName}::{width}::{height}::{fontKey}`) — 마찬가지로 책별 개별 삭제(그 책의 모든 크기/폰트 조합 한번에) + 전체 초기화.
-    4. **서재 구조 · 환경설정** (`offlineLibrarySnapshot:*`, `devLibraryState`, `txtViewerReaderPrefs`, `txtViewerLastOpenedFile_*`, `txtViewerLastEmail`) — 책 단위 개념이 없어서 전체 초기화만.
-    5. **앱 실행 파일** (Service Worker Cache Storage, `caches.keys()`) — 읽기 전용, 삭제 버튼 없음(지우면 오프라인 중 앱이 멈출 위험).
-  - 용량은 설정 패널이 열릴 때만 계산(상시 계산 아님). IndexedDB/localStorage 문자열 크기는 기존 `offline-cache.js`의 `estimateBytes` 방식(UTF-16 근사, 글자당 2바이트)을 그대로 재사용.
-  - 필요한 새 export: `offline-cache.js`에 `getAllCachedBooksInfo()`(책별 {fileName, bytes} 목록)와 `clearAllCachedBooks()`(전체 삭제) — `removeCachedBook(fileName)`은 이미 있어서 개별 삭제에 재사용 가능.
-  - "현황"이 "상태"보다 이 맥락에 더 맞는 단어로 이미 정함.
+- ✅ **완료·커밋됨**: 설정 패널(`index.html`의 `#settings-panel`)에 "스토리지 현황" 섹션 추가 — 새 모듈 `js/storage-stats.js`. 커밋 `e6acd93`.
+  - **카테고리 5개**: 오프라인 저장된 책(IndexedDB, 책별 삭제+전체삭제) / 읽기 진행상황·책갈피 캐시(localStorage, 책별 삭제+전체초기화) / 페이지 나누기 캐시(localStorage, 책별 삭제+전체초기화) / 서재 구조·환경설정(전체초기화만) / 앱 실행 파일(Cache Storage, 읽기 전용) — 설계는 위 문단들과 동일하게 그대로 구현.
+  - `offline-cache.js`에 `getAllCachedBooksInfo()`/`clearAllCachedBooks()` 추가. `library.js`의 `openItemActionSheet`를 `export`로 열어서 카테고리별 "관리" 시트(전체삭제 + 책별삭제 나열)에 그대로 재사용 — 새 시트 UI를 안 만들어도 됐다.
+  - `reader.js`/`library.js`를 또 import해서 순환을 늘리는 대신, `storage-stats.js`가 캐시 키 형식(접두사)을 자체적으로 알고 있다 — **키 형식이 바뀌면 두 곳을 같이 고쳐야 한다.**
+  - ⚠️ 브라우저 검증 중 실제로 잡은 버그: 페이지 나누기 캐시 키의 `fontKey`(`readerPrefs.fontId + ':' + fontSizeStep + ':' + paragraphWidthStep`, 예: `system:2:1`)가 그 자체로 `:`를 포함해서, 파일명을 뒤에서부터 떼어내는 정규식의 마지막 그룹을 `[^:]+`로 짰더니 폰트키에서 걸려 파일명이 잘못 파싱됐다. `(.+)$`(끝까지 전부)로 고쳐서 해결 — 폭/높이가 숫자라는 사실로 앞의 `::` 두 개 위치만 고정하면 나머지는 자연히 갈린다.
+  - `main.js`에 `import './storage-stats.js'` 추가, `sw.js`의 `PRECACHE_URLS`에 새 파일 추가하고 `CACHE_VERSION`을 `v7`→`v8`로 올림.
+  - 개발자(dev) 세션으로 브라우저에서 5개 카테고리 전부(관리 시트 열기, 책별 삭제, 카테고리 전체삭제/초기화) 실제 클릭까지 검증 완료. 카테고리 1(오프라인 저장된 책)은 dev 모드가 IndexedDB 캐시를 안 거치는 구조라 항상 0B로만 확인됨 — 실제 로그인 계정으로 한 번 더 확인할 가치가 있음(다음에 이어서 볼 사람 참고).
