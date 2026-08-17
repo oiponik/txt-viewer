@@ -355,6 +355,25 @@ async function loadRecentFileNames() {
   }
 }
 
+// 뷰어에서 "목록으로"를 눌러 서재로 돌아올 때 부른다(reader.js) — 방금 한 페이지만
+// 봤어도 진행상황은 이미 저장돼 있으니, 이어보기가 그 책으로 즉시 바뀌어야 한다.
+// ⚠️ 실제로 있었던 버그: showLibraryScreen()만 부르고 목록을 다시 안 불러오면,
+// fetchFileList()가 마지막으로 실행됐던 시점(대개 로그인 직후)의 이어보기가 그대로
+// 남아서 방금 읽은 책이 반영되지 않았다. fetchFileList() 전체(Storage 파일 목록까지
+// 새로 받아옴)를 다시 도는 건 여기서 하기엔 과해서, 이어보기 부분만 가볍게 새로고침한다.
+export async function refreshRecentFiles() {
+  if (isDevUser()) {
+    await loadRecentFileNames();
+    renderLibraryView();
+    return;
+  }
+  if (!navigator.onLine) return; // 서버에 새로 물어볼 수 없으니 지금 화면(오프라인 스냅샷)을 그대로 둔다
+  await loadRecentFileNames();
+  recentFileNames = recentFileNames.filter((name) => allStorageFileNames.includes(name));
+  saveOfflineLibrarySnapshot(); // 다음에 오프라인이 되더라도 방금 갱신된 이어보기가 스냅샷에 남아있게
+  renderLibraryView();
+}
+
 // 💡 오프라인 폴백 — 서재 화면(파일 목록/폴더 구조/이어보기)을 통째로 로컬에 스냅샷
 // 해뒀다가, 온라인 요청이 실패하면(주로 오프라인) 그대로 복원해서 보여준다. 그래야
 // "온라인이든 오프라인이든 내 서재는 항상 같은 목록을 보여준다"는 원칙이 지켜진다 —

@@ -14,7 +14,7 @@ import { ref, getBytes, getMetadata } from "https://www.gstatic.com/firebasejs/1
 import { db, storage } from "./firebase-init.js";
 import { currentUser, isDevUser, lastOpenedFileKey, fileDocId, DEV_BOOK_FILENAME } from "./session.js";
 import { setStatus, showLibraryScreen, openSheet, closeSheet, releaseWakeLock, resetWakeLockIdleTimer } from "./ui-shared.js";
-import { markActiveFileRow } from "./library.js";
+import { markActiveFileRow, refreshRecentFiles } from "./library.js";
 import { isBookCached, isBookStale, getCachedBookText, cacheBookText } from "./offline-cache.js";
 
 export let currentFileName = "";
@@ -224,6 +224,11 @@ export async function loadDevTestFile() {
     migrateLegacyBookmarksIfNeeded(DEV_BOOK_FILENAME);
     updateBookmarkToggleButton();
 
+    // 책을 열었다는 것 자체도 "최근에 만짐"으로 기록해둔다 — saveProgress는 원래
+    // 페이지를 넘길 때만 불렸어서, 한 페이지도 안 넘기고 바로 나가면(예: 목록으로
+    // 즉시 돌아가기) 이어보기가 예전 책에 그대로 머무는 문제가 있었다.
+    saveProgress(DEV_BOOK_FILENAME, currentLastCharIndex);
+
     document.body.classList.add('immersive');
     clearTimeout(immersiveTimer);
   } catch (err) {
@@ -311,6 +316,11 @@ export async function loadFileFromStorage(fileName) {
 
     migrateLegacyBookmarksIfNeeded(fileName);
     updateBookmarkToggleButton();
+
+    // 책을 열었다는 것 자체도 "최근에 만짐"으로 기록해둔다 — loadDevTestFile 쪽
+    // 주석 참고. 한 페이지도 안 넘기고 바로 목록으로 돌아가도 이어보기가 이 책으로
+    // 갱신된다.
+    saveProgress(fileName, currentLastCharIndex);
 
     // 책이 열리면 바로 읽기 몰입 모드로: 마우스를 움직이기 전까진 UI를 띄우지 않는다
     document.body.classList.add('immersive');
@@ -1797,5 +1807,10 @@ window.addEventListener('keydown', (e) => {
   if (e.key === "ArrowLeft") jumpToPrevPage();
 });
 
-// 뷰어 → 서재로 돌아가기
-document.getElementById('back-to-library').addEventListener('click', showLibraryScreen);
+// 뷰어 → 서재로 돌아가기. 화면 전환과 별개로 이어보기도 같이 새로고침한다 — 안 그러면
+// 방금 한 페이지만 보고 돌아와도 이어보기가 예전 책에 머물러 있는 문제가 있었다
+// (library.js의 refreshRecentFiles 주석 참고).
+document.getElementById('back-to-library').addEventListener('click', () => {
+  showLibraryScreen();
+  refreshRecentFiles();
+});
