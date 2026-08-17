@@ -130,6 +130,19 @@ function persistedPaginationKey(fileName, width, height, fontKey) {
   return 'txtViewerPagination:' + fileName + '::' + width + '::' + height + '::' + fontKey;
 }
 
+// 로그인 직후 마지막으로 읽던 책을 자동으로 열 때만 auth.js가 이걸 true로 켜둔다.
+// "예전에 캐싱된 적 있는지" 미리 보는 방식은 시도해봤지만 틀렸다 — lastFile이 있다는
+// 것 자체가 이미 예전에 성공적으로 열어봤다는 뜻이라 그때 캐싱이 됐을 가능성이
+// 높아서, 그 체크가 사실상 거의 항상 true가 되어버려 정작 구분하려던 두 경우(화면
+// 크기가 그대로라 빠른 경우 vs 바뀌어서 새로 나눠야 하는 경우)를 구분 못했다.
+// 정확한 판단은 buildFlipBook이 실제로 지금 화면 크기 기준 캐시를 확인하는 그
+// 순간에만 가능하다 — 그래서 미리 훑어보는 대신, 그 순간에 이 신호를 보고 즉시
+// 반응(내 서재로 돌아가기)하는 방식으로 바꿨다.
+let bailToLibraryIfPaginationNeeded = false;
+export function setBailToLibraryIfPaginationNeeded(value) {
+  bailToLibraryIfPaginationNeeded = value;
+}
+
 function loadPersistedPagination(fileName, width, height, text, fontKey) {
   try {
     const raw = localStorage.getItem(persistedPaginationKey(fileName, width, height, fontKey));
@@ -1217,6 +1230,15 @@ async function buildFlipBook() {
     || loadPersistedPagination(currentFileName, bookWidth, bookHeight, rawTextData, fontKey);
 
   if (!paginationResult) {
+    // 로그인 직후 마지막 책을 자동으로 여는 중이었고, 지금 이 순간(=정확한 현재 화면
+    // 크기 기준으로) 캐시가 없어서 페이지 나누기를 진짜로 새로 돌려야 한다는 게 막
+    // 확인됐다 — 로딩 화면을 계속 붙잡고 있는 대신 내 서재로 돌아간다. 나누기 자체는
+    // 아래에서 백그라운드로 계속 진행되고, 끝나면 캐시로 남아서 다음에 이 책을 열 때
+    // (사용자가 직접 눌러서 열든 다시 자동으로 열리든) 바로 빠르게 열린다.
+    if (bailToLibraryIfPaginationNeeded) {
+      bailToLibraryIfPaginationNeeded = false; // 한 번 쓰고 끈다
+      showLibraryScreen();
+    }
     // DOM 실측으로 글자 텍스트 분할 (실제 렌더링될 크기와 반드시 동일해야 잘림이 없음)
     // myBuildGeneration을 넘겨서, 쪼개는 도중 더 최신 재빌드가 시작되면 끝까지
     // 다 돌지 않고 중간에 스스로 멈추게 한다 (아래 splitTextIntoPagesDOM 참고).

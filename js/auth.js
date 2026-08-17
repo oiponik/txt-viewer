@@ -10,7 +10,7 @@ import {
 import { auth } from "./firebase-init.js";
 import { setCurrentUser, isDevUser, isLocalDevHost, DEV_USER_UID, DEV_BOOK_FILENAME, lastOpenedFileKey } from "./session.js";
 import { setStatus, showLibraryScreen, showViewerScreen, openSheet, closeSheet, releaseWakeLock } from "./ui-shared.js";
-import { loadReaderPrefs, loadDevTestFile, loadFileFromStorage, resetReaderSession } from "./reader.js";
+import { loadReaderPrefs, loadDevTestFile, loadFileFromStorage, resetReaderSession, setBailToLibraryIfPaginationNeeded } from "./reader.js";
 import { loadLibraryState, resetLibraryNavigation, populateDevFileList, fetchFileList, allStorageFileNames } from "./library.js";
 
 const authScreen = document.getElementById('auth-screen');
@@ -75,7 +75,11 @@ async function loginAsDevUser() {
   await populateDevFileList();
   if (lastFile === DEV_BOOK_FILENAME) {
     showViewerScreen();
-    loadDevTestFile();
+    // 페이지 나누기가 실제로 새로 돌아야 하는 상황이면(캐시가 지금 화면 크기 기준으로
+    // 없으면) loadDevTestFile 내부에서 곧바로 내 서재로 되돌아간다 — 아래 참고.
+    setBailToLibraryIfPaginationNeeded(true);
+    await loadDevTestFile();
+    setBailToLibraryIfPaginationNeeded(false);
   } else {
     showLibraryScreen();
   }
@@ -99,7 +103,13 @@ onAuthStateChanged(auth, async (user) => {
     const lastFile = localStorage.getItem(lastOpenedFileKey());
     if (lastFile && allStorageFileNames.includes(lastFile)) {
       showViewerScreen();
-      loadFileFromStorage(lastFile);
+      // 페이지 나누기가 실제로 새로 돌아야 하는 상황이면(캐시가 지금 화면 크기
+      // 기준으로 없으면) loadFileFromStorage 내부에서 곧바로 내 서재로 되돌아간다 —
+      // 로딩 화면을 계속 붙잡고 있는 대신, 화면 크기가 그대로라 빠르게 열릴 때만
+      // 뷰어에 머문다.
+      setBailToLibraryIfPaginationNeeded(true);
+      await loadFileFromStorage(lastFile);
+      setBailToLibraryIfPaginationNeeded(false);
     } else {
       showLibraryScreen();
     }
