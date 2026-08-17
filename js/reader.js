@@ -88,6 +88,14 @@ let readerPrefsLoaded = false; // Firestore/localStorage에서 아직 못 불러
 // 만들고, 닫히면(적용 여부와 무관하게) 다음에 열 때 새로 복사되므로 따로 정리할 필요는 없다.
 let draftReaderPrefs = null;
 
+// 💡 무대 크기 흔들림 허용 폭 — scheduleFlipbookRebuild(이미 열려있는 책의 리사이즈
+// 처리)와 buildFlipBook의 페이지네이션 캐시 키 버킷화가 같은 기준을 공유한다.
+// "이 정도 차이로는 페이지 분할이 실제로 달라지지 않는다"고 이미 검증된 값
+// (scheduleFlipbookRebuild 쪽 주석 참고) — 버킷 크기는 그 절반으로 잡아서, 버킷
+// 경계에 걸쳐도 실제 차이는 항상 이 허용 폭 안에 들어오게 한다.
+const WIDTH_JITTER_THRESHOLD = 40;
+const HEIGHT_JITTER_THRESHOLD = 80;
+
 // 💡 페이지 가상화(windowing): 전체 페이지를 다 DOM에 그리지 않고,
 // 현재 읽는 위치 근처만 실제로 그려서 PageFlip에 올린다.
 const PAGE_WINDOW_RADIUS = 15;   // 현재 페이지 기준 앞/뒤로 미리 그려둘 페이지 수
@@ -1226,8 +1234,23 @@ async function buildFlipBook() {
   const stageHeight = Math.max(stageRect.height, 100);
 
   let isSinglePage = stageWidth < 900;
-  let bookWidth = Math.floor(isSinglePage ? stageWidth : stageWidth / 2);
-  let bookHeight = Math.floor(stageHeight);
+  // 💡 캐시 키를 버킷(20px/40px)으로 반올림한다 — 항상 내림(Math.floor)해서 버킷 크기가
+  // 실제 가용 공간을 절대 넘지 않게 한다(넘으면 #book-stage의 overflow:hidden에
+  // 책이 살짝 잘려 보일 위험이 있다). 이 값이 그대로 페이지네이션 실측 크기이자
+  // 실제 PageFlip 렌더링 크기라서, "캐시 키만 버킷팅하고 실측은 원래 크기로" 하면
+  // 캐시 히트된 분할 결과가 실제 렌더링 크기와 안 맞을 수 있어 — 아예 이 값 자체를
+  // 버킷 크기로 확정해서 이후 모든 계산(실측/렌더링/캐시 키)이 항상 같은 값을 쓴다.
+  // ⚠️ 실제로 있었던 문제: 같은 기기·같은 파일을 다시 열 때마다 페이지 분할이 매번
+  // 새로 도는 신고가 있었다 — 뷰포트 높이가 열 때마다 몇십 px씩 미묘하게 달라지는
+  // 환경(주소창 표시 상태, PWA 상태표시줄 등)에서, 캐시 키가 픽셀 단위로 정확히
+  // 일치해야 했기 때문. WIDTH_JITTER_THRESHOLD/HEIGHT_JITTER_THRESHOLD(이미 열린
+  // 책의 리사이즈 처리에 쓰던, "이 정도면 분할이 안 달라진다"고 검증된 값)의 절반을
+  // 버킷 크기로 써서, 버킷 경계에 걸쳐도 실제 차이는 항상 그 허용 폭 안에 들어온다.
+  const WIDTH_BUCKET = WIDTH_JITTER_THRESHOLD / 2;
+  const HEIGHT_BUCKET = HEIGHT_JITTER_THRESHOLD / 2;
+  const bucketDown = (value, bucket) => Math.max(bucket, Math.floor(value / bucket) * bucket);
+  let bookWidth = bucketDown(isSinglePage ? stageWidth : stageWidth / 2, WIDTH_BUCKET);
+  let bookHeight = bucketDown(stageHeight, HEIGHT_BUCKET);
 
   // 💡 같은 파일을 같은 창 크기로 다시 열면(책 재방문, 창 크기 원복 등) 페이지 분할을
   // 다시 계산하지 않고 캐시에서 즉시 가져온다. 순서: 메모리 캐시 → localStorage(다른
@@ -1373,8 +1396,8 @@ function scheduleFlipbookRebuild() {
   // 크기와 비교해서 진짜 의미있는 변화(회전, 창 크기 조절 등)일 때만 재빌드한다.
   // 단, 한 페이지/두 페이지 스프레드 전환 경계(900px)를 넘나드는 경우는 크기
   // 차이가 작아도 레이아웃이 실제로 바뀌므로 예외로 둔다.
-  const WIDTH_JITTER_THRESHOLD = 40;
-  const HEIGHT_JITTER_THRESHOLD = 80;
+  // (WIDTH_JITTER_THRESHOLD/HEIGHT_JITTER_THRESHOLD는 파일 상단 — buildFlipBook의
+  // 캐시 키 버킷화와 같은 기준을 공유한다.)
   const stageRect = stageContainer.getBoundingClientRect();
   const widthDelta = Math.abs(stageRect.width - lastBuiltStageWidth);
   const heightDelta = Math.abs(stageRect.height - lastBuiltStageHeight);
