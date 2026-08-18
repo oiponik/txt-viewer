@@ -15,17 +15,18 @@
   <meta name="theme-color" content="#3A2A18">
 
   <!-- iOS 홈화면 PWA를 진짜 풀스크린으로: viewport-fit=cover(위 뷰포트 메타)로 웹뷰가
-       노치/상태바 뒤까지 확장되게 한다. manifest.json의 "display":"standalone"만으로
-       iOS 16.4+에서 이미 풀스크린 처리가 되므로 그걸로 충분하다 — 상태바 반투명
-       오버레이는 styles.css의 #sidebar/#bottom-bar가 env(safe-area-inset-*)로 알아서
-       처리한다.
-       ⚠️ apple-mobile-web-app-status-bar-style(black-translucent)을 여기 같이 넣었다가
-       실제 iOS 기기에서 웹뷰 콘텐츠 전체가 위로 밀려서 상단은 상태바와 겹치고 하단엔
-       그만큼 빈 여백이 생기는 문제가 있었다 — manifest 기반 방식과 이 구식 애플 전용
-       메타태그를 동시에 쓰면 최신 iOS가 상태바 안전영역을 이중으로 계산해서 생기는
-       충돌로 보인다(둘 다 "display: standalone" 취급을 하려다 겹침). 데스크톱 프리뷰
-       에서는 재현이 안 되고 실기기(iOS 18)에서만 확인됨 — 2026-08-18. 다시 넣지 말 것. -->
+       노치/상태바 뒤까지 확장되게 하고, status-bar-style을 black-translucent로 줘서
+       상태바를 반투명 오버레이로 만든다.
+       ⚠️ black-translucent를 쓰면 "콘텐츠가 상태바 높이만큼 위로 밀려서 그 아래가
+       빈 여백으로 남는" 게 WebKit의 알려진(문서화된) 동작이다 — 처음엔 이걸 manifest
+       충돌로 오인해서 메타태그를 통째로 뺐었는데, 그러면 검은 반투명 오버레이 자체가
+       없어져서 상태바가 다시 예전처럼 분리된 불투명 바로 돌아가 버렸다(잘못된 처방,
+       2026-08-18에 되돌림). 진짜 정석 해법은 메타태그를 유지한 채 body에
+       `min-height: calc(100% + env(safe-area-inset-top))`을 추가해서 그 밀림만큼
+       보정하는 것 — styles.css의 body 규칙 참고. 데스크톱 프리뷰에서는 재현이 안 되고
+       실기기(iOS 18)에서만 확인 가능. -->
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
   <!-- 고딕/명조/둥근모양 글꼴 옵션이 실제로 다르게 보이도록 웹폰트를 쓴다. (예전엔 OS에
        설치된 폰트 이름에만 의존해서, Malgun Gothic/Apple SD Gothic Neo 같은 이름이 없는
@@ -46,6 +47,10 @@
   <script type="module" src="js/main.js"></script>
 </head>
 <body>
+
+  <!-- 🏷️ TEMP DEBUG — 배포/캐시 버전 확인용 배지. sw.js CACHE_VERSION 올릴 때 같이
+       바꿀 것. 확인되면 지울 것. -->
+  <div id="debug-version-badge">bookify-shell-v30</div>
 
   <!-- 상태 메시지: UI 패널과 분리된 화면 하단 중앙 토스트 -->
   <div id="sync-status"></div>

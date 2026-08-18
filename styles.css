@@ -91,6 +91,24 @@
       background-color: var(--bg-color);
       color: var(--text-color);
       height: 100vh; height: 100dvh; overflow: hidden;
+      /* iOS PWA + black-translucent 상태바를 같이 쓰면 콘텐츠 전체가 상태바 높이만큼
+         위로 밀리는 게 WebKit의 알려진 동작이라(index.html의 관련 주석 참고), 그만큼
+         body를 더 키워서 보정한다 — 안 그러면 실제 화면 맨 아래에 그 높이만큼 빈
+         여백이 남는다. env(safe-area-inset-top)이 0인 기기/브라우저에서는
+         calc(100% + 0px) = 100%라 평소와 똑같이 동작한다. */
+      min-height: calc(100% + env(safe-area-inset-top));
+    }
+
+    /* 🏷️ TEMP DEBUG — 배포/캐시 버전 확인용 배지. index.html의 #debug-version-badge
+       참고. 확인되면 이 규칙도 지울 것. */
+    #debug-version-badge {
+      position: fixed; left: 50%; top: max(6px, env(safe-area-inset-top));
+      transform: translateX(-50%);
+      z-index: 999999; pointer-events: none;
+      background: #000; color: #0f0;
+      font-family: monospace; font-size: 11px; font-weight: 700;
+      padding: 3px 8px; border-radius: 0 0 8px 8px;
+      opacity: 0.85; letter-spacing: 0.3px;
     }
 
     .screen-hidden { display: none !important; }
