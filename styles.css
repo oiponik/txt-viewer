@@ -700,13 +700,14 @@
       font-family: var(--reading-font-family);
       /* 좌우 여백("문단 너비" 설정)만 --reading-padding-x로 따로 빼뒀다 —
          위/아래 여백은 이 설정과 무관하게 화면 크기에 반응형으로 고정.
-         ⚠️ 위쪽 여백은 env(safe-area-inset-top)과 clamp() 중 큰 값을 쓴다 — 몰입
-         모드에서 #sidebar가 사라지면 상태바를 가려주던 것도 같이 없어져서, 노치/
-         상태바 기기에서 글자 첫 줄이 시계와 겹쳐 보이는 문제가 있었다. 이 값은
+         ⚠️ 위/아래 여백 둘 다 각각 env(safe-area-inset-top/bottom)과 clamp() 중 큰
+         값을 쓴다 — 몰입 모드에서 #sidebar/#bottom-bar가 사라지면 상태바/홈
+         인디케이터를 가려주던 것도 같이 없어져서, 노치·홈 인디케이터가 있는
+         기기에서 텍스트가 그 위까지 바짝 붙어 보이는 문제가 있었다. 이 값은
          페이지 나누기 실측(maxHeight)에도 그대로 반영되므로, 값이 바뀌면 reader.js의
          PAGE_LAYOUT_VERSION도 같이 올려서 옛 기기의 캐시된 분할 결과가 새 여백을
          반영 안 한 채로 재사용되지 않게 해야 한다. */
-      padding: max(clamp(14px, 2.5vw, 24px), env(safe-area-inset-top)) var(--reading-padding-x) clamp(10px, 1.5vw, 15px);
+      padding: max(clamp(14px, 2.5vw, 24px), env(safe-area-inset-top)) var(--reading-padding-x) max(clamp(10px, 1.5vw, 15px), env(safe-area-inset-bottom));
       /* 뷰어 설정의 "글자 크기"는 이 반응형 기준 크기에 배율(--reading-font-scale)을
          곱하는 방식이라, 화면 크기별 반응형 스케일링은 그대로 유지된다 */
       font-size: calc(var(--reading-font-scale) * clamp(13px, 1.1vw + 0.6rem, 16px));
@@ -758,7 +759,7 @@
     /* 상태 메시지 — 사이드바/헤더 UI와 분리해서 화면 하단 중앙에 토스트로 잠깐 띄운다.
        (몰입 모드로 UI가 다 숨어 있어도 이건 그대로 잠깐 보였다가 사라진다) */
     #sync-status {
-      position: fixed; left: 50%; bottom: 20px;
+      position: fixed; left: 50%; bottom: max(20px, calc(env(safe-area-inset-bottom) + 8px));
       transform: translate(-50%, 10px);
       z-index: 200;
       /* 흰 배경이 너무 튀어서, 은은하게 녹아드는 반투명 어두운 브라운 톤으로 */

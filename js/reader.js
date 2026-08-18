@@ -103,7 +103,7 @@ const HEIGHT_JITTER_THRESHOLD = 80;
 // CSS로는 마지막 줄이 페이지 밖으로 밀려 안 보이는(overflow:hidden에 잘리는) 문제로
 // 이어진다. .page의 padding-top/bottom(좌우는 --reading-padding-x라 별도 관리)을
 // 바꿀 때마다 이 값을 올려서 캐시를 강제로 무효화한다.
-const PAGE_LAYOUT_VERSION = 'v2';
+const PAGE_LAYOUT_VERSION = 'v3';
 
 // 💡 페이지 가상화(windowing): 전체 페이지를 다 DOM에 그리지 않고,
 // 현재 읽는 위치 근처만 실제로 그려서 PageFlip에 올린다.
