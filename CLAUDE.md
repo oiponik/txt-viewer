@@ -1,83 +1,83 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+이 파일은 이 저장소에서 작업하는 Claude Code(claude.ai/code)에게 가이드를 제공한다.
 
-## What this is
+## 이 앱이 뭔지
 
-Bookify — a Korean-language single-page web app that lets a signed-in user upload `.txt` files and read them as a page-flipping book (the `page-flip` library), with Firebase-backed folder/library management, per-user reading progress/bookmarks, and offline support. No build step: plain ES modules served as static files.
+Bookify — 로그인한 사용자가 `.txt` 파일을 업로드해서 페이지 넘기는 책(`page-flip` 라이브러리) 형태로 읽을 수 있는 한국어 싱글페이지 웹앱. Firebase 기반 폴더/서재 관리, 사용자별 읽기 진행상황·책갈피, 오프라인 지원까지 갖췄다. 빌드 과정 없음 — 순수 ES 모듈을 정적 파일로 그대로 서빙한다.
 
-## Commands
+## 명령어
 
-There is no `package.json` and no build/lint/test tooling — this is plain HTML/CSS/JS served as-is.
+`package.json`도 빌드/린트/테스트 도구도 없다 — 순수 HTML/CSS/JS를 그대로 서빙하는 구조.
 
-- **Local dev server**: use the `"static-server"` launch config (`.claude/launch.json`, not committed to git — see `.gitignore`) via the `preview_start` tool, which runs `.claude/serve.ps1` (a small PowerShell static file server) on port 8934. To run it outside that tool: `powershell -NoProfile -ExecutionPolicy Bypass -File .claude/serve.ps1`.
-- **Dev-mode login** (see also "Dev-mode testing" below): on `localhost`/`127.0.0.1`, enter `dev` as the email on the login screen (any/no password) to bypass Firebase Auth entirely and test without touching production data.
-- Deployment is a plain static-file host (no server-side code anywhere in this repo).
+- **로컬 개발 서버**: `preview_start` 도구로 `.claude/launch.json`의 `"static-server"` 설정(`.claude/serve.ps1`, 작은 파워셸 정적 파일 서버, 8934 포트 — git에는 커밋 안 됨, `.gitignore` 참고)을 사용한다. 이 도구 없이 직접 실행하려면: `powershell -NoProfile -ExecutionPolicy Bypass -File .claude/serve.ps1`
+- **개발자 모드 로그인** (아래 "개발자 모드 테스트" 참고): `localhost`/`127.0.0.1`에서 로그인 화면 이메일란에 `dev`를 입력하면(비밀번호는 아무거나/공란) Firebase Auth를 완전히 우회해서 프로덕션 데이터를 건드리지 않고 테스트할 수 있다.
+- 배포는 그냥 정적 파일 호스팅이다(이 저장소 어디에도 서버 코드는 없음).
 
-## Architecture
+## 아키텍처
 
-### Module graph (`js/`)
+### 모듈 구조 (`js/`)
 
-Seven domain modules wired together as ES module imports/exports (no bundler), loaded by `index.html` via a single `<script type="module" src="js/main.js">`:
+번들러 없이 ES 모듈 import/export로 연결된 7개 도메인 모듈, `index.html`이 `<script type="module" src="js/main.js">` 하나만으로 불러온다:
 
-- `session.js` — `currentUser` state (only this module reassigns it directly; everywhere else calls `setCurrentUser()`), dev-mode/admin permission checks (`isDevUser`, `isAdminUser`). Base of the dependency graph; imports nothing else from this project.
-- `firebase-init.js` — the one place Firebase `app`/`db`/`storage`/`auth` get initialized. Everything else imports `db`/`storage`/`auth` from here rather than re-initializing.
-- `ui-shared.js` — screen transitions (`showLibraryScreen`/`showViewerScreen` — *not* `showAuthScreen`, which lives in `auth.js` because it depends on auth-only state), Wake Lock, the bottom status toast (`setStatus`), and generic sheet open/close (`openSheet`/`closeSheet` + `[data-close-panel]` wiring).
-- `offline-cache.js` — IndexedDB cache of book text (see "Offline support" below).
-- `reader.js` — the viewer screen: pagination/PageFlip, search, bookmarks, reader settings, progress sync, immersive mode, brightness swipe.
-- `library.js` — the "내 서재" (library) screen: folders, file list, drag-and-drop, upload, recent files.
-- `auth.js` — login/signup, dev login, the `onAuthStateChanged` gate, logout. Imports from every other domain module, so it's effectively the app's real entry sequence.
-- `main.js` — the actual module entry point; imports the above for their side effects (each module wires its own event listeners at load time) and registers the service worker.
+- `session.js` — `currentUser` 상태(이 모듈만 직접 재할당하고, 다른 곳은 전부 `setCurrentUser()`를 호출), 개발자모드/관리자 권한 체크(`isDevUser`, `isAdminUser`). 의존성 그래프의 최하단 — 이 프로젝트의 다른 어떤 것도 import하지 않는다.
+- `firebase-init.js` — Firebase `app`/`db`/`storage`/`auth`를 초기화하는 유일한 곳. 다른 모든 모듈은 여기서 `db`/`storage`/`auth`를 import해서 쓰지, 다시 초기화하지 않는다.
+- `ui-shared.js` — 화면 전환(`showLibraryScreen`/`showViewerScreen` — `showAuthScreen`은 인증 전용 상태에 의존하기 때문에 `auth.js`에 있다), Wake Lock, 하단 상태 토스트(`setStatus`), 범용 시트 열기/닫기(`openSheet`/`closeSheet` + `[data-close-panel]` 배선).
+- `offline-cache.js` — 책 텍스트의 IndexedDB 캐시(아래 "오프라인 지원" 참고).
+- `reader.js` — 뷰어 화면: 페이지분할/PageFlip, 검색, 책갈피, 리더 설정, 진행상황 동기화, 몰입모드, 밝기 스와이프.
+- `library.js` — "내 서재" 화면: 폴더, 파일 목록, 드래그앤드롭, 업로드, 최근 파일.
+- `auth.js` — 로그인/회원가입, 개발자 로그인, `onAuthStateChanged` 게이트, 로그아웃. 다른 모든 도메인 모듈을 import하므로 사실상 앱의 진짜 진입 시퀀스 역할을 한다.
+- `main.js` — 실제 모듈 진입점. 위 모듈들을 그 부수효과(각 모듈이 로드 시점에 자기 이벤트 리스너를 배선함)를 위해 import하고, 서비스워커를 등록한다.
 
-**`library.js` and `reader.js` import from each other** — a deliberate circular dependency. `library.js` needs `reader.js`'s `loadFileFromStorage`/`loadDevTestFile` to open a book from a list row; `reader.js` needs `library.js`'s `markActiveFileRow` to highlight the open file in the list. This is safe under the ES module spec here because every cross-call happens inside an event handler or async function, never at module top-level.
+**`library.js`와 `reader.js`는 서로를 import한다** — 의도된 순환 의존성이다. `library.js`는 목록 행에서 책을 열기 위해 `reader.js`의 `loadFileFromStorage`/`loadDevTestFile`가 필요하고, `reader.js`는 열린 파일을 목록에서 강조 표시하기 위해 `library.js`의 `markActiveFileRow`가 필요하다. 모든 상호 호출이 이벤트 핸들러나 비동기 함수 안에서만 일어나고 모듈 최상위에서는 절대 일어나지 않기 때문에 ES 모듈 스펙상 안전하다.
 
-Cross-module mutable state follows one recurring pattern: the owning module exports `let someState` (readable elsewhere via import) plus a `setSomeState()` function (the *only* way other modules may write it, since ES modules can't reassign an imported binding). See `session.js`'s `currentUser`/`setCurrentUser` or `reader.js`'s `currentFileName`/`setCurrentFileName`.
+모듈 간 공유 가변 상태는 반복되는 한 가지 패턴을 따른다: 소유 모듈이 `let someState`(다른 곳에서 import로 읽을 수 있음)와 `setSomeState()` 함수(다른 모듈이 값을 쓸 수 있는 *유일한* 방법 — ES 모듈은 import한 바인딩을 재할당할 수 없으므로)를 함께 export한다. `session.js`의 `currentUser`/`setCurrentUser`나 `reader.js`의 `currentFileName`/`setCurrentFileName`이 그 예.
 
-### Firebase data model
+### Firebase 데이터 모델
 
-- **Auth**: email/password, `browserLocalPersistence` (stays logged in across reloads, including offline).
-- **Storage**: every uploaded `.txt` file lives flat under `books/` — shared across *all* accounts, not yet per-user (see admin-gating below).
+- **Auth**: 이메일/비밀번호, `browserLocalPersistence`(오프라인을 포함해 새로고침해도 로그인이 유지됨).
+- **Storage**: 업로드된 `.txt` 파일은 전부 `books/` 아래 평평하게 저장된다 — *모든* 계정에 걸쳐 공유되고, 아직 계정별로 분리되지 않았다(아래 관리자 권한 제한 참고).
 - **Firestore**:
-  - `library/shared` — one document for the whole app's folder structure (`folders`, a `fileFolder` name→folderId map, drag-reorder `itemOrder`). Shared for the same reason as `books/`.
-  - `users/{uid}/reading_progress/{fileId}` and `users/{uid}/bookmarks/{fileId}` — per-user, per-file. `fileId` is `fileDocId(fileName)` (`btoa(encodeURIComponent(fileName))`), so renaming a file means migrating these docs (`library.js`'s `migrateFileDocs`).
-  - `users/{uid}/settings/readerPrefs` — `{mobile: {...}, pc: {...}}`, keyed by device category (viewport < 900px = mobile), not by file.
-  - Security rules aren't in this repo (managed in the Firebase console) — `library.js` and `session.js` have comments with the exact rule text expected there.
+  - `library/shared` — 앱 전체 서재 폴더 구조(`folders`, 파일명→폴더ID 맵인 `fileFolder`, 드래그 순서변경용 `itemOrder`) 하나를 담은 문서. `books/`와 같은 이유로 공유된다.
+  - `users/{uid}/reading_progress/{fileId}`와 `users/{uid}/bookmarks/{fileId}` — 사용자별·파일별. `fileId`는 `fileDocId(fileName)`(`btoa(encodeURIComponent(fileName))`)이라서, 파일명을 바꾸면 이 문서들도 같이 마이그레이션해야 한다(`library.js`의 `migrateFileDocs`).
+  - `users/{uid}/settings/readerPrefs` — `{mobile: {...}, pc: {...}}`, 파일이 아니라 기기 종류(뷰포트 < 900px = 모바일)로 구분해서 저장.
+  - 보안 규칙은 이 저장소에 없다(Firebase 콘솔에서 관리) — `library.js`와 `session.js`에 콘솔에 있어야 할 정확한 규칙 텍스트가 주석으로 남아있다.
 
-**Admin gating**: because `books/` and `library/shared` are shared across every account, only `kinopioo@naver.com` (`session.js`'s `isAdminUser`) can create/rename/move/delete folders and files — a temporary measure until per-user file scoping exists. This only hides UI; it is not real security without matching Firestore/Storage rules.
+**관리자 권한 제한**: `books/`와 `library/shared`가 모든 계정에 공유되기 때문에, `kinopioo@naver.com`(`session.js`의 `isAdminUser`)만 폴더/파일을 생성·이름변경·이동·삭제할 수 있다 — 계정별 파일 범위 분리가 되기 전까지의 임시 조치. 이건 UI만 가리는 것이라, 맞는 Firestore/Storage 규칙 없이는 진짜 보안이 아니다.
 
-### Dev-mode testing
+### 개발자 모드 테스트
 
-On `localhost`/`127.0.0.1` only, logging in with email `dev` skips Firebase Auth entirely (`auth.js`'s `loginAsDevUser`) and uses a fixed local user (`DEV_USER_UID`). The library shows exactly one file, the static `dev-test-book.txt`, and progress/bookmarks/reader-prefs/library-state all go to `localStorage` instead of Firestore/Storage. Prefer this path for all browser-based verification — it never touches production Firebase data. It does *not* exercise the offline book-text cache (see below) or real Firebase Auth persistence, since it bypasses both by design.
+`localhost`/`127.0.0.1`에서만, 이메일 `dev`로 로그인하면(`auth.js`의 `loginAsDevUser`) Firebase Auth를 완전히 건너뛰고 고정된 로컬 사용자(`DEV_USER_UID`)를 쓴다. 서재에는 정적 파일 `dev-test-book.txt` 딱 하나만 보이고, 진행상황/책갈피/리더설정/서재상태가 전부 Firestore/Storage 대신 `localStorage`로 간다. 브라우저 기반 검증은 전부 이 경로를 우선으로 쓸 것 — 프로덕션 Firebase 데이터를 절대 건드리지 않는다. 다만 오프라인 책 텍스트 캐시(아래 참고)나 진짜 Firebase Auth 지속성은 검증하지 *못한다* — 설계상 둘 다 우회하기 때문.
 
-### Reading pipeline (`reader.js`)
+### 읽기 파이프라인 (`reader.js`)
 
-The largest module; page rendering is its most complex piece:
+가장 큰 모듈이고, 페이지 렌더링이 가장 복잡한 부분이다:
 
-1. Book text is split into pages by **DOM height measurement + galloping search** — measures real rendered height in a hidden `.page` element rather than estimating, using a galloping/binary-search hybrid so it stays fast on large documents. `findForwardPageEnd`/`findBackwardPageStart` are the two directions (mirror images of each other); `createMeasurementDom` builds the shared hidden-DOM harness.
-2. **Cold-cache splits are bidirectional and progressive, not "0 to end."** On a cache miss, `buildInitialWindowSplit` first splits only the visible window (≤ `PAGE_WINDOW_RADIUS*2+1` pages) around the resume position (`currentLastCharIndex`, the "이어보기" char offset — 0 for a new book) — backward from that origin *and* forward from it — so the first page renders in time bounded by window size, never by book size. `continuePaginationInBackground` then keeps splitting outward in both directions without blocking the UI, `prepend`ing/`append`ing into the live `pageStartIndices`/`allTextPages` arrays as it goes (a prepend shifts every already-tracked index — `windowStartIndex`/`windowEndIndex`/`currentDisplayedGlobalPage` — by one to compensate). `pendingBackwardDone`/`pendingForwardDone` (see `isPaginationPending()`) track whether each direction has reached the true start/end of the book yet. While pending: the page slider is disabled and shows "계산 중..." (no approximate number), search is disabled (`updateSearchAvailability`), and flipping into not-yet-known territory shows a "아직 준비 중" status instead of erroring (`goToNextPage`/`jumpToPrevPage`'s edge guards). Only a *fully complete* split (both directions done) gets persisted to cache — a partial result is never cached, since it would look like a smaller book on the next open.
-   - ⚠️ Bidirectional splitting is **not byte-identical** to a hypothetical pure forward-from-0 split of the same book — word-wrap is sensitive to exactly where a page starts, so boundaries near the resume point can drift by up to a few dozen characters compared to what a left-to-right pass would have chosen. Both are equally *valid* pagination (verified: monotonic, gapless, every page fits `maxHeight`) — this is expected, not a bug, and isn't user-visible beyond that.
-3. Only a **window** of pages around the current position (`PAGE_WINDOW_RADIUS = 15`) is ever mounted into PageFlip (`computeWindowRange`/`maybeShiftPageWindow`) — the rest of the book stays as plain strings in memory. This is necessary because PageFlip pairs *local* page indices into left/right spreads; the window's start index must stay even or spreads drift by one page (see the long comment above `computeWindowRange`).
-4. Pagination results are cached twice: in-memory (`paginationCache`, keyed by file + dimensions + font) and in `localStorage` (`persistedPaginationKey`), storing only `pageStartIndices` — not the page text — since the source text can re-slice itself from those offsets. Dimensions are **bucketed** (floored to a 20px/40px grid, half of `WIDTH_JITTER_THRESHOLD`/`HEIGHT_JITTER_THRESHOLD`) before being used for *anything* (measurement, PageFlip's actual render size, and the cache key) — otherwise trivial viewport differences between opens (address-bar collapse, PWA status-bar state, etc.) miss the cache and force a full re-split every time, even for the same file on the same device.
-5. Bookmarks/progress are stored by **character index**, not page number — page numbers shift whenever font/size/paragraph-width/screen size changes, character offsets don't.
-6. `buildGeneration`/`fileLoadGeneration` counters guard against races when the user resizes or switches books faster than a previous async pagination/download finishes — the background progressive-completion loop checks `buildGeneration` at every yield point too, so a resize/book-switch cleanly abandons a stale in-flight split instead of corrupting the live arrays.
+1. 책 텍스트는 **DOM 높이 측정 + 갤로핑 탐색**으로 페이지 단위로 나뉜다 — 추정하지 않고 숨겨진 `.page` 요소에서 실제 렌더링된 높이를 측정하며, 대용량 문서에서도 빠르도록 갤로핑/이분탐색 하이브리드를 쓴다. `findForwardPageEnd`/`findBackwardPageStart`가 서로 대칭인 양방향 함수이고, `createMeasurementDom`이 공유되는 숨겨진 DOM 측정 장치를 만든다.
+2. **캐시가 없을 때(cold-cache)의 분할은 "0부터 끝까지"가 아니라 양방향·점진적이다.** 캐시 미스 시, `buildInitialWindowSplit`이 먼저 이어보기 위치(`currentLastCharIndex`, 새 책이면 0)를 기준으로 창(≤ `PAGE_WINDOW_RADIUS*2+1`페이지) 분량만 그 원점에서 뒤로*와* 앞으로 나눠서, 첫 페이지가 책 크기와 무관하게 창 크기만큼의 시간 안에 뜨게 한다. `continuePaginationInBackground`가 그 뒤로 화면을 막지 않고 양쪽 방향으로 계속 바깥으로 나누면서, 살아있는 `pageStartIndices`/`allTextPages` 배열에 `prepend`/`append`한다(앞에 붙이는 건 이미 추적 중인 모든 인덱스 — `windowStartIndex`/`windowEndIndex`/`currentDisplayedGlobalPage` — 를 1씩 밀어서 보정해야 한다). `pendingBackwardDone`/`pendingForwardDone`(`isPaginationPending()` 참고)이 각 방향이 책의 진짜 시작/끝에 도달했는지 추적한다. 대기 중일 때는: 페이지 슬라이더가 비활성화되고 "계산 중..."을 보여주며(대략치 표시 안 함), 검색도 비활성화되고(`updateSearchAvailability`), 아직 안 알려진 영역으로 넘기려 하면 에러 대신 "아직 준비 중" 상태를 보여준다(`goToNextPage`/`jumpToPrevPage`의 경계 가드). *완전히* 끝난 분할(양방향 다 끝남)만 캐시에 저장된다 — 부분 결과를 캐싱하면 다음에 열 때 더 작은 책처럼 보이므로 절대 캐싱하지 않는다.
+   - ⚠️ 양방향 분할은 같은 책을 순수하게 처음부터 끝까지 정방향으로 분할했을 가상의 결과와 **바이트 단위로 동일하지 않다** — 워드랩이 페이지가 정확히 어디서 시작하는지에 민감해서, 이어보기 원점 근처의 경계가 왼쪽에서 오른쪽으로 쭉 훑었을 때 골랐을 위치와 최대 몇십 자 정도 어긋날 수 있다. 둘 다 똑같이 *유효한* 분할이다(검증됨: 빈틈 없고 단조증가하며 모든 페이지가 `maxHeight`에 맞음) — 이건 의도된 것이지 버그가 아니고, 이 정도 외에는 사용자에게 보이지 않는다.
+3. 현재 위치 근처의 **창** 분량 페이지(`PAGE_WINDOW_RADIUS = 15`)만 PageFlip에 실제로 마운트된다(`computeWindowRange`/`maybeShiftPageWindow`) — 책의 나머지는 그냥 메모리에 문자열로만 남아있다. PageFlip이 *로컬* 페이지 인덱스를 좌/우 스프레드로 짝짓기 때문에 이게 필요하다 — 창의 시작 인덱스가 짝수를 유지해야 스프레드가 한 페이지씩 밀리지 않는다(`computeWindowRange` 위의 긴 주석 참고).
+4. 분할 결과는 두 번 캐싱된다: 메모리(`paginationCache`, 파일+크기+폰트로 키를 만듦)와 `localStorage`(`persistedPaginationKey`) — 페이지 텍스트가 아니라 `pageStartIndices`만 저장하는데, 원본 텍스트가 그 오프셋들로부터 다시 잘라낼 수 있기 때문이다. 크기는 (측정, PageFlip의 실제 렌더링 크기, 캐시 키까지) *무엇에든* 쓰이기 전에 **버킷화**된다(20px/40px 격자로 내림, `WIDTH_JITTER_THRESHOLD`/`HEIGHT_JITTER_THRESHOLD`의 절반) — 안 그러면 열 때마다 미묘하게 다른 뷰포트 차이(주소창 접힘, PWA 상태표시줄 상태 등)가 캐시를 미스시켜서, 같은 기기의 같은 파일이라도 매번 전체 재분할을 강제한다.
+5. 책갈피/진행상황은 페이지 번호가 아니라 **글자 인덱스**로 저장된다 — 페이지 번호는 폰트/크기/문단너비/화면크기가 바뀔 때마다 흔들리지만, 글자 오프셋은 그렇지 않다.
+6. `buildGeneration`/`fileLoadGeneration` 카운터가, 사용자가 이전 비동기 분할/다운로드가 끝나기도 전에 리사이즈하거나 책을 전환할 때 생기는 경쟁 상태를 막는다 — 백그라운드 점진적 완료 루프도 매 yield 지점마다 `buildGeneration`을 확인해서, 리사이즈/책전환이 라이브 배열을 망가뜨리는 대신 깔끔하게 오래된 진행 중이던 분할을 포기하게 한다.
 
-### Offline support (`offline-cache.js` + `sw.js`)
+### 오프라인 지원 (`offline-cache.js` + `sw.js`)
 
-- `sw.js` precaches the static app shell (HTML/CSS/JS/icons/manifest/fonts/PageFlip + Firebase SDK CDN scripts) so the app still boots with no network. **Bump `CACHE_VERSION` whenever the static file list changes**, or clients keep serving stale files indefinitely.
-- **⚠️ Every external CDN URL any same-origin file imports or references MUST be in `sw.js`'s precache list — this has caused two real, hard-to-diagnose production bugs already:**
-  - `firebase-init.js`/`reader.js`/`library.js`/`auth.js` import Firebase SDK modules straight from `www.gstatic.com/firebasejs/...` as ES modules. That domain was missing from the precache list entirely, so on a real device (online-install, then fully offline relaunch) the import hung forever with zero thrown error — `firebase-init.js` sits near the front of the module graph, so *nothing* downstream of it, including code meant to run as a fallback, ever got a chance to execute. Symptom looked like "the whole app is frozen," not "one file failed." Confirmed and fixed 2026-08-16.
-  - `index.html` used to `<link>` Google Fonts' CDN CSS directly. Google Fonts splits each family into 100s of tiny unicode-range-subset files and only serves (and lets you cache) the ones actually rendered — so a user who never manually switched fonts while online had *zero* font files cached, and switching fonts offline silently no-opped (fell back to a system font, no error). Fixed by self-hosting: the real webfont files were fetched via `curl` with a legacy `MSIE 6.0` user-agent (Google Fonts serves one full unsubsetted file per family that way instead of the normal 100+ modern-browser subsets), then converted TTF→WOFF2 with `fonttools` (`pip install fonttools brotli`; `TTFont(...).flavor = 'woff2'; .save(...)`) for full-Hangul-coverage single files under `fonts/`, referenced from `styles.css`'s own `@font-face` rules, and added to `PRECACHE_URLS` like any other static asset. No more Google Fonts dependency at all.
-  - **The pattern to watch for**: any `<script src>`, `<link>`, or ES module `import` pointing at a domain other than the app's own origin is a same-origin-only-thinking blind spot — check `sw.js`'s `PRECACHE_URLS`/`PRECACHE_NO_CORS_URLS`/`PRECACHE_CORS_URLS` and the runtime `fetch` handler's origin allowlist whenever a new one is added anywhere in the codebase.
-- `offline-cache.js` is a separate IndexedDB cache of book *text*, keyed by filename, LRU-capped by total size (`OFFLINE_CACHE_BYTES_LIMIT`, 500MB) rather than a book count — text files are small enough that a fixed count was needlessly restrictive. `reader.js`'s `loadFileFromStorage` reads from this cache first (online or offline) unless a background freshness check (`refreshStaleFlags`, run once whenever "내 서재" loads, comparing Storage `getMetadata()`) flagged the cached copy stale — a stale flag only takes effect on the *next* open, never mid-read.
-- Reading progress, bookmarks, and the library folder structure each have their own `localStorage` write-through cache (Firestore/Storage stay authoritative when online; the local copy is purely the offline fallback) — this generalizes the pattern dev-mode already used, rather than enabling Firestore's own offline persistence.
-- Every library write action (folder/file create/rename/move/delete, upload, drag reorder) checks `navigator.onLine` and refuses with a toast when offline, rather than queuing writes for later.
-- Renaming or deleting a file also updates or clears its entry in the offline caches, so a stale cache entry never survives under a reused filename.
-- `sw.js`'s runtime `fetch` handler intentionally does *not* combine `event.waitUntil()` background-revalidation with `respondWith()` on a cache hit — that combination has reports of instability on iOS Safari/WebKit, and static content only refreshes at install time (`CACHE_VERSION` bump) instead. `auth.js` also has a 4s timeout that force-shows the login screen if `onAuthStateChanged` never fires, as a last-resort safety net against any future silent-hang scenario like the Firebase SDK one above (index.html's screens are all `screen-hidden` by default, so any such hang otherwise looks like a permanently blank app with no error).
-- iOS note: only Safari's "Add to Home Screen" produces a real standalone PWA with reliable service worker support there — Chrome/Firefox/etc. on iOS are WebKit wrappers whose "Add to Home Screen" is closer to a bookmark shortcut and won't reliably work offline. This is an Apple platform restriction, not something fixable from this codebase.
+- `sw.js`가 정적 앱 셸(HTML/CSS/JS/아이콘/매니페스트/폰트/PageFlip + Firebase SDK CDN 스크립트)을 미리 캐싱해서 네트워크가 없어도 앱이 뜬다. **정적 파일 목록이 바뀔 때마다 `CACHE_VERSION`을 올릴 것** — 안 그러면 클라이언트가 계속 예전 파일을 서빙받는다.
+- **⚠️ 같은 출처의 파일이 import하거나 참조하는 외부 CDN URL은 전부 `sw.js`의 사전 캐싱 목록에 있어야 한다 — 이미 두 번의 실제 진단하기 어려운 프로덕션 버그를 냈다:**
+  - `firebase-init.js`/`reader.js`/`library.js`/`auth.js`가 `www.gstatic.com/firebasejs/...`에서 Firebase SDK 모듈을 ES 모듈로 바로 import한다. 그 도메인이 사전 캐싱 목록에 통째로 빠져있어서, 실기기에서(온라인 상태로 설치 후 완전 오프라인으로 재실행) 그 import가 에러 하나 없이 영원히 멈췄다 — `firebase-init.js`가 모듈 그래프 맨 앞쪽에 있어서, 폴백으로 실행되어야 할 코드를 포함해 그 아래 *어떤* 것도 실행될 기회를 못 얻었다. 증상은 "파일 하나가 실패함"이 아니라 "앱 전체가 멈춤"처럼 보였다. 2026-08-16에 확인하고 고침.
+  - `index.html`이 예전엔 구글 폰트의 CDN CSS를 직접 `<link>`로 불러왔다. 구글 폰트는 각 서체를 수백 개의 작은 유니코드 범위별 조각 파일로 쪼개서 실제로 렌더링된 것만 서빙(그리고 캐싱을 허용)한다 — 그래서 온라인 중에 폰트를 한 번도 수동으로 바꿔본 적 없는 사용자는 폰트 파일이 *하나도* 캐싱 안 돼 있었고, 오프라인에서 폰트를 바꾸면 조용히 아무 효과 없이(에러도 없이 시스템 폰트로 대체) 실패했다. 자체 호스팅으로 고침: 진짜 웹폰트 파일을 구식 `MSIE 6.0` User-Agent로 `curl`해서 받아오고(구글 폰트가 이 방식일 때는 최신 브라우저용 100개+ 조각 대신 서체당 통짜 파일 하나를 서빙함), `fonttools`로 TTF→WOFF2 변환(`pip install fonttools brotli`; `TTFont(...).flavor = 'woff2'; .save(...)`)해서 한글 전체 커버리지를 가진 파일 하나씩을 `fonts/` 아래 뒀고, `styles.css`의 자체 `@font-face` 규칙에서 참조하고, 다른 정적 자산처럼 `PRECACHE_URLS`에 추가했다. 이제 구글 폰트 의존성이 전혀 없다.
+  - **주의해서 볼 패턴**: 앱 자기 출처가 아닌 다른 도메인을 가리키는 `<script src>`, `<link>`, ES 모듈 `import`는 전부 "같은 출처만 생각하는" 사각지대다 — 코드베이스 어디든 새로 하나 추가될 때마다 `sw.js`의 `PRECACHE_URLS`/`PRECACHE_NO_CORS_URLS`/`PRECACHE_CORS_URLS`와 런타임 `fetch` 핸들러의 출처 허용목록을 확인할 것.
+- `offline-cache.js`는 책 *텍스트* 전용의 별도 IndexedDB 캐시로, 파일명으로 키를 만들고 (책 개수가 아니라) 전체 용량 기준(`OFFLINE_CACHE_BYTES_LIMIT`, 500MB)으로 LRU 제한한다 — 텍스트 파일은 충분히 작아서 개수 제한은 불필요하게 빡빡했다. `reader.js`의 `loadFileFromStorage`는 (온라인이든 오프라인이든) 이 캐시를 먼저 읽는다, 단 백그라운드 신선도 체크(`refreshStaleFlags`, "내 서재"가 로드될 때마다 한 번씩 Storage `getMetadata()`와 비교)가 캐시된 사본이 오래됐다고 표시한 경우는 예외다 — 오래됨 표시는 *다음* 열 때만 적용되고, 읽는 도중에는 절대 적용 안 된다.
+- 읽기 진행상황, 책갈피, 서재 폴더 구조는 각각 자기만의 `localStorage` write-through 캐시를 가진다(온라인일 땐 Firestore/Storage가 항상 정답이고, 로컬 사본은 순전히 오프라인 폴백용) — 이건 개발자 모드가 이미 쓰던 패턴을 일반화한 것이지, Firestore 자체의 오프라인 지속성을 켠 게 아니다.
+- 모든 서재 쓰기 동작(폴더/파일 생성·이름변경·이동·삭제, 업로드, 드래그 순서변경)은 `navigator.onLine`을 체크해서 오프라인이면 토스트로 거부한다 — 나중을 위해 큐에 쌓아두지 않는다.
+- 파일 이름변경이나 삭제는 오프라인 캐시의 해당 항목도 갱신하거나 지워서, 재사용된 파일명 아래 오래된 캐시 항목이 절대 남아있지 않게 한다.
+- `sw.js`의 런타임 `fetch` 핸들러는 캐시 히트 시 `respondWith()`와 `event.waitUntil()` 기반 백그라운드 갱신(stale-while-revalidate)을 의도적으로 **같이 쓰지 않는다** — 그 조합이 iOS Safari/WebKit에서 불안정하다는 보고가 있어서, 정적 콘텐츠는 설치 시점(`CACHE_VERSION` 올릴 때)에만 갱신된다. `auth.js`에도 `onAuthStateChanged`가 끝내 안 불릴 경우 강제로 로그인 화면을 보여주는 4초 타임아웃이 있다 — 위 Firebase SDK 사례 같은 미래의 조용한 멈춤에 대비한 최후의 안전장치(index.html의 화면들이 기본적으로 전부 `screen-hidden`이라, 이런 멈춤은 안 그러면 에러 하나 없이 영원히 빈 화면처럼 보인다).
+- iOS 참고: iOS에서 서비스워커가 제대로 동작하는 진짜 standalone PWA는 Safari의 "홈 화면에 추가"로만 만들어진다 — iOS의 크롬/파이어폭스 등은 WebKit 래퍼라 "홈 화면에 추가"가 북마크 바로가기에 더 가깝고 오프라인이 안정적으로 안 된다. 이건 애플 플랫폼 제약이지 이 코드베이스에서 고칠 수 있는 게 아니다.
 
 ### PWA
 
-`manifest.json` + `icons/` support "Add to Home Screen" on iOS/Android; `sw.js` is what makes the installed app work offline.
+`manifest.json` + `icons/`가 iOS/안드로이드에서 "홈 화면에 추가"를 지원하고, `sw.js`가 설치된 앱이 오프라인에서 동작하게 한다.
 
 ## 진행 상황 메모 (2026-08-18 기준 — 다른 컴퓨터에서 이어서 작업할 때 참고)
 
