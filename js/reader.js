@@ -110,6 +110,18 @@ let isShiftingWindow = false; // 창 재정렬 도중 중복 실행 방지 가�
 let pageStartIndices = [];
 let currentLastCharIndex = 0; // 읽던 글자의 시작 위치
 
+// 💡 점진적(양방향) 페이지 나누기 진행 상태 — buildInitialWindowSplit/
+// continuePaginationInBackground 참고. "책 전체가 아직 다 안 나뉜 상태"인지는
+// isPaginationPending()으로 판단한다. 캐시 히트(가장 흔한 경우)나 아주 짧은 책은
+// 두 값 다 처음부터 true라 이 상태 자체가 아예 없다.
+let pendingBackwardDone = true;
+let pendingForwardDone = true;
+let pendingBackwardCursor = 0; // 다음 배경 작업이 이어서 뒤로 갈 지점(글자 인덱스)
+let pendingForwardCursor = 0;  // 다음 배경 작업이 이어서 앞으로 갈 지점(글자 인덱스)
+function isPaginationPending() {
+  return !pendingBackwardDone || !pendingForwardDone;
+}
+
 // 💡 현재 열린 파일의 책갈피(메모리 캐시) — {charIndex, snippet, addedAt}[].
 // "페이지 번호"가 아니라 "글자 위치"로 저장한다: 페이지 번호는 화면 크기/글꼴/문단
 // 너비가 바뀌어 페이지가 다시 나뉘면(기기 변경 등) 같은 숫자가 다른 내용을 가리키게
@@ -343,18 +355,24 @@ export async function loadFileFromStorage(fileName) {
   }
 }
 
-// 💡 4. DOM 높이 실측 + 갤로핑 탐색(Galloping Search) 기반 정밀 분할 함수
+// 💡 4. DOM 높이 실측 + 갤로핑 탐색(Galloping Search) 기반 정밀 분할
 //
-// 예전 방식은 매 페이지마다 "문서 전체 남은 길이"를 기준으로 이진 탐색을 했기 때문에,
-// 대용량 텍스트(수백 KB~수 MB짜리 소설 등)에서는 페이지 하나 찾는 데도
-// 거대한 문자열을 DOM에 반복해서 밀어넣고 레이아웃을 재계산하게 되어
-// 브라우저 탭이 통째로 멈추는 문제가 있었다.
-// → 필요한 구간만 작게 시작해서 2배씩 넓혀가며(갤로핑) 대략적인 범위를 잡고,
-//   그 좁은 범위 안에서만 이진 탐색하도록 바꿔서 문서 크기와 무관하게 빠르게 동작한다.
-// 또한 대용량 문서에서도 브라우저가 "응답 없음" 상태가 되지 않도록 주기적으로
-// 메인 스레드를 양보(yield)한다.
-async function splitTextIntoPagesDOM(text, containerWidth, containerHeight, myGeneration) {
-  // 높이 측정을 위한 보이지 않는 임시 DOM 생성
+// 예전엔 캐시가 없으면 파일 처음(글자 0)부터 끝까지 순서대로 다 나눠야만 첫 페이지를
+// 보여줄 수 있었다 — 큰 책일수록, 그리고 이어보기로 책 뒷부분을 열수록 오래 걸렸다
+// (500페이지 지점을 알려면 0~499페이지를 먼저 계산해야 하는 구조라서).
+// → 이제는 "이어보기 글자 위치(원점)"를 기준으로 양방향(앞/뒤)으로 나눠서, 화면에
+// 보여줄 창(윈도우, PAGE_WINDOW_RADIUS*2+1페이지)만 먼저 정확히 계산해 즉시 보여주고,
+// 나머지는 continuePaginationInBackground()가 화면을 막지 않고 계속 채운다. 창 계산
+// 비용은 항상 창 크기에만 비례해서, 책이 아무리 커도 첫 페이지는 똑같이 빠르다.
+//
+// 갤로핑 탐색 자체(작은 구간에서 시작해 2배씩 넓혀가며 "안 들어가는 지점"을 빠르게
+// 찾은 뒤, 그 좁은 구간 안에서만 이진 탐색)는 예전과 동일 — findForwardPageEnd가
+// 정방향(오른쪽으로 넓혀감), findBackwardPageStart가 그걸 좌우로 뒤집은 역방향이다.
+
+// 페이지 높이 실측용 숨은 DOM 하나를 만들어 반환한다. 창 계산과 백그라운드 이어붙이기가
+// 각자 자기 DOM을 하나씩 만들어 쓰고(동시에 둘 다 돌 수 있어서 공유하면 안 됨),
+// 다 쓰면 호출부가 document.body.removeChild(dummy)로 정리해야 한다.
+function createMeasurementDom(containerWidth, containerHeight) {
   const dummy = document.createElement('div');
   dummy.className = 'page';
   dummy.style.visibility = 'hidden';
@@ -375,86 +393,211 @@ async function splitTextIntoPagesDOM(text, containerWidth, containerHeight, myGe
   dummy.appendChild(dummyFooter);
   document.body.appendChild(dummy);
 
-  // 실제 텍스트 영역의 가용 최대 높이 측정을 위해 렌더링
-  const maxHeight = dummyContent.clientHeight;
+  const maxHeight = dummyContent.clientHeight; // 실제 텍스트 영역의 가용 최대 높이
+  return { dummy, dummyContent, maxHeight };
+}
 
-  const pages = [];
-  // ⚠️ 전역 pageStartIndices를 직접 건드리지 않고 지역 배열에 모은다 — 리사이즈가
-  // 연달아 일어나 이 함수가 겹쳐 실행될 때(비동기 yield 구간에서) 서로 다른 실행이
-  // 같은 전역 배열에 뒤섞여 쓰는 걸 방지한다. 결과는 buildFlipBook이 최신 빌드일
-  // 때만 전역에 반영한다.
-  const localPageStarts = [];
-  let currentIndex = 0;
-  let pagesSinceYield = 0;
+// startIndex부터 시작해서 한 페이지 분량이 최대한 들어가는 끝 지점을 찾는다(정방향).
+function findForwardPageEnd(text, startIndex, maxHeight, dummyContent) {
   const textLength = text.length;
+  let fitsIndex = startIndex; // 여기까지는 확실히 들어감
+  let step = 300;
+  let probeIndex = Math.min(startIndex + step, textLength);
+  dummyContent.textContent = text.substring(startIndex, probeIndex);
 
-  while (currentIndex < textLength) {
-    localPageStarts.push(currentIndex);
+  while (dummyContent.scrollHeight <= maxHeight && probeIndex < textLength) {
+    fitsIndex = probeIndex;
+    step *= 2;
+    probeIndex = Math.min(probeIndex + step, textLength);
+    dummyContent.textContent = text.substring(startIndex, probeIndex);
+  }
 
-    // 1단계: 갤로핑 탐색 — 문서 전체가 아니라 작은 구간에서 시작해 2배씩 넓혀가며
-    // "안 들어가는 지점"을 빠르게 찾는다.
-    let fitsIndex = currentIndex; // 여기까지는 확실히 들어감
-    let step = 300;
-    let probeIndex = Math.min(currentIndex + step, textLength);
-    dummyContent.textContent = text.substring(currentIndex, probeIndex);
-
-    while (dummyContent.scrollHeight <= maxHeight && probeIndex < textLength) {
-      fitsIndex = probeIndex;
-      step *= 2;
-      probeIndex = Math.min(probeIndex + step, textLength);
-      dummyContent.textContent = text.substring(currentIndex, probeIndex);
-    }
-
-    let bestFitIndex;
-    if (dummyContent.scrollHeight <= maxHeight) {
-      // 남은 텍스트 전부가 한 페이지에 들어감 (문서 끝)
-      bestFitIndex = probeIndex;
-    } else {
-      // 2단계: [fitsIndex(들어감), probeIndex(안 들어감)] 좁은 구간 안에서만 이진 탐색
-      let low = fitsIndex + 1;
-      let high = probeIndex;
-      bestFitIndex = fitsIndex;
-
-      while (low <= high) {
-        const mid = Math.floor((low + high) / 2);
-        dummyContent.textContent = text.substring(currentIndex, mid);
-
-        if (dummyContent.scrollHeight <= maxHeight) {
-          bestFitIndex = mid;
-          low = mid + 1;
-        } else {
-          high = mid - 1;
-        }
-      }
-    }
-
-    // 최소 1글자 진행 보장
-    if (bestFitIndex === currentIndex) bestFitIndex = currentIndex + 1;
-
-    pages.push(text.substring(currentIndex, bestFitIndex));
-    currentIndex = bestFitIndex;
-
-    // 대용량 문서에서도 브라우저가 멈추지 않도록 주기적으로 렌더링 프레임을 양보
-    pagesSinceYield++;
-    if (pagesSinceYield >= 30) {
-      pagesSinceYield = 0;
-      setStatus(`페이지 나누는 중... (${pages.length}p, ${Math.round(currentIndex / textLength * 100)}%)`);
-      await new Promise(resolve => setTimeout(resolve, 0));
-
-      // 💡 기다리는 사이 화면 크기가 또 바뀌어서 더 최신 재빌드(buildGeneration 증가)가
-      // 이미 시작됐다면, 이 결과는 buildFlipBook에서 결국 버려질 게 뻔하다 — 그런데도
-      // 끝까지 계속 돌면, 새로 시작된 분할과 이 낡은 분할이 동시에 돌면서 DOM 실측을
-      // 두 배로 반복하는 문제가 있었다(리사이즈가 연달아 일어나는 모바일에서 특히
-      // 체감됨). 여기서 바로 멈추고 자신의 임시 DOM만 정리한 뒤 null을 반환한다.
-      if (myGeneration !== buildGeneration) {
-        document.body.removeChild(dummy);
-        return null;
+  let bestFitIndex;
+  if (dummyContent.scrollHeight <= maxHeight) {
+    bestFitIndex = probeIndex; // 남은 텍스트 전부가 한 페이지에 들어감(문서 끝)
+  } else {
+    let low = fitsIndex + 1;
+    let high = probeIndex;
+    bestFitIndex = fitsIndex;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      dummyContent.textContent = text.substring(startIndex, mid);
+      if (dummyContent.scrollHeight <= maxHeight) {
+        bestFitIndex = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
       }
     }
   }
+  if (bestFitIndex === startIndex) bestFitIndex = startIndex + 1; // 최소 1글자 진행 보장
+  return bestFitIndex;
+}
 
-  document.body.removeChild(dummy);
-  return { pages, pageStartIndices: localPageStarts };
+// findForwardPageEnd를 좌우로 뒤집은 버전 — endIndex에서 끝나는 페이지에 최대한 많은
+// 내용이 담기도록 시작 지점을 왼쪽으로 넓혀가며 찾는다(역방향). 이어보기 원점보다
+// 앞쪽 페이지들을 계산할 때 쓴다.
+function findBackwardPageStart(text, endIndex, maxHeight, dummyContent) {
+  if (endIndex <= 0) return 0;
+  let fitsStart = endIndex; // 여기서부터면(=빈 페이지) 확실히 들어감
+  let step = 300;
+  let probeStart = Math.max(0, endIndex - step);
+  dummyContent.textContent = text.substring(probeStart, endIndex);
+
+  while (dummyContent.scrollHeight <= maxHeight && probeStart > 0) {
+    fitsStart = probeStart;
+    step *= 2;
+    probeStart = Math.max(0, probeStart - step);
+    dummyContent.textContent = text.substring(probeStart, endIndex);
+  }
+
+  let bestStart;
+  if (dummyContent.scrollHeight <= maxHeight) {
+    bestStart = probeStart; // 0 — 문서 시작까지 전부 한 페이지에 들어감
+  } else {
+    let low = probeStart;
+    let high = fitsStart - 1;
+    bestStart = fitsStart;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      dummyContent.textContent = text.substring(mid, endIndex);
+      if (dummyContent.scrollHeight <= maxHeight) {
+        bestStart = mid;
+        high = mid - 1;
+      } else {
+        low = mid + 1;
+      }
+    }
+  }
+  if (bestStart === endIndex) bestStart = endIndex - 1; // 최소 1글자 보장
+  return bestStart;
+}
+
+// starts(페이지 시작 인덱스 오름차순 배열)로부터 실제 페이지 텍스트를 잘라낸다.
+// 마지막 항목은 다음 페이지 시작이 아직 없을 수 있어서(=아직 그 뒤가 안 나뉨)
+// knownTextEnd(지금까지 확정된 끝 지점 — 완전히 끝났으면 text.length)까지만 자른다.
+function materializePages(text, starts, knownTextEnd) {
+  return starts.map((start, i) => text.slice(start, i + 1 < starts.length ? starts[i + 1] : knownTextEnd));
+}
+
+// 이어보기 원점(originIndex)에서 양방향으로 최대 PAGE_WINDOW_RADIUS*2+1페이지만 우선
+// 계산한다(동기 함수 — 창 크기만큼만 실측하므로 책이 아무리 커도 항상 빠르다).
+// 반환된 backwardCursor/forwardCursor는 continuePaginationInBackground가 이어받는 지점.
+function buildInitialWindowSplit(text, originIndex, maxHeight, dummyContent) {
+  const backwardStarts = [];
+  let backwardCursor = originIndex;
+  for (let i = 0; i < PAGE_WINDOW_RADIUS && backwardCursor > 0; i++) {
+    const start = findBackwardPageStart(text, backwardCursor, maxHeight, dummyContent);
+    backwardStarts.unshift(start);
+    backwardCursor = start;
+  }
+  const backwardDone = backwardCursor <= 0;
+
+  const forwardStarts = [originIndex];
+  let forwardCursor = originIndex;
+  for (let i = 0; i < PAGE_WINDOW_RADIUS && forwardCursor < text.length; i++) {
+    forwardCursor = findForwardPageEnd(text, forwardCursor, maxHeight, dummyContent);
+    if (forwardCursor < text.length) forwardStarts.push(forwardCursor);
+  }
+  const forwardDone = forwardCursor >= text.length;
+
+  return {
+    starts: [...backwardStarts, ...forwardStarts],
+    originLocalIndex: backwardStarts.length,
+    backwardCursor,
+    forwardCursor,
+    backwardDone,
+    forwardDone,
+    knownTextEnd: forwardCursor,
+  };
+}
+
+// 창 밖의 나머지를 화면을 막지 않고 계속 채운다 — 한 번의 루프에서 앞/뒤를 번갈아
+// 진행해서 어느 한쪽만 오래 기다리지 않게 한다. 새 페이지가 하나 생길 때마다 살아있는
+// pageStartIndices/allTextPages/totalPages에 바로 반영해서, 그 사이 사용자가 창
+// 가장자리까지 넘겨도(maybeShiftPageWindow) 곧바로 이어서 쓸 수 있다. 양쪽 다 끝나면
+// (문서 시작/끝에 닿으면) 캐시에 저장하고 "계산 중" 상태(슬라이더/검색 비활성화)를 푼다.
+async function continuePaginationInBackground(containerWidth, containerHeight, fontKey, cacheKey, myGeneration) {
+  if (pendingBackwardDone && pendingForwardDone) {
+    finalizePaginationComplete(containerWidth, containerHeight, fontKey, cacheKey);
+    return;
+  }
+
+  const { dummy, dummyContent, maxHeight } = createMeasurementDom(containerWidth, containerHeight);
+  let backwardCursor = pendingBackwardCursor;
+  let forwardCursor = pendingForwardCursor;
+  let stepsSinceYield = 0;
+
+  try {
+    while (!pendingBackwardDone || !pendingForwardDone) {
+      if (!pendingBackwardDone) {
+        const start = findBackwardPageStart(rawTextData, backwardCursor, maxHeight, dummyContent);
+        prependBackwardPage(start);
+        backwardCursor = start;
+        if (backwardCursor <= 0) pendingBackwardDone = true;
+      }
+      if (!pendingForwardDone) {
+        const pageStart = forwardCursor;
+        const end = findForwardPageEnd(rawTextData, pageStart, maxHeight, dummyContent);
+        appendForwardPage(pageStart, end);
+        forwardCursor = end;
+        if (forwardCursor >= rawTextData.length) pendingForwardDone = true;
+      }
+      pendingBackwardCursor = backwardCursor;
+      pendingForwardCursor = forwardCursor;
+
+      stepsSinceYield++;
+      if (stepsSinceYield >= 30) {
+        stepsSinceYield = 0;
+        setStatus(`책 전체 계산 중... (${pageStartIndices.length}p)`);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        // 기다리는 사이 더 최신 빌드가 시작됐으면(리사이즈, 설정 변경, 다른 책 열기 등)
+        // 이 결과는 어차피 버려질 게 뻔하다 — 계속 돌면 새 분할과 겹쳐서 DOM 실측을
+        // 두 배로 반복하게 되므로 여기서 바로 멈춘다(전역 상태는 이미 새 빌드가
+        // 갈아엎었을 것이므로 더 건드리지 않는다).
+        if (myGeneration !== buildGeneration) return;
+      }
+    }
+  } finally {
+    document.body.removeChild(dummy);
+  }
+
+  if (myGeneration !== buildGeneration) return;
+  finalizePaginationComplete(containerWidth, containerHeight, fontKey, cacheKey);
+}
+
+// continuePaginationInBackground가 새 페이지를 하나 찾을 때마다 호출 — 앞에 붙이는
+// 경우(prepend)는 배열의 기존 인덱스가 전부 하나씩 밀리므로, 지금 화면에 보여주고
+// 있는 페이지를 가리키는 인덱스들도 같이 밀어준다(PageFlip에 이미 마운트된 내용
+// 자체는 안 바뀌었으니 pageFlip을 다시 그릴 필요는 없다 — 몇 번째인지 가리키는
+// 숫자만 보정하면 된다).
+function prependBackwardPage(start) {
+  const oldFirstStart = pageStartIndices[0]; // 새로 찾은 페이지가 끝나는 지점
+  pageStartIndices.unshift(start);
+  allTextPages.unshift(rawTextData.slice(start, oldFirstStart));
+  totalPages = pageStartIndices.length;
+  windowStartIndex++;
+  windowEndIndex++;
+  currentDisplayedGlobalPage++;
+}
+
+// buildInitialWindowSplit이 마지막 페이지 내용을 이미 knownTextEnd(=이 페이지의 시작점)
+// 까지로 정확히 잘라놨기 때문에, 그 뒤에 실제로 다음 페이지가 생겨도 이전 페이지
+// 내용을 다시 자를 필요는 없다 — 새 페이지만 뒤에 추가하면 된다.
+function appendForwardPage(pageStart, pageEnd) {
+  pageStartIndices.push(pageStart);
+  allTextPages.push(rawTextData.slice(pageStart, pageEnd));
+  totalPages = pageStartIndices.length;
+}
+
+// 양방향 모두 완료됐을 때 한 번 호출 — "계산 중" 상태를 풀고, 완전한 결과를 캐시에
+// 남긴다(부분 결과는 의미가 없으므로 완료 시점에만 저장한다).
+function finalizePaginationComplete(containerWidth, containerHeight, fontKey, cacheKey) {
+  savePersistedPagination(currentFileName, containerWidth, containerHeight, rawTextData, pageStartIndices, fontKey);
+  paginationCache.set(cacheKey, { pages: allTextPages, pageStartIndices });
+  setStatus('책 전체 페이지 계산이 끝났어요');
+  updatePageIndicator(currentDisplayedGlobalPage); // 슬라이더/카운터를 "계산 중" 상태에서 정상으로 되돌린다
+  updateSearchAvailability();
 }
 
 // 5. 페이지 창(window) 요소 생성 헬퍼
@@ -546,14 +689,35 @@ function formatPageCounter(globalIndex, total) {
   return `${globalIndex + 1} / ${total} (${percent}%)`;
 }
 
+// 책 전체가 아직 다 안 나뉜 동안(isPaginationPending())은 총 페이지 수 자체를
+// 모르니 슬라이더를 비활성화하고 "계산 중..."만 보여준다 — 대략치도 표시하지
+// 않는다(사용자 피드백: 부정확한 숫자보다 아예 안 보여주는 쪽이 낫다).
 function updatePageIndicator(globalIndex) {
-  pageSlider.min = 0;
-  pageSlider.max = Math.max(0, totalPages - 1);
-  pageSlider.value = globalIndex;
-  updateSliderProgress(pageSlider);
-  pageCounter.textContent = formatPageCounter(globalIndex, totalPages);
   currentDisplayedGlobalPage = globalIndex;
+  if (isPaginationPending()) {
+    pageSlider.disabled = true;
+    pageSlider.min = 0;
+    pageSlider.max = 0;
+    pageSlider.value = 0;
+    updateSliderProgress(pageSlider);
+    pageCounter.textContent = '계산 중...';
+  } else {
+    pageSlider.disabled = false;
+    pageSlider.min = 0;
+    pageSlider.max = Math.max(0, totalPages - 1);
+    pageSlider.value = globalIndex;
+    updateSliderProgress(pageSlider);
+    pageCounter.textContent = formatPageCounter(globalIndex, totalPages);
+  }
   updateBookmarkToggleButton();
+}
+
+// 검색은 책 전체가 다 나뉘어야 정확하므로, 계산이 끝날 때까지 열기 버튼을 막는다.
+function updateSearchAvailability() {
+  const btn = document.getElementById('open-search-btn');
+  const pending = isPaginationPending();
+  btn.disabled = pending;
+  btn.title = pending ? '책 전체를 계산하는 중이에요' : '검색';
 }
 
 // 상단바 🔖 버튼을 "지금 페이지가 책갈피됐는지"에 맞춰 채움/테두리로 표시
@@ -577,7 +741,12 @@ function updateBookmarkToggleButton() {
 function jumpToPrevPage() {
   if (!pageFlip || isShiftingWindow) return;
   const globalIndex = windowStartIndex + pageFlip.getCurrentPageIndex();
-  if (globalIndex <= 0) return; // 이미 첫 페이지
+  if (globalIndex <= 0) {
+    // 지금까지 알려진 것 중 첫 페이지에 도달했다 — 진짜 책 시작이면 조용히 아무 일도
+    // 안 하고, 아직 배경 계산이 그 앞부분에 닿지 못한 것뿐이면 안내한다.
+    if (!pendingBackwardDone) setStatus('아직 이 부분을 준비하고 있어요. 잠시 후 다시 시도해주세요.');
+    return;
+  }
   const targetGlobal = globalIndex - 1;
 
   isShiftingWindow = true; // turnToPage가 내부적으로 쏘는 'flip' 이벤트를 무시시키기 위한 가드
@@ -596,6 +765,20 @@ function jumpToPrevPage() {
   }, 300);
 
   maybeShiftPageWindow(targetGlobal);
+}
+
+// pageFlip.flipNext()를 직접 부르는 모든 자리(스와이프/탭/휠/키보드)를 이걸로
+// 대체한다 — 지금까지 알려진 마지막 페이지에서 더 넘기려 할 때, 진짜 책 끝이면
+// 조용히 아무 일도 안 하고(flipNext가 알아서 무시함), 아직 배경 계산이 거기까지
+// 못 미친 것뿐이면 안내한다(jumpToPrevPage의 반대쪽과 대응).
+function goToNextPage() {
+  if (!pageFlip) return;
+  const globalIndex = windowStartIndex + pageFlip.getCurrentPageIndex();
+  if (globalIndex >= totalPages - 1 && !pendingForwardDone) {
+    setStatus('아직 이 부분을 준비하고 있어요. 잠시 후 다시 시도해주세요.');
+    return;
+  }
+  pageFlip.flipNext();
 }
 
 // 슬라이더로 임의의 페이지로 바로 이동 — maybeShiftPageWindow와 달리 "가장자리 근처"인지
@@ -1264,26 +1447,40 @@ async function buildFlipBook() {
 
   if (!paginationResult) {
     // 로그인 직후 마지막 책을 자동으로 여는 중이었고, 지금 이 순간(=정확한 현재 화면
-    // 크기 기준으로) 캐시가 없어서 페이지 나누기를 진짜로 새로 돌려야 한다는 게 막
-    // 확인됐다 — 로딩 화면을 계속 붙잡고 있는 대신 내 서재로 돌아간다. 나누기 자체는
-    // 아래에서 백그라운드로 계속 진행되고, 끝나면 캐시로 남아서 다음에 이 책을 열 때
-    // (사용자가 직접 눌러서 열든 다시 자동으로 열리든) 바로 빠르게 열린다.
+    // 크기 기준으로) 캐시가 없다는 게 막 확인됐다 — bailToLibraryIfPaginationNeeded는
+    // 예전에 "책 전체를 다 나눠야 첫 페이지가 보이던 시절" 오래 걸리는 로딩을 감추려고
+    // 만든 안전장치인데, 지금은 창 분량만 계산하면 되니 사실상 항상 순식간에 끝난다.
+    // 그래도 남겨둔다 — 아주 느린 기기/거대한 창 크기 등 예외적으로 느릴 수 있는
+    // 경우의 마지막 안전망으로는 여전히 유효하다.
     if (bailToLibraryIfPaginationNeeded) {
       bailToLibraryIfPaginationNeeded = false; // 한 번 쓰고 끈다
       showLibraryScreen();
     }
-    // DOM 실측으로 글자 텍스트 분할 (실제 렌더링될 크기와 반드시 동일해야 잘림이 없음)
-    // myBuildGeneration을 넘겨서, 쪼개는 도중 더 최신 재빌드가 시작되면 끝까지
-    // 다 돌지 않고 중간에 스스로 멈추게 한다 (아래 splitTextIntoPagesDOM 참고).
-    paginationResult = await splitTextIntoPagesDOM(rawTextData, bookWidth, bookHeight, myBuildGeneration);
+    // 이어보기 글자 위치(원점) 기준으로 창 분량만 우선 정확히 나눈다 — 책 전체
+    // 크기와 무관하게 항상 빠르다. 나머지(원점보다 앞/뒤로 더 먼 페이지들)는 이
+    // 함수 끝에서 continuePaginationInBackground()가 화면을 막지 않고 이어서
+    // 채운다 — 그래서 여기서는 아직 캐시에 저장하지 않는다(양쪽 다 끝나야 완전한
+    // 결과이므로, 부분 결과를 캐시에 남기면 다음에 열 때 그 부분만 있는 것처럼
+    // 잘못 읽힐 수 있다).
+    const { dummy, dummyContent, maxHeight } = createMeasurementDom(bookWidth, bookHeight);
+    const windowResult = buildInitialWindowSplit(rawTextData, currentLastCharIndex, maxHeight, dummyContent);
+    document.body.removeChild(dummy);
+    if (myBuildGeneration !== buildGeneration) return;
 
-    // 분할 도중 취소됐거나(null), 다 끝났어도 그 사이 더 최신 재빌드가 시작됐다면
-    // 이 낡은 결과는 버린다 (캐시에도 안 남긴다).
-    if (!paginationResult || myBuildGeneration !== buildGeneration) return;
-
-    savePersistedPagination(currentFileName, bookWidth, bookHeight, rawTextData, paginationResult.pageStartIndices, fontKey);
+    paginationResult = {
+      pages: materializePages(rawTextData, windowResult.starts, windowResult.knownTextEnd),
+      pageStartIndices: windowResult.starts,
+    };
+    pendingBackwardDone = windowResult.backwardDone;
+    pendingForwardDone = windowResult.forwardDone;
+    pendingBackwardCursor = windowResult.backwardCursor;
+    pendingForwardCursor = windowResult.forwardCursor;
+  } else {
+    // 캐시 히트 — 이미 완전한 결과라 "계산 중" 상태가 아예 없다.
+    pendingBackwardDone = true;
+    pendingForwardDone = true;
+    paginationCache.set(cacheKey, paginationResult);
   }
-  paginationCache.set(cacheKey, paginationResult);
 
   // 이번에 실제로 빌드에 쓴 무대 크기를 기억해둔다 — scheduleFlipbookRebuild가
   // 다음 리사이즈 이벤트에서 "의미있는 변화인지" 판단할 기준이 된다.
@@ -1353,6 +1550,7 @@ async function buildFlipBook() {
   pageFlip.loadFromHTML(document.querySelectorAll('#my-book .page'));
   pageFlip.turnToPage(targetGlobalPage - windowStartIndex);
   updatePageIndicator(targetGlobalPage);
+  updateSearchAvailability();
 
   // 두 페이지 스프레드일 때만 가운데 책등 그림자를 보여준다.
   // ⚠️ loadFromHTML 이후에 붙인다 — PageFlip이 초기화하면서 bookElement 안에
@@ -1379,6 +1577,11 @@ async function buildFlipBook() {
     maybeShiftPageWindow(globalIndex);
     resetWakeLockIdleTimer();
   });
+
+  // 창 밖의 나머지는 화면을 막지 않고 백그라운드로 이어서 채운다 (await 안 함).
+  if (isPaginationPending()) {
+    continuePaginationInBackground(bookWidth, bookHeight, fontKey, cacheKey, myBuildGeneration);
+  }
 }
 
 // 7. 화면/무대 크기 변경 시 자동 정밀 재구축
@@ -1604,7 +1807,7 @@ window.addEventListener('pointerup', (e) => {
   //    영역(좌/중/우) 상관없이 스와이프 방향만으로 페이지를 넘긴다 (모바일 습관적 제스처)
   if (absDx >= SWIPE_MIN_DISTANCE && absDx > absDy * 1.5 && dt <= SWIPE_MAX_DURATION) {
     if (dx < 0) {
-      pageFlip.flipNext(); // 왼쪽으로 스와이프 → 다음 페이지
+      goToNextPage(); // 왼쪽으로 스와이프 → 다음 페이지
     } else {
       jumpToPrevPage(); // 오른쪽으로 스와이프 → 이전 페이지 (애니메이션 없이 즉시 전환)
     }
@@ -1618,7 +1821,7 @@ window.addEventListener('pointerup', (e) => {
   if (e.clientX < third) {
     jumpToPrevPage();
   } else if (e.clientX > third * 2) {
-    pageFlip.flipNext();
+    goToNextPage();
   } else {
     toggleChrome();
   }
@@ -1639,7 +1842,7 @@ stageContainer.addEventListener('wheel', (e) => {
 
   e.preventDefault();
   if (e.deltaY > 0) {
-    pageFlip.flipNext(); // 아래로 스크롤 → 다음 페이지
+    goToNextPage(); // 아래로 스크롤 → 다음 페이지
   } else {
     jumpToPrevPage(); // 위로 스크롤 → 이전 페이지 (애니메이션 없이 즉시 전환)
   }
@@ -1821,12 +2024,12 @@ window.addEventListener('pagehide', () => {
 // 방향키 제어 (서재 화면에서는 무시 — 뷰어가 보일 때만 동작)
 window.addEventListener('keydown', (e) => {
   if (!pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
-  if (e.key === "ArrowRight") pageFlip.flipNext();
+  if (e.key === "ArrowRight") goToNextPage();
   if (e.key === " " || e.code === "Space") {
     e.preventDefault(); // 스페이스바 클릭 시 기본 스크롤 동작 방지
-    pageFlip.flipNext();
+    goToNextPage();
   }
-  if (e.code === "NumpadEnter" || e.key === "Enter") pageFlip.flipNext();
+  if (e.code === "NumpadEnter" || e.key === "Enter") goToNextPage();
   if (e.key === "ArrowLeft") jumpToPrevPage();
 });
 

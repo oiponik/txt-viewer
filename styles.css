@@ -806,6 +806,9 @@
     .bottom-action-btn:hover { background-color: rgba(58,42,24,0.08); }
     .bottom-action-btn svg { width: 24px; height: 24px; }
     .bottom-action-btn span { font-size: 12px; opacity: 0.85; }
+    /* 책 전체 페이지 계산이 끝나기 전엔 검색이 부정확하므로 그동안 비활성화한다 */
+    .bottom-action-btn:disabled { opacity: 0.35; cursor: default; }
+    .bottom-action-btn:disabled:hover { background-color: transparent; }
 
     /* 참고 이미지의 얇은 트랙 + 흰 원형 손잡이 느낌을 내기 위한 커스텀 슬라이더.
        (OS 기본 슬라이더는 브라우저마다 생김새가 달라 참고 디자인과 맞추기 어렵다) */
@@ -814,6 +817,10 @@
       -webkit-appearance: none; appearance: none;
       background: transparent;
     }
+    /* 책 전체 페이지 계산이 끝나기 전엔 총 페이지 수를 몰라 조작할 수 없다 */
+    #page-slider:disabled { opacity: 0.4; cursor: default; }
+    #page-slider:disabled::-webkit-slider-thumb { cursor: default; }
+    #page-slider:disabled::-moz-range-thumb { cursor: default; }
     /* 지나온 구간(진하게)과 남은 구간(연하게)을 구분하기 위해 JS에서 --slider-progress를
        현재 값 비율(%)로 채워 넣는다 (updateSliderProgress 참고) */
     #page-slider::-webkit-slider-runnable-track {
