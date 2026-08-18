@@ -83,6 +83,15 @@
 
     * { box-sizing: border-box; }
 
+    /* 🟢 TEMP DEBUG — 이 CSS가 실제로 기기까지 도달하는지 순수하게 확인하기 위한
+       마커. #book-stage/PageFlip 로직과 완전히 무관하게 항상 보여야 정상. 원인
+       확인되면 바로 제거할 것. */
+    body::after {
+      content: '';
+      position: fixed; left: 0; right: 0; bottom: 0; height: 14px;
+      background: lime; z-index: 999999; pointer-events: none;
+    }
+
     html, body { height: 100%; }
 
     body {
@@ -614,9 +623,12 @@
          같은 손짓을 당겨서-새로고침/스크롤로 가로채지 않도록 막는다 */
       touch-action: none;
       /* 🔴 TEMP DEBUG — 하단 여백 원인 진단용. #book-stage의 실제 경계를 눈으로 확인하려고
-         잠깐 넣어둔 것. 원인 확인되면 바로 제거할 것. */
+         잠깐 넣어둔 것. outline이 혹시 페인트 순서 문제로 안 보일 경우를 대비해
+         box-shadow(inset)로도 같이 표시 — 이건 절대 자식 요소에 가려질 수 없다.
+         원인 확인되면 바로 제거할 것. */
       outline: 4px solid red;
       outline-offset: -4px;
+      box-shadow: inset 0 0 0 4px red;
     }
 
     /* 밝기 오버레이 — 브라우저는 실제 기기 화면 밝기를 제어할 수 없어서, 읽기
