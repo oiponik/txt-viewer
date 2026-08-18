@@ -96,15 +96,6 @@ let draftReaderPrefs = null;
 const WIDTH_JITTER_THRESHOLD = 40;
 const HEIGHT_JITTER_THRESHOLD = 80;
 
-// ⚠️ .page의 CSS 여백(padding)이 바뀌면 실제 텍스트가 들어갈 수 있는 높이(maxHeight)도
-// 같이 바뀌는데, 캐시 키(bookWidth/bookHeight/fontKey)는 그 여백을 모른다 — 즉 같은
-// 캐시 키라도 여백이 바뀌기 전/후로 실제 페이지 분량이 달라질 수 있다. 이걸 그냥
-// 두면 옛날에 계산해둔 캐시가 "여백 바뀌기 전" 기준 분할을 계속 돌려주면서, 지금
-// CSS로는 마지막 줄이 페이지 밖으로 밀려 안 보이는(overflow:hidden에 잘리는) 문제로
-// 이어진다. .page의 padding-top/bottom(좌우는 --reading-padding-x라 별도 관리)을
-// 바꿀 때마다 이 값을 올려서 캐시를 강제로 무효화한다.
-const PAGE_LAYOUT_VERSION = 'v3';
-
 // 💡 페이지 가상화(windowing): 전체 페이지를 다 DOM에 그리지 않고,
 // 현재 읽는 위치 근처만 실제로 그려서 PageFlip에 올린다.
 const PAGE_WINDOW_RADIUS = 15;   // 현재 페이지 기준 앞/뒤로 미리 그려둘 페이지 수
@@ -1444,29 +1435,12 @@ async function buildFlipBook() {
   let bookWidth = bucketDown(isSinglePage ? stageWidth : stageWidth / 2, WIDTH_BUCKET);
   let bookHeight = bucketDown(stageHeight, HEIGHT_BUCKET);
 
-  // 💡 PageFlip이 실제로 렌더링할 크기는 위 버킷값이 아니라 무대의 정확한 실측 크기
-  // 그대로 쓴다. bookWidth/bookHeight(버킷값)는 항상 실측 이하로 "내림"한 값이라서
-  // renderWidth/renderHeight는 항상 그 이상 — 텍스트 분량은 이미 버킷값 기준
-  // maxHeight로 다 채워지도록 측정해뒀으니 잘릴 걱정은 없고, 책이 #book-stage를
-  // 여백 없이 정확히 채운다. (버킷값 자체는 캐시 키/텍스트 측정에는 그대로 쓴다 —
-  // 안 그러면 뷰포트가 몇 px만 달라져도 캐시가 계속 미스난다.)
-  // ⚠️ 실제로 있었던 문제: iOS PWA에서 상태바/홈 인디케이터 뒤까지 화면을 꽉 채우게
-  // 바꾼 뒤(viewport-fit=cover), #book-stage가 버킷 크기(최대 39px)보다 항상 살짝
-  // 커져서 그 여백이 항상 상/하로 반씩 나뉘어 보였다 — 평소엔 .page 배경색이
-  // #book-stage와 같아서 안 보였지만, 페이지 넘기기 애니메이션의 그림자 효과 때문에
-  // 그 여백 경계가 뚜렷하게 드러났다.
-  const renderWidth = isSinglePage ? stageWidth : stageWidth / 2;
-  const renderHeight = stageHeight;
-
   // 💡 같은 파일을 같은 창 크기로 다시 열면(책 재방문, 창 크기 원복 등) 페이지 분할을
   // 다시 계산하지 않고 캐시에서 즉시 가져온다. 순서: 메모리 캐시 → localStorage(다른
   // 세션에서 이미 계산해둔 값) → 그래도 없으면 DOM 실측.
   // fontKey: 글꼴/글자크기/문단너비 모두 줄바꿈 위치(=페이지 경계)에 영향을 주므로
   // 캐시 키에 포함한다 — 이름은 예전 그대로 두지만 셋 다 여기 들어간다.
-  // PAGE_LAYOUT_VERSION을 fontKey에 같이 접어 넣는다 — fontKey는 메모리 캐시 키
-  // (cacheKey)뿐 아니라 localStorage 캐시 키(persistedPaginationKey)에도 그대로
-  // 전달되므로, 여기서 한 번만 합쳐두면 두 캐시 다 자동으로 무효화된다.
-  const fontKey = readerPrefs.fontId + ':' + readerPrefs.fontSizeStep + ':' + readerPrefs.paragraphWidthStep + ':' + PAGE_LAYOUT_VERSION;
+  const fontKey = readerPrefs.fontId + ':' + readerPrefs.fontSizeStep + ':' + readerPrefs.paragraphWidthStep;
   const cacheKey = currentFileName + '::' + bookWidth + '::' + bookHeight + '::' + fontKey;
   let paginationResult = paginationCache.get(cacheKey)
     || loadPersistedPagination(currentFileName, bookWidth, bookHeight, rawTextData, fontKey);
@@ -1538,7 +1512,7 @@ async function buildFlipBook() {
     .forEach(el => bookElement.appendChild(el));
 
   // PageFlip 인스턴스 생성
-  // ⚠️ minWidth/minHeight가 실제 렌더링 크기(renderWidth/renderHeight)보다 크면
+  // ⚠️ minWidth/minHeight가 실제 계산된 bookWidth/bookHeight보다 크면
   // PageFlip이 그보다 크게 강제 렌더링하면서 #book-stage(overflow:hidden)에
   // 텍스트가 잘리는 문제가 생긴다. 그래서 min 값은 항상 실제 크기 이하로 클램프한다.
   //
@@ -1560,13 +1534,13 @@ async function buildFlipBook() {
   // 되는데 이전 페이지만 안 되는 것처럼 보였다.) useMouseEvents:false로 이미 클릭/터치
   // 리스너 자체를 꺼뒀으니 disableFlipByClick은 우리에게 아무 이점 없이 이 버그만 유발한다.
   pageFlip = new St.PageFlip(bookElement, {
-    width: renderWidth,
-    height: renderHeight,
+    width: bookWidth,
+    height: bookHeight,
     size: "fixed",
-    minWidth: Math.min(200, renderWidth),
-    maxWidth: Math.max(2000, renderWidth),
-    minHeight: Math.min(250, renderHeight),
-    maxHeight: Math.max(2500, renderHeight),
+    minWidth: Math.min(200, bookWidth),
+    maxWidth: Math.max(2000, bookWidth),
+    minHeight: Math.min(250, bookHeight),
+    maxHeight: Math.max(2500, bookHeight),
     maxShadowOpacity: 0.5,
     showCover: false,
     mobileScrollSupport: false,

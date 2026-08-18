@@ -97,16 +97,16 @@ The largest module; page rendering is its most complex piece:
   - ⚠️ 검증 중 발견: 이 저장소(`OneDrive\바탕 화면\txt-viewer`)를 `.claude/launch.json`의 static-server로 띄운 로컬 프리뷰에서, `http://localhost:8000`과 `http://127.0.0.1:8000` 둘 다 특정 정적 파일 URL(예: `js/reader.js`, `dev-test-book.txt`)을 **서버·서비스워커 재시작과도 무관하게** 계속 예전 내용으로 캐싱하는 프록시 계층이 있는 것으로 보임(서버 자체는 `curl`로 확인하면 항상 최신). `http://[::1]:8000`처럼 아직 안 써본 호스트명으로 새 탭을 열면 그 세션 한정으로는 새 캐시라 최신 내용이 나오지만, `session.js`의 `isLocalDevHost`가 `localhost`/`127.0.0.1`만 인식해서 `dev` 로그인 우회가 안 먹힘 — 이 프리뷰 환경에서 코드를 고친 직후 즉시 재검증해야 할 때는 이 캐싱을 염두에 둘 것(다음에 참고할 사람을 위해 남겨둠).
   - 알고리즘 정확성은 실제 앱 대신 페이지 안에서 직접 재구현해 원본(정방향 전용) 결과와 대조하는 방식으로 검증 — 두 방식 모두 완전하고(gap 없음) 단조증가하지만, 원점 근처 경계가 최대 26자 정도 다를 수 있음을 확인(워드랩 민감성 때문, 버그 아님 — CLAUDE.md의 "Reading pipeline" 절 참고).
   - `sw.js`의 `CACHE_VERSION`을 계속 올려가며 진행(최신 `v19`).
-- 🔄 **진행중 (미해결, 2026-08-18 기준)**: iOS 홈화면 PWA 풀스크린 — 실기기(iOS 18) 왕복으로 여러 라운드 시도했으나 상/하 여백 문제가 아직 안 잡혔다. 최신 `CACHE_VERSION`은 `v30`. **다음은 맥 + Safari 원격 디버깅(Web Inspector)으로 이어서 진행하기로 함** — 아래 "다음 세션에서 할 일" 참고.
-  - **확실히 해결된 부분**: `viewport-fit=cover`가 뷰포트 메타에 없었던 것(상태바 자리가 완전히 빈 여백으로 분리돼 보이던 최초 증상)은 추가로 고쳐짐.
-  - **아직도 안 잡힌 부분**: `apple-mobile-web-app-status-bar-style: black-translucent`를 쓰면 콘텐츠 전체가 상태바 높이만큼 위로 밀리는 문제(상단은 상태바와 겹치고 하단엔 그만큼 빈 공간).
-    - 1차 시도: 메타태그를 통째로 뺌 → 상단 밀림은 없어졌지만 상태바가 다시 예전처럼 분리된 불투명 바로 돌아가 버림(원래 불만으로 회귀) + 하단 여백은 그대로. **틀린 처방으로 확인, 되돌림.**
-    - 2차 시도: 메타태그를 되살리고, 웹 검색으로 찾은 문서화된 WebKit 대응법대로 `body { min-height: calc(100% + env(safe-area-inset-top)); }` 추가 → 실기기에서 여전히 증상 동일("여전히 똑같아"), 오히려 하단 공백이 더 커진 것처럼 보임. **이것도 기대한 효과가 없었음.**
-    - 두 시도 모두 데스크톱 프리뷰에서는 `env(safe-area-inset-*)`가 0이라 재현 자체가 안 되고, 실기기(사용자의 특정 iPhone·iOS 18)에서만 확인 가능 — 스크린샷 왕복(매번 Safari "방문 기록·웹사이트 데이터 지우기" → 앱 삭제 → 재설치까지 해야 새 배포가 반영됨)으로 여러 라운드를 썼지만 결론이 안 남. 데스크톱에서 만든 진단 HUD(픽셀 숫자를 화면에 직접 찍는 것)도 시도했으나 배포·캐시 갱신 자체가 느려서 한계가 있었음.
-  - **몰입모드 텍스트-상태바 겹침 관련해서 이미 반영한 것**(이 부분은 별도 이슈라 계속 유효): `.page`의 상/하 padding을 `max(기존 clamp(), env(safe-area-inset-top/bottom))`으로 변경(`styles.css`). 이 값이 페이지 나누기 실측(maxHeight)에도 영향을 주므로 `reader.js`에 `PAGE_LAYOUT_VERSION` 상수를 새로 만들어 `fontKey`에 접어 넣음 — 캐시된 옛 분할 결과가 새 여백을 반영 안 한 채 재사용되며 마지막 줄이 잘리는 걸 막기 위함. **여백 관련 CSS를 또 건드리면 이 값도 같이 올릴 것.**
-  - `index.html`에 `#debug-version-badge`(화면 상단에 `bookify-shell-vNN` 표시, sw.js `CACHE_VERSION`과 수동으로 맞춰야 함)를 배포/캐시 확인용으로 남겨뒀다 — 아직 지우지 말 것.
+- ⏸️ **보류 (소스 원상복구됨, 2026-08-18)**: iOS 홈화면 PWA 풀스크린 — 실기기(iOS 18) 왕복으로 여러 라운드 시도했으나 상/하 여백 문제를 못 잡았고, 사용자 요청으로 **`index.html`/`styles.css`/`js/reader.js`/`sw.js`를 이 작업 시작 전 커밋(`1668ad8`)으로 완전히 되돌렸다** — `viewport-fit=cover`, 상태바 메타태그, `.page`의 safe-area padding, `PAGE_LAYOUT_VERSION`, `#debug-version-badge` 전부 소스에서 사라진 상태다(git 히스토리에는 시도 과정이 그대로 남아있음, 아래는 그 기록). **맥 + Safari 원격 디버깅으로 다시 시작할 때는 이 항목부터 참고할 것.**
+  - **시도했던 것과 결과** (전부 실기기(iOS 18)에서만 재현됨 — 데스크톱 프리뷰는 `env(safe-area-inset-*)`가 항상 0이라 재현 자체가 불가능):
+    1. `viewport-fit=cover` 추가 — 상태바 자리가 완전히 분리된 빈 여백으로 보이던 최초 증상은 고쳐지는 것처럼 보였음.
+    2. `apple-mobile-web-app-status-bar-style: black-translucent` 추가 — 상태바가 반투명 오버레이가 됐지만, **콘텐츠 전체가 상태바 높이만큼 위로 밀리는 부작용**이 생김(상단은 상태바와 겹치고 하단엔 그만큼 빈 공간).
+    3. 그 메타태그를 통째로 뺌 → 밀림은 없어졌지만 상태바가 다시 분리된 불투명 바로 돌아감(최초 불만으로 회귀) + 하단 여백은 그대로. **틀린 처방.**
+    4. 메타태그를 되살리고 웹 검색으로 찾은 문서화된 WebKit 대응법대로 `body { min-height: calc(100% + env(safe-area-inset-top)); }` 추가 → 실기기에서 증상 동일, 오히려 하단 공백이 더 커짐. **이것도 효과 없었음.**
+    5. `.page`의 상/하 padding에 `max(기존 clamp(), env(safe-area-inset-top/bottom))` 추가(몰입모드에서 텍스트가 상태바/홈 인디케이터와 겹치는 별도 증상 대응) — 부분적으로는 유효한 방향이었지만, 근본 문제(밀림)가 안 풀린 상태에서는 큰 의미가 없어서 이번 원상복구에 같이 되돌아감.
+    - 스크린샷 왕복(매번 Safari "방문 기록·웹사이트 데이터 지우기" → 앱 삭제 → 재설치까지 해야 새 배포가 반영됨)으로 10라운드 이상 썼지만 결론이 안 남 — 이 방식 자체가 느려서 한계였음.
   - ⚠️ **iOS Safari 홈화면 PWA는 서비스워커 캐시가 지독하게 끈질기다** — 앱을 완전 종료 후 재실행은 물론, **홈 화면 아이콘을 삭제하고 재설치해도 예전 캐시가 안 지워지는 경우**를 실기기에서 직접 확인함. 확실히 지우려면 설정 → Safari → "방문 기록 및 웹 사이트 데이터 지우기"(전체 삭제, 다른 사이트 로그인도 다 풀림)까지 가야 한다.
-  - **다음 세션에서 할 일 (맥에서 이어서)**: 사용자가 윈도우 PC 대신 맥으로 전환해서, 아이폰을 맥에 케이블로 연결하고 Safari의 원격 Web Inspector(설정 → Safari → 고급 → "웹 속성 관리자" 켜기 → 맥 Safari 개발자용 메뉴 → 기기 선택 → 홈 화면 앱 탭 선택)로 **배포/캐시 사이클 없이 실시간으로** 디버깅할 예정. 연결되면 아래 스크립트를 Web Inspector Console에 붙여넣고 실행한 결과를 확인할 것 — `window.innerHeight`/`visualViewport`/`document.documentElement`/`body`의 실제 렌더링 크기와 `env(safe-area-inset-top/bottom)` 실측값, `#book-stage` 위치를 한 번에 보여준다:
+  - **다시 시작할 때 (맥에서)**: 사용자가 윈도우 PC 대신 맥으로 전환해서, 아이폰을 맥에 케이블로 연결하고 Safari의 원격 Web Inspector(설정 → Safari → 고급 → "웹 속성 관리자" 켜기 → 맥 Safari 개발자용 메뉴 → 기기 선택 → 홈 화면 앱 탭 선택)로 **배포/캐시 사이클 없이 실시간으로** 디버깅하기로 함 — 스크린샷 왕복 대신 Elements 패널에서 직접 CSS를 고쳐가며 맞는 값을 찾은 뒤에만 코드에 반영할 것. 연결되면 아래 스크립트를 Web Inspector Console에 붙여넣고 실행한 결과를 확인할 것 — `window.innerHeight`/`visualViewport`/`document.documentElement`/`body`의 실제 렌더링 크기와 `env(safe-area-inset-top/bottom)` 실측값, `#book-stage` 위치를 한 번에 보여준다:
     ```js
     (function () {
       function readEnv(name) {

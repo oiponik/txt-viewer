@@ -91,24 +91,6 @@
       background-color: var(--bg-color);
       color: var(--text-color);
       height: 100vh; height: 100dvh; overflow: hidden;
-      /* iOS PWA + black-translucent 상태바를 같이 쓰면 콘텐츠 전체가 상태바 높이만큼
-         위로 밀리는 게 WebKit의 알려진 동작이라(index.html의 관련 주석 참고), 그만큼
-         body를 더 키워서 보정한다 — 안 그러면 실제 화면 맨 아래에 그 높이만큼 빈
-         여백이 남는다. env(safe-area-inset-top)이 0인 기기/브라우저에서는
-         calc(100% + 0px) = 100%라 평소와 똑같이 동작한다. */
-      min-height: calc(100% + env(safe-area-inset-top));
-    }
-
-    /* 🏷️ TEMP DEBUG — 배포/캐시 버전 확인용 배지. index.html의 #debug-version-badge
-       참고. 확인되면 이 규칙도 지울 것. */
-    #debug-version-badge {
-      position: fixed; left: 50%; top: max(6px, env(safe-area-inset-top));
-      transform: translateX(-50%);
-      z-index: 999999; pointer-events: none;
-      background: #000; color: #0f0;
-      font-family: monospace; font-size: 11px; font-weight: 700;
-      padding: 3px 8px; border-radius: 0 0 8px 8px;
-      opacity: 0.85; letter-spacing: 0.3px;
     }
 
     .screen-hidden { display: none !important; }
@@ -276,16 +258,7 @@
     #sidebar {
       position: fixed; top: 0; left: 0; right: 0;
       width: 100%;
-      /* 상단바 자체는 크림색(--sidebar-bg)인데, iOS 풀스크린(black-translucent
-         상태바)에서는 이 바가 노치/상태바 뒤까지 확장된다. 그 구간(safe-area-inset-top)
-         에 크림색이 그대로 깔리면 상태바의 흰 시계/배터리 글자가 안 보여서, 그 높이만큼만
-         짙은 브라운(#3A2A18, --accent-color와 동일 톤)으로 띠를 두고 나머지는 기존
-         크림색을 유지하는 그라데이션으로 나눈다. safe-area-inset-top이 0인 기기(iOS가
-         아니거나 노치 없는 기기)에서는 이 띠가 사실상 0px라 평소와 똑같이 보인다. */
-      background: linear-gradient(to bottom,
-        #3A2A18 0, #3A2A18 env(safe-area-inset-top),
-        var(--sidebar-bg) env(safe-area-inset-top), var(--sidebar-bg) 100%);
-      padding-top: env(safe-area-inset-top);
+      background-color: var(--sidebar-bg);
       border-bottom: 1px solid var(--border-color);
       display: flex; z-index: 50;
       transform: translateY(0);
@@ -717,15 +690,8 @@
       color: var(--reading-text);
       font-family: var(--reading-font-family);
       /* 좌우 여백("문단 너비" 설정)만 --reading-padding-x로 따로 빼뒀다 —
-         위/아래 여백은 이 설정과 무관하게 화면 크기에 반응형으로 고정.
-         ⚠️ 위/아래 여백 둘 다 각각 env(safe-area-inset-top/bottom)과 clamp() 중 큰
-         값을 쓴다 — 몰입 모드에서 #sidebar/#bottom-bar가 사라지면 상태바/홈
-         인디케이터를 가려주던 것도 같이 없어져서, 노치·홈 인디케이터가 있는
-         기기에서 텍스트가 그 위까지 바짝 붙어 보이는 문제가 있었다. 이 값은
-         페이지 나누기 실측(maxHeight)에도 그대로 반영되므로, 값이 바뀌면 reader.js의
-         PAGE_LAYOUT_VERSION도 같이 올려서 옛 기기의 캐시된 분할 결과가 새 여백을
-         반영 안 한 채로 재사용되지 않게 해야 한다. */
-      padding: max(clamp(14px, 2.5vw, 24px), env(safe-area-inset-top)) var(--reading-padding-x) max(clamp(10px, 1.5vw, 15px), env(safe-area-inset-bottom));
+         위/아래 여백은 이 설정과 무관하게 화면 크기에 반응형으로 고정. */
+      padding: clamp(14px, 2.5vw, 24px) var(--reading-padding-x) clamp(10px, 1.5vw, 15px);
       /* 뷰어 설정의 "글자 크기"는 이 반응형 기준 크기에 배율(--reading-font-scale)을
          곱하는 방식이라, 화면 크기별 반응형 스케일링은 그대로 유지된다 */
       font-size: calc(var(--reading-font-scale) * clamp(13px, 1.1vw + 0.6rem, 16px));
@@ -777,7 +743,7 @@
     /* 상태 메시지 — 사이드바/헤더 UI와 분리해서 화면 하단 중앙에 토스트로 잠깐 띄운다.
        (몰입 모드로 UI가 다 숨어 있어도 이건 그대로 잠깐 보였다가 사라진다) */
     #sync-status {
-      position: fixed; left: 50%; bottom: max(20px, calc(env(safe-area-inset-bottom) + 8px));
+      position: fixed; left: 50%; bottom: 20px;
       transform: translate(-50%, 10px);
       z-index: 200;
       /* 흰 배경이 너무 튀어서, 은은하게 녹아드는 반투명 어두운 브라운 톤으로 */
