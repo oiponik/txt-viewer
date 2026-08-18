@@ -5,17 +5,35 @@
 
 const libraryScreen = document.getElementById('library-screen');
 const viewerScreen = document.getElementById('viewer-screen');
-const statusText = document.getElementById('sync-status');
+const statusEl = document.getElementById('sync-status');
+const statusTextEl = document.getElementById('sync-status-text');
+const statusPercentEl = document.getElementById('sync-status-percent');
+const statusProgressFillEl = document.getElementById('sync-status-progress-fill');
 
 // 화면 하단 중앙 상태 토스트: 텍스트를 바꾸면 잠깐 나타났다가 2.2초 뒤 조용히 사라진다.
 // (UI 패널과는 완전히 분리되어 있어서 몰입 모드로 UI가 숨어 있어도 이건 보인다)
+//
+// progress: 0~1 사이 진행률(다운로드/페이지 나누기처럼 실제로 알 수 있을 때만) —
+// 생략하거나 null/undefined면 지금까지처럼 평범한 텍스트 알약. 진행 중인 작업이
+// 짧은 간격으로 계속 setStatus(..., 진행률)을 호출하는 동안은 매 호출이 숨김
+// 타이머를 다시 미루므로 계속 떠 있고, 마지막으로 진행률 없이(또는 "완료" 텍스트로)
+// 한 번 더 부르면 그때부터 2.2초 뒤 사라진다 — 별도의 "진행 중" 상태 플래그가 필요 없다.
 let statusHideTimer = null;
-export function setStatus(text) {
-  statusText.textContent = text;
-  statusText.classList.add('visible');
+export function setStatus(text, progress) {
+  statusTextEl.textContent = text;
+
+  const hasProgress = typeof progress === 'number' && !Number.isNaN(progress);
+  statusEl.classList.toggle('has-progress', hasProgress);
+  if (hasProgress) {
+    const pct = Math.round(Math.max(0, Math.min(1, progress)) * 100);
+    statusProgressFillEl.style.width = pct + '%';
+    statusPercentEl.textContent = pct + '%';
+  }
+
+  statusEl.classList.add('visible');
   clearTimeout(statusHideTimer);
   statusHideTimer = setTimeout(() => {
-    statusText.classList.remove('visible');
+    statusEl.classList.remove('visible');
   }, 2200);
 }
 

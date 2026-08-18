@@ -34,8 +34,18 @@
 </head>
 <body>
 
-  <!-- 상태 메시지: UI 패널과 분리된 화면 하단 중앙 토스트 -->
-  <div id="sync-status"></div>
+  <!-- 상태 메시지: UI 패널과 분리된 화면 하단 중앙 토스트.
+       진행률(다운로드/페이지 나누기)이 있을 때만 setStatus()가 #sync-status에
+       has-progress 클래스를 붙이고 트랙/채움/퍼센트를 채운다 — 그 외의(대부분인)
+       평범한 텍스트 토스트는 지금처럼 #sync-status-text만 쓰고 이 아래 두 요소는
+       숨겨진 채로 남는다. -->
+  <div id="sync-status">
+    <span id="sync-status-text"></span>
+    <div id="sync-status-progress-row">
+      <div id="sync-status-progress-track"><div id="sync-status-progress-fill"></div></div>
+      <span id="sync-status-percent"></span>
+    </div>
+  </div>
 
   <!-- "기기 저장공간 현황" 비율 막대의 호버/포커스 툴팁 — sheet-content 안에 두면
        그 요소의 slide-up 애니메이션이 남기는 transform:translateY(0)이 position:fixed

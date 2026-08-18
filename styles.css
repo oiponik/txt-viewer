@@ -765,6 +765,37 @@
       transform: translate(-50%, 0);
     }
 
+    /* 진행률 있는 토스트(다운로드/페이지 나누기) — 평범한 텍스트 알약보다 좀 더
+       넓혀서 트랙/퍼센트가 한 줄에 들어가게 한다. 기본(진행률 없음) 상태와 같은
+       #sync-status 안에서 클래스만 바뀌므로 위치/등장 애니메이션은 그대로 재사용된다. */
+    #sync-status-progress-row { display: none; }
+    #sync-status.has-progress {
+      white-space: normal; text-align: left;
+      width: min(78vw, 280px); max-width: min(78vw, 280px);
+      padding: 8px 14px;
+    }
+    #sync-status.has-progress #sync-status-text {
+      display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    #sync-status.has-progress #sync-status-progress-row {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 5px;
+    }
+    #sync-status-progress-track {
+      flex: 1; height: 4px; border-radius: 999px;
+      background-color: rgba(242, 238, 228, 0.25);
+      overflow: hidden;
+    }
+    #sync-status-progress-fill {
+      height: 100%; width: 0%; border-radius: 999px;
+      background-color: #F2EEE4;
+      transition: width 0.2s ease;
+    }
+    #sync-status-percent {
+      flex-shrink: 0; font-size: 11px; font-variant-numeric: tabular-nums;
+      opacity: 0.85; min-width: 2.4em; text-align: right;
+    }
+
     /* 하단 바 — 상단바(#sidebar)와 같은 결로, 화면 전체 폭을 차지하는 바 형태로 통일한다
        (떠 있는 카드 대신 위쪽 경계선으로 구분). 상단바와 같은 몰입 모드 규칙을 따른다
        (읽는 동안 숨었다가, 활동하면 보임) */

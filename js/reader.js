@@ -9,7 +9,7 @@
 // 안에서만 일어나(모듈 최상단에서 즉시 실행되는 게 아니라) ES 모듈 스펙상 문제없이 동작한다.
 
 import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { ref, getBytes, getMetadata } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+import { ref, getBytes, getDownloadURL, getMetadata } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
 import { db, storage } from "./firebase-init.js";
 import { currentUser, isDevUser, lastOpenedFileKey, fileDocId, DEV_BOOK_FILENAME } from "./session.js";
@@ -260,6 +260,42 @@ export async function loadDevTestFile() {
 }
 let fileLoadGeneration = 0;
 
+// getBytes()는 진행률 콜백이 없어서, 다운로드 진행률바를 보여주려면 직접 스트리밍
+// 다운로드해야 한다 — getDownloadURL()로 받은 공개 URL을 fetch()하고 body를
+// ReadableStream으로 읽으면서 Content-Length 대비 받은 바이트 수로 진행률을 계산한다.
+// 스트리밍이 안 되는 환경(구형 브라우저)이거나 Content-Length가 없으면 진행률 없이
+// 통째로 받는다 — 어느 쪽이든 실패하면 호출부에서 getBytes()로 폴백한다.
+async function downloadWithProgress(fileRef, onProgress) {
+  const url = await getDownloadURL(fileRef);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('다운로드 실패: ' + res.status);
+
+  if (!res.body || !res.body.getReader) {
+    const buf = await res.arrayBuffer();
+    onProgress(1);
+    return new Uint8Array(buf);
+  }
+
+  const totalBytes = parseInt(res.headers.get('Content-Length') || '0', 10);
+  const reader = res.body.getReader();
+  const chunks = [];
+  let receivedBytes = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    receivedBytes += value.length;
+    if (totalBytes > 0) onProgress(receivedBytes / totalBytes);
+  }
+  const result = new Uint8Array(receivedBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
 // 3. 책 원문 준비 — 캐싱돼 있고 낡지 않았으면 즉시 그걸 쓰고(오프라인에서도 항상 이
 // 경로), 아니면 Storage에서 새로 받아 인코딩을 자동 처리한 뒤 다음을 위해 캐싱해둔다.
 // "낡았다(stale)" 표시는 book-open 시점이 아니라 내 서재 화면이 열릴 때 미리 확인해둔
@@ -292,28 +328,44 @@ export async function loadFileFromStorage(fileName) {
         setStatus("오프라인 상태에서는 열 수 없어요");
         return;
       }
-      setStatus("파일 다운로드 중...");
+      setStatus("파일 다운로드 중...", 0);
       const fileRef = ref(storage, 'books/' + fileName);
-      const [arrayBuffer, meta] = await Promise.all([
-        getBytes(fileRef),
-        getMetadata(fileRef).catch(() => null), // 메타데이터는 못 가져와도(권한 등) 책은 열려야 하니 실패를 삼킨다
-      ]);
+      let uint8Array, meta;
+      try {
+        [uint8Array, meta] = await Promise.all([
+          downloadWithProgress(fileRef, (progress) => {
+            // 대기 중 다른 책이 더 최근에 선택됐으면 이 토스트 갱신은 건너뛴다 —
+            // 새 로딩이 이미 자기 자신의 상태 메시지를 띄우고 있을 것이다.
+            if (myLoadGeneration === fileLoadGeneration) setStatus("파일 다운로드 중...", progress);
+          }),
+          getMetadata(fileRef).catch(() => null), // 메타데이터는 못 가져와도(권한 등) 책은 열려야 하니 실패를 삼킨다
+        ]);
+      } catch (streamErr) {
+        // 스트리밍 다운로드 실패(예: CORS) — 진행률 없이 SDK 기본 방식으로 재시도한다.
+        console.warn('스트리밍 다운로드 실패, getBytes()로 재시도:', streamErr);
+        setStatus("파일 다운로드 중...");
+        const [arrayBuffer, metaFallback] = await Promise.all([
+          getBytes(fileRef),
+          getMetadata(fileRef).catch(() => null),
+        ]);
+        uint8Array = new Uint8Array(arrayBuffer);
+        meta = metaFallback;
+      }
       // 응답을 기다리는 동안 다른 책이 더 최근에 선택됐다면, 이 낡은 응답은 그냥 버린다.
       if (myLoadGeneration !== fileLoadGeneration) return;
 
-      const uint8Array = new Uint8Array(arrayBuffer);
       if (uint8Array.length >= 2 && uint8Array[0] === 0xFF && uint8Array[1] === 0xFE) {
-        text = new TextDecoder("utf-16le").decode(arrayBuffer);
+        text = new TextDecoder("utf-16le").decode(uint8Array);
       } else if (uint8Array.length >= 2 && uint8Array[0] === 0xFE && uint8Array[1] === 0xFF) {
-        text = new TextDecoder("utf-16be").decode(arrayBuffer);
+        text = new TextDecoder("utf-16be").decode(uint8Array);
       } else {
         try {
-          text = new TextDecoder("utf-8", { fatal: true }).decode(arrayBuffer);
+          text = new TextDecoder("utf-8", { fatal: true }).decode(uint8Array);
         } catch (e) {
           try {
-            text = new TextDecoder("euc-kr", { fatal: true }).decode(arrayBuffer);
+            text = new TextDecoder("euc-kr", { fatal: true }).decode(uint8Array);
           } catch (e2) {
-            text = new TextDecoder("utf-16le").decode(arrayBuffer);
+            text = new TextDecoder("utf-16le").decode(uint8Array);
           }
         }
       }
@@ -549,7 +601,12 @@ async function continuePaginationInBackground(containerWidth, containerHeight, f
       stepsSinceYield++;
       if (stepsSinceYield >= 30) {
         stepsSinceYield = 0;
-        setStatus(`책 전체 계산 중... (${pageStartIndices.length}p)`);
+        // 진행률: 지금까지 앞/뒤로 나눠놓은 글자 구간(backwardCursor~forwardCursor)이
+        // 전체 글자 수에서 차지하는 비율 — 페이지 수 대신 글자 수 기준으로 잡아야
+        // 글꼴/화면 크기와 무관하게 항상 0~1 사이에서 정확히 끝난다.
+        const coveredChars = forwardCursor - backwardCursor;
+        const progress = rawTextData.length > 0 ? coveredChars / rawTextData.length : 0;
+        setStatus(`책 전체 계산 중... (${pageStartIndices.length}p)`, progress);
         await new Promise((resolve) => setTimeout(resolve, 0));
         // 기다리는 사이 더 최신 빌드가 시작됐으면(리사이즈, 설정 변경, 다른 책 열기 등)
         // 이 결과는 어차피 버려질 게 뻔하다 — 계속 돌면 새 분할과 겹쳐서 DOM 실측을
