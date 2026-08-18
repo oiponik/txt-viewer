@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Bookify</title>
 
   <!-- 크롬 "앱 설치"/안드로이드 홈화면 추가 시 쓰일 아이콘·이름. 아이콘 원본은
@@ -13,6 +13,16 @@
   <link rel="icon" href="icons/favicon-32.png" sizes="32x32">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <meta name="theme-color" content="#3A2A18">
+
+  <!-- iOS 홈화면 PWA를 진짜 풀스크린으로: viewport-fit=cover(위 뷰포트 메타)로 웹뷰가
+       노치/상태바 뒤까지 확장되도록 하고, status-bar-style을 black-translucent로 줘서
+       상태바를 반투명 오버레이로 만든다(기본값이면 상태바가 불투명한 바로 공간을 따로
+       차지해서 상단에 빈 여백처럼 보인다). 대신 상태바 시계/배터리 글자가 콘텐츠 위에
+       흰색으로 뜨게 되므로, 그 글자가 겹치는 상단 안전영역(env(safe-area-inset-top))은
+       styles.css에서 어두운 색 띠로 따로 처리해야 한다(#sidebar 참고) — 밝은 배경 위에
+       흰 글자가 겹치면 안 보인다. capable 메타는 구형 iOS에서의 안정성을 위해 같이 둔다. -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
   <!-- 고딕/명조/둥근모양 글꼴 옵션이 실제로 다르게 보이도록 웹폰트를 쓴다. (예전엔 OS에
        설치된 폰트 이름에만 의존해서, Malgun Gothic/Apple SD Gothic Neo 같은 이름이 없는

@@ -258,7 +258,16 @@
     #sidebar {
       position: fixed; top: 0; left: 0; right: 0;
       width: 100%;
-      background-color: var(--sidebar-bg);
+      /* 상단바 자체는 크림색(--sidebar-bg)인데, iOS 풀스크린(black-translucent
+         상태바)에서는 이 바가 노치/상태바 뒤까지 확장된다. 그 구간(safe-area-inset-top)
+         에 크림색이 그대로 깔리면 상태바의 흰 시계/배터리 글자가 안 보여서, 그 높이만큼만
+         짙은 브라운(#3A2A18, --accent-color와 동일 톤)으로 띠를 두고 나머지는 기존
+         크림색을 유지하는 그라데이션으로 나눈다. safe-area-inset-top이 0인 기기(iOS가
+         아니거나 노치 없는 기기)에서는 이 띠가 사실상 0px라 평소와 똑같이 보인다. */
+      background: linear-gradient(to bottom,
+        #3A2A18 0, #3A2A18 env(safe-area-inset-top),
+        var(--sidebar-bg) env(safe-area-inset-top), var(--sidebar-bg) 100%);
+      padding-top: env(safe-area-inset-top);
       border-bottom: 1px solid var(--border-color);
       display: flex; z-index: 50;
       transform: translateY(0);
