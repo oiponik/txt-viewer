@@ -47,11 +47,6 @@
 </head>
 <body>
 
-  <!-- 🏷️ TEMP DEBUG — 지금 이 화면에 실제로 어느 배포/캐시 버전이 떠 있는지 한눈에
-       확인하기 위한 배지. sw.js의 CACHE_VERSION을 올릴 때마다 이 텍스트도 같이
-       맞춰서 바꿔야 의미가 있다 — 서비스워커 캐시 확인이 끝나면 지울 것. -->
-  <div id="debug-version-badge">bookify-shell-v28</div>
-
   <!-- 상태 메시지: UI 패널과 분리된 화면 하단 중앙 토스트 -->
   <div id="sync-status"></div>
 
@@ -351,51 +346,6 @@
     </div>
   </div>
 
-  <!-- 🩺 TEMP DEBUG — 하단 여백 원인을 스크린샷 색깔 짐작이 아니라 실제 픽셀 숫자로
-       바로 확인하기 위한 계기판. 화면 우측 하단에 작게 실시간으로 찍는다. 원인
-       확인되면 이 스크립트와 index.html의 #debug-hud div, styles.css의 관련 규칙을
-       전부 지울 것. -->
-  <div id="debug-hud"></div>
-  <script>
-    (function () {
-      var hud = document.getElementById('debug-hud');
-      function num(v) { return Math.round(v * 100) / 100; }
-      function readEnvVar(name) {
-        var probe = document.createElement('div');
-        probe.style.position = 'fixed';
-        probe.style.top = '-9999px';
-        probe.style.paddingTop = 'env(' + name + ', 0px)';
-        document.body.appendChild(probe);
-        var val = parseFloat(getComputedStyle(probe).paddingTop) || 0;
-        document.body.removeChild(probe);
-        return val;
-      }
-      function update() {
-        var stage = document.getElementById('book-stage');
-        var stageRect = stage ? stage.getBoundingClientRect() : null;
-        var bottomBar = document.getElementById('bottom-bar');
-        var bottomBarRect = bottomBar ? bottomBar.getBoundingClientRect() : null;
-        var page = document.querySelector('.page');
-        var pageRect = page ? page.getBoundingClientRect() : null;
-        var lines = [
-          'innerH=' + window.innerHeight,
-          'docClientH=' + document.documentElement.clientHeight,
-          'bodyH=' + num(document.body.getBoundingClientRect().height),
-          'safeTop=' + num(readEnvVar('safe-area-inset-top')),
-          'safeBottom=' + num(readEnvVar('safe-area-inset-bottom')),
-          'stage.bottom=' + (stageRect ? num(stageRect.bottom) : '-'),
-          'stage.h=' + (stageRect ? num(stageRect.height) : '-'),
-          'bar.top=' + (bottomBarRect ? num(bottomBarRect.top) : '-'),
-          'page.bottom=' + (pageRect ? num(pageRect.bottom) : '-'),
-          'immersive=' + document.body.classList.contains('immersive')
-        ];
-        hud.textContent = lines.join(' | ');
-      }
-      update();
-      setInterval(update, 500);
-      window.addEventListener('resize', update);
-    })();
-  </script>
 
 </body>
 </html>

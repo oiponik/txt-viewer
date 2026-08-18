@@ -83,35 +83,6 @@
 
     * { box-sizing: border-box; }
 
-    /* 🏷️ TEMP DEBUG — 배포/캐시 버전 확인용 배지. index.html의 #debug-version-badge
-       주석 참고. 확인 끝나면 이 규칙도 같이 지울 것. */
-    #debug-version-badge {
-      position: fixed; left: 50%; top: max(6px, env(safe-area-inset-top));
-      transform: translateX(-50%);
-      z-index: 999999; pointer-events: none;
-      background: #000; color: #0f0;
-      font-family: monospace; font-size: 11px; font-weight: 700;
-      padding: 3px 8px; border-radius: 0 0 8px 8px;
-      opacity: 0.85; letter-spacing: 0.3px;
-    }
-
-    /* 🩺 TEMP DEBUG — index.html의 #debug-hud 계기판 스타일. 화면 최상단(진짜 뷰포트
-       0,0 기준, safe-area 밖)에 고정해서 실제 화면 끝까지 닿는지도 같이 보이게 한다. */
-    #debug-hud {
-      position: fixed; left: 0; right: 0; top: 0;
-      z-index: 999998; pointer-events: none;
-      background: rgba(0,0,0,0.88); color: #0f0;
-      font-family: monospace; font-size: 9px; line-height: 1.5;
-      padding: 2px 4px; word-break: break-all;
-    }
-    /* 진짜 뷰포트 맨 아래 끝(0,0 기준, safe-area 무시)에 딱 붙는 2px 자홍색 줄 —
-       하단 여백 색 띠와 비교해서 진짜 화면 끝이 어딘지 눈으로도 같이 확인한다. */
-    #debug-hud::after {
-      content: '';
-      position: fixed; left: 0; right: 0; bottom: 0; height: 2px;
-      background: magenta; pointer-events: none;
-    }
-
     html, body { height: 100%; }
 
     body {
