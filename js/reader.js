@@ -96,6 +96,15 @@ let draftReaderPrefs = null;
 const WIDTH_JITTER_THRESHOLD = 40;
 const HEIGHT_JITTER_THRESHOLD = 80;
 
+// ⚠️ .page의 CSS 여백(padding)이 바뀌면 실제 텍스트가 들어갈 수 있는 높이(maxHeight)도
+// 같이 바뀌는데, 캐시 키(bookWidth/bookHeight/fontKey)는 그 여백을 모른다 — 즉 같은
+// 캐시 키라도 여백이 바뀌기 전/후로 실제 페이지 분량이 달라질 수 있다. 이걸 그냥
+// 두면 옛날에 계산해둔 캐시가 "여백 바뀌기 전" 기준 분할을 계속 돌려주면서, 지금
+// CSS로는 마지막 줄이 페이지 밖으로 밀려 안 보이는(overflow:hidden에 잘리는) 문제로
+// 이어진다. .page의 padding-top/bottom(좌우는 --reading-padding-x라 별도 관리)을
+// 바꿀 때마다 이 값을 올려서 캐시를 강제로 무효화한다.
+const PAGE_LAYOUT_VERSION = 'v2';
+
 // 💡 페이지 가상화(windowing): 전체 페이지를 다 DOM에 그리지 않고,
 // 현재 읽는 위치 근처만 실제로 그려서 PageFlip에 올린다.
 const PAGE_WINDOW_RADIUS = 15;   // 현재 페이지 기준 앞/뒤로 미리 그려둘 페이지 수
@@ -1454,7 +1463,10 @@ async function buildFlipBook() {
   // 세션에서 이미 계산해둔 값) → 그래도 없으면 DOM 실측.
   // fontKey: 글꼴/글자크기/문단너비 모두 줄바꿈 위치(=페이지 경계)에 영향을 주므로
   // 캐시 키에 포함한다 — 이름은 예전 그대로 두지만 셋 다 여기 들어간다.
-  const fontKey = readerPrefs.fontId + ':' + readerPrefs.fontSizeStep + ':' + readerPrefs.paragraphWidthStep;
+  // PAGE_LAYOUT_VERSION을 fontKey에 같이 접어 넣는다 — fontKey는 메모리 캐시 키
+  // (cacheKey)뿐 아니라 localStorage 캐시 키(persistedPaginationKey)에도 그대로
+  // 전달되므로, 여기서 한 번만 합쳐두면 두 캐시 다 자동으로 무효화된다.
+  const fontKey = readerPrefs.fontId + ':' + readerPrefs.fontSizeStep + ':' + readerPrefs.paragraphWidthStep + ':' + PAGE_LAYOUT_VERSION;
   const cacheKey = currentFileName + '::' + bookWidth + '::' + bookHeight + '::' + fontKey;
   let paginationResult = paginationCache.get(cacheKey)
     || loadPersistedPagination(currentFileName, bookWidth, bookHeight, rawTextData, fontKey);
