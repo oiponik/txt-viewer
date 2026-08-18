@@ -18,15 +18,16 @@ Bookify — 로그인한 사용자가 `.txt` 파일을 업로드해서 페이지
 
 ### 모듈 구조 (`js/`)
 
-번들러 없이 ES 모듈 import/export로 연결된 7개 도메인 모듈, `index.html`이 `<script type="module" src="js/main.js">` 하나만으로 불러온다:
+번들러 없이 ES 모듈 import/export로 연결된 8개 도메인 모듈, `index.html`이 `<script type="module" src="js/main.js">` 하나만으로 불러온다:
 
 - `session.js` — `currentUser` 상태(이 모듈만 직접 재할당하고, 다른 곳은 전부 `setCurrentUser()`를 호출), 개발자모드/관리자 권한 체크(`isDevUser`, `isAdminUser`). 의존성 그래프의 최하단 — 이 프로젝트의 다른 어떤 것도 import하지 않는다.
 - `firebase-init.js` — Firebase `app`/`db`/`storage`/`auth`를 초기화하는 유일한 곳. 다른 모든 모듈은 여기서 `db`/`storage`/`auth`를 import해서 쓰지, 다시 초기화하지 않는다.
-- `ui-shared.js` — 화면 전환(`showLibraryScreen`/`showViewerScreen` — `showAuthScreen`은 인증 전용 상태에 의존하기 때문에 `auth.js`에 있다), Wake Lock, 하단 상태 토스트(`setStatus`), 범용 시트 열기/닫기(`openSheet`/`closeSheet` + `[data-close-panel]` 배선).
+- `ui-shared.js` — 화면 전환(`showLibraryScreen`/`showViewerScreen` — `showAuthScreen`은 인증 전용 상태에 의존하기 때문에 `auth.js`에 있다), Wake Lock, 하단 상태 토스트(`setStatus(text, progress?)` — `progress`(0~1)를 넘기면 진행률 바+퍼센트가 있는 카드로, 안 넘기면 기존처럼 텍스트 pill로), 범용 시트 열기/닫기(`openSheet`/`closeSheet` + `[data-close-panel]` 배선).
 - `offline-cache.js` — 책 텍스트의 IndexedDB 캐시(아래 "오프라인 지원" 참고).
-- `reader.js` — 뷰어 화면: 페이지분할/PageFlip, 검색, 책갈피, 리더 설정, 진행상황 동기화, 몰입모드, 밝기 스와이프.
+- `reader.js` — 뷰어 화면: 페이지분할/PageFlip, 검색, 책갈피, 리더 설정, 진행상황 동기화, 몰입모드, 밝기 스와이프. 가장 큰 모듈.
 - `library.js` — "내 서재" 화면: 폴더, 파일 목록, 드래그앤드롭, 업로드, 최근 파일.
 - `auth.js` — 로그인/회원가입, 개발자 로그인, `onAuthStateChanged` 게이트, 로그아웃. 다른 모든 도메인 모듈을 import하므로 사실상 앱의 진짜 진입 시퀀스 역할을 한다.
+- `storage-stats.js` — 설정 메뉴의 "기기 저장공간 현황" 하위 화면: 오프라인 저장된 책 / 진행상황·책갈피 캐시 / 페이지 나누기 캐시 / 서재 구조·환경설정 / 앱 실행 파일 5개 카테고리의 용량을 보여주고 책 단위(또는 전체) 삭제를 지원한다. `session.js`/`offline-cache.js`/`ui-shared.js`를 import하고, `library.js`의 `openItemActionSheet`를 재사용한다 — 다만 캐시 키 형식(접두사)은 `reader.js`/`library.js`의 진짜 키 생성 함수와 별개로 자체적으로 알고 있으므로, **그쪽 키 형식이 바뀌면 여기도 같이 고쳐야 한다.**
 - `main.js` — 실제 모듈 진입점. 위 모듈들을 그 부수효과(각 모듈이 로드 시점에 자기 이벤트 리스너를 배선함)를 위해 import하고, 서비스워커를 등록한다.
 
 **`library.js`와 `reader.js`는 서로를 import한다** — 의도된 순환 의존성이다. `library.js`는 목록 행에서 책을 열기 위해 `reader.js`의 `loadFileFromStorage`/`loadDevTestFile`가 필요하고, `reader.js`는 열린 파일을 목록에서 강조 표시하기 위해 `library.js`의 `markActiveFileRow`가 필요하다. 모든 상호 호출이 이벤트 핸들러나 비동기 함수 안에서만 일어나고 모듈 최상위에서는 절대 일어나지 않기 때문에 ES 모듈 스펙상 안전하다.
@@ -57,7 +58,8 @@ Bookify — 로그인한 사용자가 `.txt` 파일을 업로드해서 페이지
 2. **캐시가 없을 때(cold-cache)의 분할은 "0부터 끝까지"가 아니라 양방향·점진적이다.** 캐시 미스 시, `buildInitialWindowSplit`이 먼저 이어보기 위치(`currentLastCharIndex`, 새 책이면 0)를 기준으로 창(≤ `PAGE_WINDOW_RADIUS*2+1`페이지) 분량만 그 원점에서 뒤로*와* 앞으로 나눠서, 첫 페이지가 책 크기와 무관하게 창 크기만큼의 시간 안에 뜨게 한다. `continuePaginationInBackground`가 그 뒤로 화면을 막지 않고 양쪽 방향으로 계속 바깥으로 나누면서, 살아있는 `pageStartIndices`/`allTextPages` 배열에 `prepend`/`append`한다(앞에 붙이는 건 이미 추적 중인 모든 인덱스 — `windowStartIndex`/`windowEndIndex`/`currentDisplayedGlobalPage` — 를 1씩 밀어서 보정해야 한다). `pendingBackwardDone`/`pendingForwardDone`(`isPaginationPending()` 참고)이 각 방향이 책의 진짜 시작/끝에 도달했는지 추적한다. 대기 중일 때는: 페이지 슬라이더가 비활성화되고 "계산 중..."을 보여주며(대략치 표시 안 함), 검색도 비활성화되고(`updateSearchAvailability`), 아직 안 알려진 영역으로 넘기려 하면 에러 대신 "아직 준비 중" 상태를 보여준다(`goToNextPage`/`jumpToPrevPage`의 경계 가드). *완전히* 끝난 분할(양방향 다 끝남)만 캐시에 저장된다 — 부분 결과를 캐싱하면 다음에 열 때 더 작은 책처럼 보이므로 절대 캐싱하지 않는다.
    - ⚠️ 양방향 분할은 같은 책을 순수하게 처음부터 끝까지 정방향으로 분할했을 가상의 결과와 **바이트 단위로 동일하지 않다** — 워드랩이 페이지가 정확히 어디서 시작하는지에 민감해서, 이어보기 원점 근처의 경계가 왼쪽에서 오른쪽으로 쭉 훑었을 때 골랐을 위치와 최대 몇십 자 정도 어긋날 수 있다. 둘 다 똑같이 *유효한* 분할이다(검증됨: 빈틈 없고 단조증가하며 모든 페이지가 `maxHeight`에 맞음) — 이건 의도된 것이지 버그가 아니고, 이 정도 외에는 사용자에게 보이지 않는다.
 3. 현재 위치 근처의 **창** 분량 페이지(`PAGE_WINDOW_RADIUS = 15`)만 PageFlip에 실제로 마운트된다(`computeWindowRange`/`maybeShiftPageWindow`) — 책의 나머지는 그냥 메모리에 문자열로만 남아있다. PageFlip이 *로컬* 페이지 인덱스를 좌/우 스프레드로 짝짓기 때문에 이게 필요하다 — 창의 시작 인덱스가 짝수를 유지해야 스프레드가 한 페이지씩 밀리지 않는다(`computeWindowRange` 위의 긴 주석 참고).
-4. 분할 결과는 두 번 캐싱된다: 메모리(`paginationCache`, 파일+크기+폰트로 키를 만듦)와 `localStorage`(`persistedPaginationKey`) — 페이지 텍스트가 아니라 `pageStartIndices`만 저장하는데, 원본 텍스트가 그 오프셋들로부터 다시 잘라낼 수 있기 때문이다. 크기는 (측정, PageFlip의 실제 렌더링 크기, 캐시 키까지) *무엇에든* 쓰이기 전에 **버킷화**된다(20px/40px 격자로 내림, `WIDTH_JITTER_THRESHOLD`/`HEIGHT_JITTER_THRESHOLD`의 절반) — 안 그러면 열 때마다 미묘하게 다른 뷰포트 차이(주소창 접힘, PWA 상태표시줄 상태 등)가 캐시를 미스시켜서, 같은 기기의 같은 파일이라도 매번 전체 재분할을 강제한다.
+4. 분할 결과는 두 번 캐싱된다: 메모리(`paginationCache`, 파일+크기+폰트로 키를 만듦)와 `localStorage`(`persistedPaginationKey`) — 페이지 텍스트가 아니라 `pageStartIndices`만 저장하는데, 원본 텍스트가 그 오프셋들로부터 다시 잘라낼 수 있기 때문이다. 크기는 (텍스트 측정용 `maxHeight`와 캐시 키에) 쓰이기 전에 **버킷화**된다(20px/40px 격자로 내림, `WIDTH_JITTER_THRESHOLD`/`HEIGHT_JITTER_THRESHOLD`의 절반) — 안 그러면 열 때마다 미묘하게 다른 뷰포트 차이(주소창 접힘, PWA 상태표시줄 상태 등)가 캐시를 미스시켜서, 같은 기기의 같은 파일이라도 매번 전체 재분할을 강제한다.
+   - ⚠️ **PageFlip에 실제로 넘기는 렌더링 크기(`renderWidth`/`renderHeight`)는 이 버킷값이 아니라 `#book-stage`의 정확한 실측 크기다** — 버킷값(`bookWidth`/`bookHeight`)은 텍스트 측정·캐시 키 용도로만 쓴다. 버킷값은 항상 실측 이하로 "내림"한 값이라 렌더링 크기가 측정 기준보다 작아질 일은 없다(텍스트가 잘릴 위험 없음). 원래는 렌더링 크기도 버킷값을 그대로 썼는데, `#book-stage`가 내용을 가운데 정렬해서 그 버킷값과 실제 무대 크기 사이 간극(최대 39px)이 책 주위에 여백으로 남았다 — 평소엔 안 보이다가 페이지 넘기기 애니메이션의 그림자 효과 때문에 드러났다. 커밋 `7b62bb2`.
 5. 책갈피/진행상황은 페이지 번호가 아니라 **글자 인덱스**로 저장된다 — 페이지 번호는 폰트/크기/문단너비/화면크기가 바뀔 때마다 흔들리지만, 글자 오프셋은 그렇지 않다.
 6. `buildGeneration`/`fileLoadGeneration` 카운터가, 사용자가 이전 비동기 분할/다운로드가 끝나기도 전에 리사이즈하거나 책을 전환할 때 생기는 경쟁 상태를 막는다 — 백그라운드 점진적 완료 루프도 매 yield 지점마다 `buildGeneration`을 확인해서, 리사이즈/책전환이 라이브 배열을 망가뜨리는 대신 깔끔하게 오래된 진행 중이던 분할을 포기하게 한다.
 
