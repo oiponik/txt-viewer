@@ -1435,6 +1435,20 @@ async function buildFlipBook() {
   let bookWidth = bucketDown(isSinglePage ? stageWidth : stageWidth / 2, WIDTH_BUCKET);
   let bookHeight = bucketDown(stageHeight, HEIGHT_BUCKET);
 
+  // 💡 PageFlip이 실제로 렌더링할 크기는 위 버킷값이 아니라 무대의 정확한 실측 크기
+  // 그대로 쓴다. bookWidth/bookHeight(버킷값)는 항상 실측 이하로 "내림"한 값이라서
+  // renderWidth/renderHeight는 항상 그 이상 — 텍스트 분량은 이미 버킷값 기준
+  // maxHeight로 다 채워지도록 측정해뒀으니 잘릴 걱정은 없고, 책이 #book-stage를
+  // 여백 없이 정확히 채운다. (버킷값 자체는 캐시 키/텍스트 측정에는 그대로 쓴다 —
+  // 안 그러면 뷰포트가 몇 px만 달라져도 캐시가 계속 미스난다.)
+  // ⚠️ 실제로 있었던 문제: iOS PWA에서 상태바/홈 인디케이터 뒤까지 화면을 꽉 채우게
+  // 바꾼 뒤(viewport-fit=cover), #book-stage가 버킷 크기(최대 39px)보다 항상 살짝
+  // 커져서 그 여백이 항상 상/하로 반씩 나뉘어 보였다 — 평소엔 .page 배경색이
+  // #book-stage와 같아서 안 보였지만, 페이지 넘기기 애니메이션의 그림자 효과 때문에
+  // 그 여백 경계가 뚜렷하게 드러났다.
+  const renderWidth = isSinglePage ? stageWidth : stageWidth / 2;
+  const renderHeight = stageHeight;
+
   // 💡 같은 파일을 같은 창 크기로 다시 열면(책 재방문, 창 크기 원복 등) 페이지 분할을
   // 다시 계산하지 않고 캐시에서 즉시 가져온다. 순서: 메모리 캐시 → localStorage(다른
   // 세션에서 이미 계산해둔 값) → 그래도 없으면 DOM 실측.
@@ -1512,7 +1526,7 @@ async function buildFlipBook() {
     .forEach(el => bookElement.appendChild(el));
 
   // PageFlip 인스턴스 생성
-  // ⚠️ minWidth/minHeight가 실제 계산된 bookWidth/bookHeight보다 크면
+  // ⚠️ minWidth/minHeight가 실제 렌더링 크기(renderWidth/renderHeight)보다 크면
   // PageFlip이 그보다 크게 강제 렌더링하면서 #book-stage(overflow:hidden)에
   // 텍스트가 잘리는 문제가 생긴다. 그래서 min 값은 항상 실제 크기 이하로 클램프한다.
   //
@@ -1534,13 +1548,13 @@ async function buildFlipBook() {
   // 되는데 이전 페이지만 안 되는 것처럼 보였다.) useMouseEvents:false로 이미 클릭/터치
   // 리스너 자체를 꺼뒀으니 disableFlipByClick은 우리에게 아무 이점 없이 이 버그만 유발한다.
   pageFlip = new St.PageFlip(bookElement, {
-    width: bookWidth,
-    height: bookHeight,
+    width: renderWidth,
+    height: renderHeight,
     size: "fixed",
-    minWidth: Math.min(200, bookWidth),
-    maxWidth: Math.max(2000, bookWidth),
-    minHeight: Math.min(250, bookHeight),
-    maxHeight: Math.max(2500, bookHeight),
+    minWidth: Math.min(200, renderWidth),
+    maxWidth: Math.max(2000, renderWidth),
+    minHeight: Math.min(250, renderHeight),
+    maxHeight: Math.max(2500, renderHeight),
     maxShadowOpacity: 0.5,
     showCover: false,
     mobileScrollSupport: false,
