@@ -83,6 +83,18 @@
 
     * { box-sizing: border-box; }
 
+    /* 🏷️ TEMP DEBUG — 배포/캐시 버전 확인용 배지. index.html의 #debug-version-badge
+       주석 참고. 확인 끝나면 이 규칙도 같이 지울 것. */
+    #debug-version-badge {
+      position: fixed; left: 50%; top: max(6px, env(safe-area-inset-top));
+      transform: translateX(-50%);
+      z-index: 999999; pointer-events: none;
+      background: #000; color: #0f0;
+      font-family: monospace; font-size: 11px; font-weight: 700;
+      padding: 3px 8px; border-radius: 0 0 8px 8px;
+      opacity: 0.85; letter-spacing: 0.3px;
+    }
+
     html, body { height: 100%; }
 
     body {
