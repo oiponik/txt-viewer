@@ -146,7 +146,9 @@
       flex-shrink: 0;
       width: 100%;
       display: flex; flex-direction: column; align-items: center;
-      padding: max(48px, 8vh) 24px 12px;
+      /* #auth-screen도 viewport-fit=cover로 상태바 영역까지 확장되니, 로고가 그
+         밑에 깔리지 않도록 기존 여백에 env(safe-area-inset-top)을 더한다. */
+      padding: calc(max(48px, 8vh) + env(safe-area-inset-top)) 24px 12px;
       color: #F2EEE4; text-align: center;
     }
     .auth-logo-badge {
@@ -269,7 +271,10 @@
        색 없이 단순하게 배치한다. 텍스트 버튼 대신 아이콘만 쓴다. */
     .sidebar-header {
       width: 100%;
-      padding: 10px 8px;
+      /* viewport-fit=cover로 #sidebar가 상태바 영역까지 확장되므로, 위쪽만
+         env(safe-area-inset-top)만큼 더 밀어서 뒤로가기/테마 아이콘이 시계·배터리와
+         안 겹치게 한다 — 안전영역이 없는 기기(0)에서는 기존 10px 그대로. */
+      padding: max(10px, env(safe-area-inset-top)) 8px 10px;
       display: flex; align-items: center; gap: 4px;
     }
 
@@ -690,8 +695,11 @@
       color: var(--reading-text);
       font-family: var(--reading-font-family);
       /* 좌우 여백("문단 너비" 설정)만 --reading-padding-x로 따로 빼뒀다 —
-         위/아래 여백은 이 설정과 무관하게 화면 크기에 반응형으로 고정. */
-      padding: clamp(14px, 2.5vw, 24px) var(--reading-padding-x) clamp(10px, 1.5vw, 15px);
+         위/아래 여백은 이 설정과 무관하게 화면 크기에 반응형으로 고정.
+         상단엔 env(safe-area-inset-top)을 더한다 — 몰입 모드(#sidebar 숨김)에서는
+         .page가 상태바 바로 아래까지 노출되므로 이게 없으면 첫 줄이 시계·배터리
+         밑에 깔린다. 비몰입 모드에선 이 영역이 #sidebar에 가려져 있어 무해하다. */
+      padding: calc(clamp(14px, 2.5vw, 24px) + env(safe-area-inset-top)) var(--reading-padding-x) clamp(10px, 1.5vw, 15px);
       /* 뷰어 설정의 "글자 크기"는 이 반응형 기준 크기에 배율(--reading-font-scale)을
          곱하는 방식이라, 화면 크기별 반응형 스케일링은 그대로 유지된다 */
       font-size: calc(var(--reading-font-scale) * clamp(13px, 1.1vw + 0.6rem, 16px));

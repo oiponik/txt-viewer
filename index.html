@@ -2,7 +2,14 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <!-- viewport-fit=cover: 아이폰 홈화면 앱(standalone)에서 레이아웃 뷰포트가 상태바
+       영역을 제외한 "안전 영역"으로만 잡혀서, position:fixed;inset:0인 화면들(#auth-screen/
+       #library-screen/#viewer-screen)이 상태바 바로 아래에서 시작하고 그 위는 앱 배경이
+       아니라 OS가 그리는 빈 띠로 남아 "상단 여백"처럼 보이는 문제가 있었다. cover를 주면
+       뷰포트가 노치/상태바 영역까지 실제 화면 전체로 확장되어 그 여백이 없어진다 —
+       대신 상태바 밑에 깔리는 콘텐츠(.sidebar-header/.page 등)는 env(safe-area-inset-top)로
+       직접 밀어줘야 아이콘/텍스트가 상태바 시계·배터리와 안 겹친다(styles.css 참고). -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Bookify</title>
 
   <!-- 크롬 "앱 설치"/안드로이드 홈화면 추가 시 쓰일 아이콘·이름. 아이콘 원본은
@@ -13,6 +20,12 @@
   <link rel="icon" href="icons/favicon-32.png" sizes="32x32">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <meta name="theme-color" content="#3A2A18">
+  <!-- iOS는 manifest의 display:standalone만으로는 상태바를 투명하게 만들어주지 않는다 —
+       이 메타 두 개가 있어야 상태바가 앱 배경 위에 반투명 오버레이로 뜨고(viewport-fit=cover와
+       합쳐져 진짜 엣지투엣지가 됨), 없으면 위 주석에서 말한 상단 여백이 그대로 남는다.
+       black-translucent라 상태바 시계/배터리 아이콘은 흰색으로 고정된다. -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
   <!-- 고딕/명조/둥근모양 글꼴 옵션이 실제로 다르게 보이도록 웹폰트를 쓴다. (예전엔 OS에
        설치된 폰트 이름에만 의존해서, Malgun Gothic/Apple SD Gothic Neo 같은 이름이 없는
