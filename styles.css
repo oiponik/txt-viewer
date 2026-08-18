@@ -93,21 +93,6 @@
       height: 100vh; height: 100dvh; overflow: hidden;
     }
 
-    /* 🏷️ TEMP DEBUG — 배포/캐시 버전 확인용 배지. index.html의 #debug-version-badge 참고.
-       env(safe-area-inset-top)이 0이면(=웹뷰가 상태바 뒤까지 확장 안 됨) 상태바 바로
-       아래(대략 위쪽 6px)에 붙고, 확장됐으면 노치/상태바를 피해서 더 아래로 내려간다 —
-       그 자체로 지금 실험이 성공했는지 위치로도 대충 가늠할 수 있다. iOS 풀스크린
-       재시도가 끝나면 이 규칙도 지울 것. */
-    #debug-version-badge {
-      position: fixed; left: 50%; top: max(6px, env(safe-area-inset-top));
-      transform: translateX(-50%);
-      z-index: 999999; pointer-events: none;
-      background: #000; color: #0f0;
-      font-family: monospace; font-size: 11px; font-weight: 700;
-      padding: 3px 8px; border-radius: 0 0 8px 8px;
-      opacity: 0.85; letter-spacing: 0.3px;
-    }
-
     .screen-hidden { display: none !important; }
 
     /* 화면 1: 서재 — 파일 업로드 + 저장된 파일 목록. 앱을 열면 처음 보이는 화면 */
