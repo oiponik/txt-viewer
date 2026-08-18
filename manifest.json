@@ -3,7 +3,7 @@
   "short_name": "Bookify",
   "start_url": ".",
   "scope": ".",
-  "display": "fullscreen",
+  "display": "standalone",
   "background_color": "#B7AC97",
   "theme_color": "#3A2A18",
   "icons": [

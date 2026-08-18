@@ -2,11 +2,17 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <!-- iOS PWA 풀스크린 재시도 1단계: viewport-fit=cover *만* 추가한다. status-bar-style은
-       아직 넣지 않는다 — 지난번엔 이 둘 + body min-height 보정을 한꺼번에 넣어서 어느 것이
-       상/하 여백 버그의 원인인지 구분이 안 됐다(CLAUDE.md "iOS 홈화면 PWA 풀스크린" 항목
-       참고). 이번엔 한 번에 하나씩만 바꿔서 실기기 + 맥 Safari 원격 디버깅으로 즉시
-       검증한다. 이 변경만으로 #book-stage 높이가 이미 달라지는지부터 확인할 것. -->
+  <!-- iOS PWA 풀스크린 재시도 — 한 번에 하나씩만 바꿔서 실기기 + 맥 Safari 원격
+       디버깅으로 즉시 검증하는 중 (CLAUDE.md "iOS 홈화면 PWA 풀스크린" 항목 참고).
+       1단계(viewport-fit=cover만)와 2단계(manifest display: fullscreen)는 각각 단독으로는
+       innerHeight에 아무 효과가 없었다(852 vs 793 그대로, safe-area-inset-top도 0) —
+       즉 793은 버그가 아니라 "상태바 자리를 예약하는 표준 standalone 동작" 그 자체였다.
+       3단계: 이제 진짜 지시인 apple-mobile-web-app-status-bar-style(black-translucent)을
+       추가한다 — 지난 라운드처럼 body min-height 보정을 같이 넣지 않고, 이것 하나만
+       넣었을 때 정확히 무슨 일이 일어나는지부터 깨끗하게 관찰한다. manifest.json의
+       display는 fullscreen이 효과가 없었으므로 standalone으로 되돌렸다(Apple 문서가
+       실제로 권장하는 표준 조합: viewport-fit=cover + capable + black-translucent +
+       display:standalone). -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Bookify</title>
 
@@ -18,6 +24,8 @@
   <link rel="icon" href="icons/favicon-32.png" sizes="32x32">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <meta name="theme-color" content="#3A2A18">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
   <!-- 고딕/명조/둥근모양 글꼴 옵션이 실제로 다르게 보이도록 웹폰트를 쓴다. (예전엔 OS에
        설치된 폰트 이름에만 의존해서, Malgun Gothic/Apple SD Gothic Neo 같은 이름이 없는
@@ -41,7 +49,7 @@
 
   <!-- 🏷️ TEMP DEBUG — 배포/캐시 버전 확인용 배지. sw.js CACHE_VERSION 올릴 때 같이
        바꿀 것. iOS 풀스크린 재시도가 끝나면 지울 것. -->
-  <div id="debug-version-badge">bookify-shell-v22 · fullscreen</div>
+  <div id="debug-version-badge">bookify-shell-v23 · black-translucent</div>
 
   <!-- 상태 메시지: UI 패널과 분리된 화면 하단 중앙 토스트 -->
   <div id="sync-status"></div>
