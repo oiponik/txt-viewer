@@ -97,9 +97,42 @@ The largest module; page rendering is its most complex piece:
   - ⚠️ 검증 중 발견: 이 저장소(`OneDrive\바탕 화면\txt-viewer`)를 `.claude/launch.json`의 static-server로 띄운 로컬 프리뷰에서, `http://localhost:8000`과 `http://127.0.0.1:8000` 둘 다 특정 정적 파일 URL(예: `js/reader.js`, `dev-test-book.txt`)을 **서버·서비스워커 재시작과도 무관하게** 계속 예전 내용으로 캐싱하는 프록시 계층이 있는 것으로 보임(서버 자체는 `curl`로 확인하면 항상 최신). `http://[::1]:8000`처럼 아직 안 써본 호스트명으로 새 탭을 열면 그 세션 한정으로는 새 캐시라 최신 내용이 나오지만, `session.js`의 `isLocalDevHost`가 `localhost`/`127.0.0.1`만 인식해서 `dev` 로그인 우회가 안 먹힘 — 이 프리뷰 환경에서 코드를 고친 직후 즉시 재검증해야 할 때는 이 캐싱을 염두에 둘 것(다음에 참고할 사람을 위해 남겨둠).
   - 알고리즘 정확성은 실제 앱 대신 페이지 안에서 직접 재구현해 원본(정방향 전용) 결과와 대조하는 방식으로 검증 — 두 방식 모두 완전하고(gap 없음) 단조증가하지만, 원점 근처 경계가 최대 26자 정도 다를 수 있음을 확인(워드랩 민감성 때문, 버그 아님 — CLAUDE.md의 "Reading pipeline" 절 참고).
   - `sw.js`의 `CACHE_VERSION`을 계속 올려가며 진행(최신 `v19`).
-- ✅ **완료·커밋됨 (2026-08-18)**: iOS 홈화면 PWA 풀스크린 — 실기기(iOS 18) 왕복 검증으로 여러 겹의 원인을 하나씩 벗겨낸 케이스. 최신 `CACHE_VERSION`은 `v29`.
-  1. **상태바 자리에 빈 여백**: `viewport-fit=cover`가 뷰포트 메타에 없었음 → 추가.
-  2. **콘텐츠 전체가 위로 밀림** (상단은 상태바와 겹치고 하단엔 그만큼 빈 공간) — `apple-mobile-web-app-status-bar-style: black-translucent`를 `manifest.json`의 `"display":"standalone"`과 동시에 쓰면 최신 iOS가 안전영역을 이중 계산하는 것으로 보임. 그 메타태그를 빼고 `apple-mobile-web-app-capable`만 남기니 해결. **다시 넣지 말 것** — `index.html`에 경고 주석 남겨둠.
-  3. **몰입모드(상단바/하단바 숨김)에서만 텍스트가 시계/홈 인디케이터와 겹침**: 평소엔 `#sidebar`/`#bottom-bar`가 그 영역을 가려주는데, 숨겨지면 `.page` 자체엔 안전영역 여백이 없었음 → `.page`의 상/하 padding을 `max(기존 clamp(), env(safe-area-inset-top/bottom))`으로 변경(`styles.css`). 이 값이 페이지 나누기 실측(maxHeight)에도 영향을 주므로 `reader.js`에 `PAGE_LAYOUT_VERSION` 상수를 새로 만들어 `fontKey`에 접어 넣음 — 캐시된 옛 분할 결과가 새 여백을 반영 안 한 채 재사용되며 마지막 줄이 잘리는 걸 막기 위함. **여백 관련 CSS를 또 건드리면 이 값도 같이 올릴 것.**
-  4. 원인 파악 과정에서 화면에 실제 픽셀 숫자를 찍는 디버그 HUD(`#debug-hud`)와 배포 버전 배지(`#debug-version-badge`)를 임시로 넣었다가 확인 후 전부 제거함 — 다시 막힌 문제가 생기면 같은 패턴(HUD로 실측값 찍기)이 스크린샷 색깔 추측보다 훨씬 빠르게 원인을 좁혀준다.
-  5. ⚠️ **iOS Safari 홈화면 PWA는 서비스워커 캐시가 지독하게 끈질기다** — 앱을 완전 종료 후 재실행은 물론, **홈 화면 아이콘을 삭제하고 재설치해도 예전 캐시가 안 지워지는 경우**를 실기기에서 직접 확인함. 확실히 지우려면 설정 → Safari → "방문 기록 및 웹 사이트 데이터 지우기"(전체 삭제, 다른 사이트 로그인도 다 풀림)까지 가야 한다. 다음에 이런 PWA 캐시 이슈를 디버깅할 때는 처음부터 이 방법부터 안내할 것 — "앱 재설치"로는 부족하다.
+- 🔄 **진행중 (미해결, 2026-08-18 기준)**: iOS 홈화면 PWA 풀스크린 — 실기기(iOS 18) 왕복으로 여러 라운드 시도했으나 상/하 여백 문제가 아직 안 잡혔다. 최신 `CACHE_VERSION`은 `v30`. **다음은 맥 + Safari 원격 디버깅(Web Inspector)으로 이어서 진행하기로 함** — 아래 "다음 세션에서 할 일" 참고.
+  - **확실히 해결된 부분**: `viewport-fit=cover`가 뷰포트 메타에 없었던 것(상태바 자리가 완전히 빈 여백으로 분리돼 보이던 최초 증상)은 추가로 고쳐짐.
+  - **아직도 안 잡힌 부분**: `apple-mobile-web-app-status-bar-style: black-translucent`를 쓰면 콘텐츠 전체가 상태바 높이만큼 위로 밀리는 문제(상단은 상태바와 겹치고 하단엔 그만큼 빈 공간).
+    - 1차 시도: 메타태그를 통째로 뺌 → 상단 밀림은 없어졌지만 상태바가 다시 예전처럼 분리된 불투명 바로 돌아가 버림(원래 불만으로 회귀) + 하단 여백은 그대로. **틀린 처방으로 확인, 되돌림.**
+    - 2차 시도: 메타태그를 되살리고, 웹 검색으로 찾은 문서화된 WebKit 대응법대로 `body { min-height: calc(100% + env(safe-area-inset-top)); }` 추가 → 실기기에서 여전히 증상 동일("여전히 똑같아"), 오히려 하단 공백이 더 커진 것처럼 보임. **이것도 기대한 효과가 없었음.**
+    - 두 시도 모두 데스크톱 프리뷰에서는 `env(safe-area-inset-*)`가 0이라 재현 자체가 안 되고, 실기기(사용자의 특정 iPhone·iOS 18)에서만 확인 가능 — 스크린샷 왕복(매번 Safari "방문 기록·웹사이트 데이터 지우기" → 앱 삭제 → 재설치까지 해야 새 배포가 반영됨)으로 여러 라운드를 썼지만 결론이 안 남. 데스크톱에서 만든 진단 HUD(픽셀 숫자를 화면에 직접 찍는 것)도 시도했으나 배포·캐시 갱신 자체가 느려서 한계가 있었음.
+  - **몰입모드 텍스트-상태바 겹침 관련해서 이미 반영한 것**(이 부분은 별도 이슈라 계속 유효): `.page`의 상/하 padding을 `max(기존 clamp(), env(safe-area-inset-top/bottom))`으로 변경(`styles.css`). 이 값이 페이지 나누기 실측(maxHeight)에도 영향을 주므로 `reader.js`에 `PAGE_LAYOUT_VERSION` 상수를 새로 만들어 `fontKey`에 접어 넣음 — 캐시된 옛 분할 결과가 새 여백을 반영 안 한 채 재사용되며 마지막 줄이 잘리는 걸 막기 위함. **여백 관련 CSS를 또 건드리면 이 값도 같이 올릴 것.**
+  - `index.html`에 `#debug-version-badge`(화면 상단에 `bookify-shell-vNN` 표시, sw.js `CACHE_VERSION`과 수동으로 맞춰야 함)를 배포/캐시 확인용으로 남겨뒀다 — 아직 지우지 말 것.
+  - ⚠️ **iOS Safari 홈화면 PWA는 서비스워커 캐시가 지독하게 끈질기다** — 앱을 완전 종료 후 재실행은 물론, **홈 화면 아이콘을 삭제하고 재설치해도 예전 캐시가 안 지워지는 경우**를 실기기에서 직접 확인함. 확실히 지우려면 설정 → Safari → "방문 기록 및 웹 사이트 데이터 지우기"(전체 삭제, 다른 사이트 로그인도 다 풀림)까지 가야 한다.
+  - **다음 세션에서 할 일 (맥에서 이어서)**: 사용자가 윈도우 PC 대신 맥으로 전환해서, 아이폰을 맥에 케이블로 연결하고 Safari의 원격 Web Inspector(설정 → Safari → 고급 → "웹 속성 관리자" 켜기 → 맥 Safari 개발자용 메뉴 → 기기 선택 → 홈 화면 앱 탭 선택)로 **배포/캐시 사이클 없이 실시간으로** 디버깅할 예정. 연결되면 아래 스크립트를 Web Inspector Console에 붙여넣고 실행한 결과를 확인할 것 — `window.innerHeight`/`visualViewport`/`document.documentElement`/`body`의 실제 렌더링 크기와 `env(safe-area-inset-top/bottom)` 실측값, `#book-stage` 위치를 한 번에 보여준다:
+    ```js
+    (function () {
+      function readEnv(name) {
+        var p = document.createElement('div');
+        p.style.cssText = 'position:fixed;top:-9999px;padding-top:env(' + name + ',0px)';
+        document.body.appendChild(p);
+        var v = parseFloat(getComputedStyle(p).paddingTop) || 0;
+        p.remove();
+        return v;
+      }
+      var stage = document.getElementById('book-stage');
+      console.table({
+        innerHeight: window.innerHeight,
+        visualViewportHeight: window.visualViewport && window.visualViewport.height,
+        visualViewportOffsetTop: window.visualViewport && window.visualViewport.offsetTop,
+        docClientHeight: document.documentElement.clientHeight,
+        docRectTop: document.documentElement.getBoundingClientRect().top,
+        bodyRectTop: document.body.getBoundingClientRect().top,
+        bodyRectBottom: document.body.getBoundingClientRect().bottom,
+        bodyComputedMinHeight: getComputedStyle(document.body).minHeight,
+        safeAreaInsetTop: readEnv('safe-area-inset-top'),
+        safeAreaInsetBottom: readEnv('safe-area-inset-bottom'),
+        stageRectTop: stage && stage.getBoundingClientRect().top,
+        stageRectBottom: stage && stage.getBoundingClientRect().bottom,
+        immersive: document.body.classList.contains('immersive')
+      });
+    })();
+    ```
+    실행 결과(콘솔에 표로 뜸)를 스크린샷으로 받으면, 실제로 문서/뷰포트가 밀렸는지, `safe-area-inset-top`이 기대한 값(노치 있는 기기면 47~59px 정도)을 제대로 보고하는지 바로 알 수 있다 — 지금까지처럼 스크린샷 색깔만 보고 추측할 필요가 없어진다. Elements 패널에서 `body`/`#book-stage`의 CSS를 직접 수정해가며 실시간으로 맞는 값을 찾은 뒤에만 코드에 반영할 것 (배포 왕복을 줄이기 위함).
