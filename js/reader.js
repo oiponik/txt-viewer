@@ -110,6 +110,15 @@ let isShiftingWindow = false; // 창 재정렬 도중 중복 실행 방지 가�
 let pageStartIndices = [];
 let currentLastCharIndex = 0; // 읽던 글자의 시작 위치
 
+// 💡 "이 세션에서 실제로 페이지를 넘겨서 아직 서버에 반영 안 된 변화가 있는지" 플래그.
+// flushProgressSave(탭이 백그라운드로 가거나/새로고침·닫힘 직전)가 이 플래그 없이
+// currentLastCharIndex를 무조건 다시 저장했더니, 아무것도 안 읽고 탭만 열어둔 기기가
+// 나중에 배경으로 가거나 새로고침될 때(pagehide) 그 낡은 위치를 "방금 갱신된 최신
+// 기록"인 것처럼 덮어써서 다른 기기(예: 그 사이 폰으로 더 읽은 진행상황)를 지워버리는
+// 문제가 있었다. 실제로 페이지를 넘긴 시점(아래 세 곳)에만 true로 세팅하고, 저장이
+// 끝나면 false로 되돌려서 "아무 일도 안 일어난 flush"는 서버에 아예 손대지 않는다.
+let progressDirty = false;
+
 // 💡 점진적(양방향) 페이지 나누기 진행 상태 — buildInitialWindowSplit/
 // continuePaginationInBackground 참고. "책 전체가 아직 다 안 나뉜 상태"인지는
 // isPaginationPending()으로 판단한다. 캐시 히트(가장 흔한 경우)나 아주 짧은 책은
@@ -236,6 +245,7 @@ export async function loadDevTestFile() {
     document.getElementById('current-title').textContent = DEV_BOOK_FILENAME + ' (개발자 테스트)';
 
     lastKnownProgressUpdatedAt = 0;
+    progressDirty = false;
     [currentLastCharIndex, currentBookmarks] = await Promise.all([
       loadProgress(DEV_BOOK_FILENAME),
       loadBookmarksForFile(DEV_BOOK_FILENAME)
@@ -377,6 +387,7 @@ export async function loadFileFromStorage(fileName) {
 
     // 다른 책(파일)의 기록 기준 시각이 남아있지 않도록 새로 여는 책마다 초기화
     lastKnownProgressUpdatedAt = 0;
+    progressDirty = false;
     [currentLastCharIndex, currentBookmarks] = await Promise.all([
       loadProgress(fileName),
       loadBookmarksForFile(fileName)
@@ -814,11 +825,13 @@ function jumpToPrevPage() {
   }
 
   currentLastCharIndex = pageStartIndices[targetGlobal] || 0;
+  progressDirty = true;
   updatePageIndicator(targetGlobal);
 
   clearTimeout(debounceSaveTimer);
   debounceSaveTimer = setTimeout(() => {
     saveProgress(currentFileName, currentLastCharIndex);
+    progressDirty = false;
   }, 300);
 
   maybeShiftPageWindow(targetGlobal);
@@ -858,11 +871,13 @@ function jumpToGlobalPage(targetPage) {
   }
 
   currentLastCharIndex = pageStartIndices[targetPage] || 0;
+  progressDirty = true;
   updatePageIndicator(targetPage);
 
   clearTimeout(debounceSaveTimer);
   debounceSaveTimer = setTimeout(() => {
     saveProgress(currentFileName, currentLastCharIndex);
+    progressDirty = false;
   }, 300);
 }
 
@@ -1637,11 +1652,13 @@ async function buildFlipBook() {
 
     const globalIndex = windowStartIndex + e.data;
     currentLastCharIndex = pageStartIndices[globalIndex] || 0;
+    progressDirty = true;
     updatePageIndicator(globalIndex);
 
     clearTimeout(debounceSaveTimer);
     debounceSaveTimer = setTimeout(() => {
       saveProgress(currentFileName, currentLastCharIndex);
+      progressDirty = false;
     }, 300);
 
     maybeShiftPageWindow(globalIndex);
@@ -2063,7 +2080,13 @@ async function syncProgressFromServer() {
 function flushProgressSave() {
   if (!currentFileName || !pageFlip) return;
   clearTimeout(debounceSaveTimer);
+  // 이 세션에서 실제로 페이지를 넘긴 적이 없으면(=서버 값 그대로) 아무것도 하지
+  // 않는다 — 안 그러면 그냥 열어만 두고 방치된 탭이 배경으로 가거나 새로고침될
+  // 때마다 자기가 들고 있던 낡은 위치를 "방금 갱신된 최신 기록"인 것처럼 덮어써서,
+  // 그 사이 다른 기기에서 더 읽은 진행상황을 지워버릴 수 있다.
+  if (!progressDirty) return;
   saveProgress(currentFileName, currentLastCharIndex);
+  progressDirty = false;
 }
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
@@ -2082,6 +2105,12 @@ document.addEventListener('visibilitychange', () => {
     resetWakeLockIdleTimer();
   }
 });
+// 💡 탭을 한 번도 배경으로 안 보내고(=visibilitychange가 안 뜨고) 화면에 계속 띄워만
+// 둔 채로 다른 기기에서 더 읽는 경우, hidden→visible 전환 자체가 없어서 위 리스너로는
+// 못 따라잡는다. 보이는 동안은 1분마다 한 번씩 서버 최신값을 추가로 확인한다.
+setInterval(() => {
+  if (document.visibilityState === 'visible') syncProgressFromServer();
+}, 60000);
 
 // 페이지 넘김 외의 조작(설정 열기, 스크롤, 화면 탭 등)도 "책 읽는 중"으로 쳐서
 // 화면 항상 켜짐 유휴 타이머를 리셋한다.
