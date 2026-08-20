@@ -878,14 +878,15 @@ function playPrevPageFlipAnimation() {
   clone.style.height = rect.height + 'px';
   document.body.appendChild(clone);
 
-  // 강제 리플로우 후에 트랜지션 대상 클래스를 붙여야 "시작 상태 → 목표 상태"가
-  // 서로 다른 프레임으로 인식돼서 실제로 애니메이션이 재생된다.
+  // 강제 리플로우 후 다음 프레임에 애니메이션 클래스를 붙여야, 삽입 직후 같은
+  // 프레임에서 곧바로 붙였을 때 일부 브라우저가 초기 상태를 커밋하기 전이라
+  // 애니메이션을 건너뛰는 경우를 피할 수 있다.
   void clone.offsetWidth;
   requestAnimationFrame(() => clone.classList.add('turning'));
 
   const remove = () => clone.remove();
-  clone.addEventListener('transitionend', remove, { once: true });
-  setTimeout(remove, 400); // transitionend가 어떤 이유로든 안 뜨는 경우를 위한 안전장치
+  clone.addEventListener('animationend', remove, { once: true });
+  setTimeout(remove, 1100); // animationend가 어떤 이유로든 안 뜨는 경우를 위한 안전장치 (애니메이션 1000ms + 여유)
 }
 
 // pageFlip.flipNext()를 직접 부르는 모든 자리(스와이프/탭/휠/키보드)를 이걸로
