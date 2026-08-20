@@ -660,26 +660,6 @@
       to { transform: rotate(360deg); }
     }
 
-    /* 이전 페이지(jumpToPrevPage)는 page-flip 라이브러리의 넘기기 애니메이션이
-       방향 비대칭이라(위 jumpToPrevPage 주석 참고) 애니메이션 없이 즉시 전환한다 —
-       그러다 보니 "정말 넘어갔는지" 구분이 안 된다는 피드백이 있어서, 대신 아주
-       짧은 플래시 펄스로 최소한의 전환 신호를 준다. --reading-text를 옅게 깔아서
-       라이트/다크 읽기 테마 양쪽에서 다 보이게 한다. */
-    #page-turn-flash {
-      position: absolute; inset: 0;
-      pointer-events: none;
-      z-index: 6;
-      background-color: var(--reading-text);
-      opacity: 0;
-    }
-    #page-turn-flash.flash {
-      animation: page-turn-flash-anim 0.22s ease-out;
-    }
-    @keyframes page-turn-flash-anim {
-      0% { opacity: 0.16; }
-      100% { opacity: 0; }
-    }
-
     #my-book {
       max-width: 100%; max-height: 100%;
       position: relative;
@@ -755,6 +735,31 @@
       opacity: 0.5;
       flex-shrink: 0;
       margin-top: 5px;
+    }
+
+    /* portrait(세로, 한 페이지) 모드에서 jumpToPrevPage가 재생하는 "가짜" 이전 페이지
+       플립 애니메이션 — playPrevPageFlipAnimation() 참고. page-flip 라이브러리의 진짜
+       prev 애니메이션은 이 모드에서 구조적으로 깨져 있어서(reader.js의 jumpToPrevPage
+       위 주석 참고) 대신 지금 보이는 페이지를 복제해서 여기 스타일로 왼쪽 모서리를
+       축으로 돌며 사라지게 한다. position/top/left/width/height는 JS가 인라인으로
+       채운다 — 여기 있는 position: fixed는 .page의 position: relative를 이기기 위한
+       것(이 규칙이 스타일시트에서 .page보다 뒤에 있어야 함).
+       ⚠️ z-index는 #book-stage 안 레이어(최대 8)보다는 위, 전역 토스트/모달(200+)보다는
+       아래로 잡는다 — 페이지 넘김 도중 그런 UI가 겹칠 일은 드물지만, 혹시 겹쳐도 안 가려야 하니까. */
+    .page-turn-clone {
+      position: fixed;
+      margin: 0;
+      transform-origin: 0% 50%;
+      transform: none;
+      z-index: 30;
+      pointer-events: none;
+      box-shadow: -10px 0 30px rgba(0, 0, 0, 0.28);
+      transition: transform 0.32s cubic-bezier(.45, 0, .2, 1), opacity 0.32s ease;
+      will-change: transform, opacity;
+    }
+    .page-turn-clone.turning {
+      transform: perspective(1400px) rotateY(-108deg) translateX(-4%);
+      opacity: 0;
     }
 
     input[type="file"] { display: none; }
