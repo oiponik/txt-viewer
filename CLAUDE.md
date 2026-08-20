@@ -124,3 +124,10 @@ Bookify — 로그인한 사용자가 `.txt` 파일을 업로드해서 페이지
   - **보너스**: 탭이 한 번도 배경으로 안 가고(=`visibilitychange`가 안 뜨고) 화면에 계속 떠 있는 채로 다른 기기가 더 읽는 경우도 따라잡도록, 보이는 동안 1분마다 `syncProgressFromServer()`를 추가로 돌리는 `setInterval`을 붙였다([reader.js:2093](js/reader.js:2093) 근처).
   - **검증**: 개발자(dev) 세션(로컬스토리지 기반)에서, ① 아무것도 안 읽은 채 hidden→visible을 흉내내면 저장을 안 건드림, ② 그 상태에서 다른 기기가 저장한 것처럼 로컬스토리지 값을 더 앞선 위치로 바꿔놓고 hidden→visible을 흉내내면 그 값이 그대로 보존됨(수정 전이었다면 PC의 옛 값으로 덮어썼을 상황), ③ 실제로 페이지를 넘긴 직후 곧바로 hidden이 되면 여전히 즉시 플러시되어 새 위치가 정상 저장됨 — 세 가지 다 브라우저에서 직접 확인. 콘솔 에러 없음. 실제 두 기기(진짜 로그인 계정) 간 크로스디바이스 시나리오까지는 이 환경에서 확인 못 함(dev 세션은 Firestore를 안 씀) — 다음에 실기기로 한 번 더 확인할 가치 있음.
   - `CACHE_VERSION` `v26`→`v27`.
+- ✅ **완료·커밋됨 (2026-08-20)**: "뒤로가기(이전 페이지)가 애니메이션 없이 즉시 전환돼서 페이지가 실제로 넘어갔는지 구분하기 어렵다"는 사용자 피드백 대응.
+  - `jumpToPrevPage`가 왜 애니메이션 없이 즉시 전환하는지는 이미 코드 주석에 설명돼 있음(page-flip 라이브러리의 prev 애니메이션이 방향 비대칭이라 부자연스러움 — "Reading pipeline" 관련 함수 근처 참고) — 그 결정 자체는 유효하므로 되돌리지 않고, 대신 짧은 시각적 피드백만 추가.
+  - `#page-turn-flash` — `#brightness-overlay`/`#book-loading-overlay`와 같은 패턴으로 `#book-stage` 밖(`#main-content` 바로 아래)에 둔 새 오버레이 div(`index.html`). `--reading-text`를 옅게(`opacity: 0.16`) 깔았다가 `0.22s ease-out`으로 빠지는 `flash` 애니메이션 클래스를 `styles.css`에 추가 — 라이트/다크 읽기 테마 양쪽에서 다 보이도록 고정색이 아니라 `--reading-text` 변수를 씀.
+  - `reader.js`에 `flashPageTurn()` 추가, `jumpToPrevPage()`의 `turnToPage()` 직후에 호출. 연타 시에도 매번 다시 보이도록 `classList.remove` → 강제 리플로우(`el.offsetWidth`) → `classList.add`로 애니메이션을 재시작시킴.
+  - 슬라이더 드래그로 넘기는 `jumpToGlobalPage`는 건드리지 않음 — 슬라이더 자체가 이미 시각적 피드백을 주고, 사용자 피드백은 "뒤로가기"(스와이프/탭/키보드 좌측 화살표)에 한정됐음.
+  - `CACHE_VERSION` `v27`→`v28`.
+  - ⚠️ **검증 한계**: 이 원격 실행 환경(컨테이너)은 프록시가 `www.gstatic.com`/`cdn.jsdelivr.net`(Firebase SDK, page-flip 라이브러리 CDN)을 403으로 막아서, dev 로그인으로 실제 뷰어를 여는 end-to-end 브라우저 검증을 못 했다(`curl`로도 같은 403 확인). 대신 같은 CSS 애니메이션 규칙 + `flashPageTurn()` 로직만 떼어낸 독립 HTML로 Playwright 검증: 트리거 직후 `opacity 0.16` → 애니메이션 도중 감쇠 → 완료 후 `0`, 그리고 애니메이션 도중 재트리거해도 다시 `0.16`으로 정상 복귀하는 것까지 확인. 실제 뷰어 화면에서 눈으로 보는 확인은 다음에 네트워크 제약 없는 환경(로컬 `preview_start` 등)에서 한 번 더 하면 좋음.
