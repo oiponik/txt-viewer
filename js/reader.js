@@ -796,27 +796,17 @@ function updateBookmarkToggleButton() {
   btn.classList.toggle('active', bookmarked);
 }
 
-// 💡 "이전 페이지"는 next와 똑같은 넘기기(curl) 애니메이션을 쓰면 부자연스럽다 —
-// page-flip 라이브러리(StPageFlip) 소스의 PageCollection.getFlippingPage/getBottomPage가
-// portrait(세로, 한 페이지) 모드에서 방향별로 비대칭이기 때문이다(소스 확인 완료).
-// forward는 "현재 페이지의 임시 복사본(newTemporaryCopy())이 위에서 말려 넘어가고,
-// 그 밑에 진짜 다음 페이지(pages[current+1])가 고정돼 있다가 드러나는" 2겹 구조라
-// 자연스럽지만, backward는 getFlippingPage와 getBottomPage가 똑같이
-// pages[current-1]을 반환한다 — 즉 위/아래 레이어가 물리적으로 같은 객체라 2겹 합성
-// 자체가 성립하지 않는다(HTMLRender.drawBottomPage도 이 방향에선 아예 그리기를
-// 건너뜀). 페이지 한 장이 이상하게 회전하며 나타나는 것처럼 보이는 게 그 결과다.
-// 이건 앱 코드가 아니라 라이브러리 자체의 구조적 한계라 고칠 수 없다.
-//
-// landscape(가로, 두 페이지 스프레드) 모드는 이 버그가 없다 — getFlippingPage/
-// getBottomPage가 spread[0]/spread[1](서로 다른 실제 페이지)을 반환해서 2겹 합성이
-// 정상 성립하므로, 라이브러리의 진짜 flipPrev() 애니메이션을 그대로 쓴다
-// (goToNextPage가 flipNext()를 그대로 쓰는 것과 대칭 — 'flip' 이벤트 핸들러가
-// 진행상황 저장/창 재정렬을 알아서 다 처리해준다).
-//
-// portrait 모드에서만 라이브러리에 기대지 않고 우리가 직접 "가짜 플립"을 만든다
-// (아래 playPrevPageFlipAnimation 참고).
+// 💡 이전 페이지도 이제 next와 완전히 대칭이다 — page-flip 라이브러리(StPageFlip)
+// 자체를 패치해서, portrait(세로, 한 페이지) 모드에서 backward flip이 2겹 합성 안 되던
+// 업스트림 버그를 고쳤다(PageCollection.getFlippingPage/getBottomPage가 같은 페이지
+// 객체를 반환해서 "위에서 말리는 복사본"과 "밑에서 드러나는 실제 이전 페이지"가
+// 물리적으로 같은 객체이던 문제 — js/vendor/page-flip.browser.js 상단 주석 참고).
+// 그래서 더 이상 우리가 애니메이션을 대신 만들 필요 없이, 라이브러리의 진짜
+// flipPrev()를 그대로 쓰면 된다 — goToNextPage가 flipNext()를 그대로 쓰는 것과
+// 완전히 대칭. 'flip' 이벤트 핸들러가 진행상황 저장/페이지 인디케이터 갱신/창
+// 재정렬을 알아서 다 처리해준다.
 function jumpToPrevPage() {
-  if (!pageFlip || isShiftingWindow) return;
+  if (!pageFlip) return;
   const globalIndex = windowStartIndex + pageFlip.getCurrentPageIndex();
   if (globalIndex <= 0) {
     // 지금까지 알려진 것 중 첫 페이지에 도달했다 — 진짜 책 시작이면 조용히 아무 일도
@@ -824,69 +814,7 @@ function jumpToPrevPage() {
     if (!pendingBackwardDone) setStatus('아직 이 부분을 준비하고 있어요. 잠시 후 다시 시도해주세요.');
     return;
   }
-
-  if (pageFlip.getOrientation() === 'landscape') {
-    pageFlip.flipPrev();
-    return;
-  }
-
-  const targetGlobal = globalIndex - 1;
-
-  // 콘텐츠가 바뀌기 전, 지금 화면에 보이는 페이지를 미리 복제해서 애니메이션을 시작해둔다.
-  playPrevPageFlipAnimation();
-
-  isShiftingWindow = true; // turnToPage가 내부적으로 쏘는 'flip' 이벤트를 무시시키기 위한 가드
-  try {
-    pageFlip.turnToPage(targetGlobal - windowStartIndex);
-  } finally {
-    isShiftingWindow = false;
-  }
-
-  currentLastCharIndex = pageStartIndices[targetGlobal] || 0;
-  progressDirty = true;
-  updatePageIndicator(targetGlobal);
-
-  clearTimeout(debounceSaveTimer);
-  debounceSaveTimer = setTimeout(() => {
-    saveProgress(currentFileName, currentLastCharIndex);
-    progressDirty = false;
-  }, 300);
-
-  maybeShiftPageWindow(targetGlobal);
-}
-
-// portrait 모드 전용 "가짜" 이전 페이지 플립 애니메이션.
-// 지금 보이는 페이지 DOM을 통째로 복제해서 뷰포트 위에 고정시켜 놓고, 왼쪽 모서리를
-// 축으로 돌며 사라지게 한다. 진짜 콘텐츠는 이 애니메이션이 끝나기 전에 이미
-// turnToPage()로 바뀌어 있으므로(호출 순서: 이 함수 → turnToPage), 복제본이 걷히면
-// 그 밑에서 진짜 이전 페이지가 자연스럽게 드러나는 것처럼 보인다.
-// ⚠️ page-flip 라이브러리 내부에는 전혀 손대지 않는다 — 버전이 올라가도 안전하다.
-function playPrevPageFlipAnimation() {
-  const pageEls = document.querySelectorAll('#my-book .page');
-  const currentPageEl = pageEls[pageFlip.getCurrentPageIndex()];
-  if (!currentPageEl) return;
-
-  const rect = currentPageEl.getBoundingClientRect();
-  if (rect.width === 0 || rect.height === 0) return; // 화면에 안 보이는 상태면 굳이 안 함
-
-  const clone = currentPageEl.cloneNode(true);
-  clone.removeAttribute('style'); // page-flip이 내부 레이아웃용으로 걸어둔 인라인 스타일(위치/transform 등)을 전부 버리고
-  clone.className = 'page page-turn-clone'; // .page 클래스의 배경/글자색/폰트 등 기본 스타일만 다시 입힌다
-  clone.style.top = rect.top + 'px';
-  clone.style.left = rect.left + 'px';
-  clone.style.width = rect.width + 'px';
-  clone.style.height = rect.height + 'px';
-  document.body.appendChild(clone);
-
-  // 강제 리플로우 후 다음 프레임에 애니메이션 클래스를 붙여야, 삽입 직후 같은
-  // 프레임에서 곧바로 붙였을 때 일부 브라우저가 초기 상태를 커밋하기 전이라
-  // 애니메이션을 건너뛰는 경우를 피할 수 있다.
-  void clone.offsetWidth;
-  requestAnimationFrame(() => clone.classList.add('turning'));
-
-  const remove = () => clone.remove();
-  clone.addEventListener('animationend', remove, { once: true });
-  setTimeout(remove, 1100); // animationend가 어떤 이유로든 안 뜨는 경우를 위한 안전장치 (애니메이션 1000ms + 여유)
+  pageFlip.flipPrev();
 }
 
 // pageFlip.flipNext()를 직접 부르는 모든 자리(스와이프/탭/휠/키보드)를 이걸로

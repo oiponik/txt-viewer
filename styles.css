@@ -737,55 +737,6 @@
       margin-top: 5px;
     }
 
-    /* portrait(세로, 한 페이지) 모드에서 jumpToPrevPage가 재생하는 "가짜" 이전 페이지
-       플립 애니메이션 — playPrevPageFlipAnimation() 참고. page-flip 라이브러리의 진짜
-       prev 애니메이션은 이 모드에서 구조적으로 깨져 있어서(reader.js의 jumpToPrevPage
-       위 주석 참고) 대신 지금 보이는 페이지를 복제해서 여기 스타일로 왼쪽 모서리를
-       축으로 돌며 사라지게 한다. position/top/left/width/height는 JS가 인라인으로
-       채운다 — 여기 있는 position: fixed는 .page의 position: relative를 이기기 위한
-       것(이 규칙이 스타일시트에서 .page보다 뒤에 있어야 함).
-       ⚠️ z-index는 #book-stage 안 레이어(최대 8)보다는 위, 전역 토스트/모달(200+)보다는
-       아래로 잡는다 — 페이지 넘김 도중 그런 UI가 겹칠 일은 드물지만, 혹시 겹쳐도 안 가려야 하니까.
-       ⚠️ 지속시간(1000ms)은 page-flip 라이브러리의 다음 페이지 애니메이션 기본값
-       (Settings.flippingTime, 이 앱이 따로 오버라이드 안 함)과 일부러 맞췄다 — 처음엔
-       0.32s로 만들었다가 실제로 보니 다음 페이지보다 3배 빨라서 한 쌍처럼 안 느껴진다는
-       피드백을 받고 고침. ::after의 그림자 스윕도 진짜 커얼이 접히는 지점에서 그림자가
-       짙어졌다 옅어지는 느낌을 흉내낸 것 — 다만 이건 어디까지나 근사치다. 진짜 라이브러리는
-       프레임마다 곡면 자체를 다시 계산하는 방식이라(소스 확인 완료) 평평한 카드를 돌리는
-       이 방식과 알고리즘 자체가 다르고, 그 렌더링 엔진을 그대로 재사용하려면 버전 고정
-       없이 CDN 최신을 받아 쓰는 이 앱 특성상 위험한 내부 몬키패치가 필요해서 배제했다. */
-    .page-turn-clone {
-      position: fixed;
-      margin: 0;
-      transform-origin: 0% 50%;
-      z-index: 30;
-      pointer-events: none;
-      box-shadow: -10px 0 30px rgba(0, 0, 0, 0.28);
-      will-change: transform, opacity;
-    }
-    .page-turn-clone.turning {
-      animation: page-turn-flip 1000ms cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
-    }
-    @keyframes page-turn-flip {
-      0% { transform: none; opacity: 1; }
-      100% { transform: perspective(1400px) rotateY(-100deg) translateX(-4%); opacity: 0; }
-    }
-    /* 접히는 지점(왼쪽 모서리)에서 짙어졌다 옅어지는 그림자 — 진짜 커얼의 fold shadow를 흉내 */
-    .page-turn-clone::after {
-      content: '';
-      position: absolute; inset: 0;
-      background: linear-gradient(to right, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0) 55%);
-      opacity: 0;
-    }
-    .page-turn-clone.turning::after {
-      animation: page-turn-shadow 1000ms ease-out forwards;
-    }
-    @keyframes page-turn-shadow {
-      0% { opacity: 0; }
-      45% { opacity: 0.9; }
-      100% { opacity: 0; }
-    }
-
     input[type="file"] { display: none; }
     button { cursor: pointer; }
 

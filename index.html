@@ -26,8 +26,11 @@
        sw.js가 다른 정적 파일처럼 항상 미리 캐싱해서 이 문제가 없다. -->
   <link rel="stylesheet" href="styles.css">
 
-  <!-- PageFlip 라이브러리 CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/page-flip/dist/js/page-flip.browser.js"></script>
+  <!-- PageFlip 라이브러리 — CDN 대신 자체 호스팅 + 패치된 버전(js/vendor/page-flip.browser.js 상단
+       주석 참고: portrait 모드 backward flip이 2겹 합성 안 되던 업스트림 버그를 고침). 위 구글
+       폰트 자체 호스팅과 같은 이유 하나 더 추가 — 버전 고정 없이 CDN 최신을 그대로 받아 쓰던 걸
+       고정된 우리 사본으로 바꿔서, 이 패치가 다음 CDN 업데이트에 조용히 사라질 위험도 없앴다. -->
+  <script src="js/vendor/page-flip.browser.js"></script>
 
   <!-- 앱 로직 (js/ 아래 도메인별 모듈로 분리됨 — main.js가 진입점) -->
   <script type="module" src="js/main.js"></script>
