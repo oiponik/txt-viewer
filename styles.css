@@ -660,6 +660,26 @@
       to { transform: rotate(360deg); }
     }
 
+    /* 이전 페이지(jumpToPrevPage)는 page-flip 라이브러리의 넘기기 애니메이션이
+       방향 비대칭이라(위 jumpToPrevPage 주석 참고) 애니메이션 없이 즉시 전환한다 —
+       그러다 보니 "정말 넘어갔는지" 구분이 안 된다는 피드백이 있어서, 대신 아주
+       짧은 플래시 펄스로 최소한의 전환 신호를 준다. --reading-text를 옅게 깔아서
+       라이트/다크 읽기 테마 양쪽에서 다 보이게 한다. */
+    #page-turn-flash {
+      position: absolute; inset: 0;
+      pointer-events: none;
+      z-index: 6;
+      background-color: var(--reading-text);
+      opacity: 0;
+    }
+    #page-turn-flash.flash {
+      animation: page-turn-flash-anim 0.22s ease-out;
+    }
+    @keyframes page-turn-flash-anim {
+      0% { opacity: 0.16; }
+      100% { opacity: 0; }
+    }
+
     #my-book {
       max-width: 100%; max-height: 100%;
       position: relative;

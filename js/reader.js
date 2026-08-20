@@ -806,6 +806,18 @@ function updateBookmarkToggleButton() {
 // 애니메이션 없이 즉시 전환한다 — jumpToGlobalPage(슬라이더 이동)와 같은 패턴으로
 // turnToPage를 조용히 호출하고, 페이지 인디케이터/진행률 저장/창 재정렬은 우리가
 // 직접 처리한다.
+// 위 #page-turn-flash 주석 참고 — 애니메이션 없이 즉시 전환되는 jumpToPrevPage에
+// 짧은 플래시 펄스를 대신 넣어 "페이지가 넘어갔다"는 최소한의 시각 신호를 준다.
+// 같은 애니메이션이 연속으로 빠르게 재요청돼도(연타) 매번 다시 보이도록, 클래스를
+// 뗐다가 강제 리플로우 후 다시 붙인다.
+function flashPageTurn() {
+  const el = document.getElementById('page-turn-flash');
+  if (!el) return;
+  el.classList.remove('flash');
+  void el.offsetWidth; // 강제 리플로우: 같은 클래스를 다시 붙여도 애니메이션이 처음부터 재생되게 함
+  el.classList.add('flash');
+}
+
 function jumpToPrevPage() {
   if (!pageFlip || isShiftingWindow) return;
   const globalIndex = windowStartIndex + pageFlip.getCurrentPageIndex();
@@ -823,6 +835,7 @@ function jumpToPrevPage() {
   } finally {
     isShiftingWindow = false;
   }
+  flashPageTurn();
 
   currentLastCharIndex = pageStartIndices[targetGlobal] || 0;
   progressDirty = true;
