@@ -796,30 +796,17 @@ function updateBookmarkToggleButton() {
   btn.classList.toggle('active', bookmarked);
 }
 
-// 💡 "이전 페이지"는 next와 똑같은 넘기기(curl) 애니메이션을 쓰면 부자연스럽다 —
-// page-flip 라이브러리의 PageCollection.getFlippingPage/getBottomPage가 portrait(한
-// 페이지) 모드에서 방향별로 비대칭이기 때문이다(소스 확인 완료). next는 "현재 페이지의
-// 임시 복사본이 위에서 말려 넘어가고, 그 밑에 진짜 다음 페이지가 고정돼 있다가 드러나는"
-// 2겹 구조라 자연스럽지만, prev는 flippingPage와 bottomPage가 같은 객체(이전 페이지
-// 원본)라서 2겹 합성 자체가 안 되고 페이지 한 장이 그냥 회전하며 나타나는 것처럼
-// 보인다. 이건 앱 코드가 아니라 라이브러리 자체의 설계라 고칠 수 없어서, 아예
-// 애니메이션 없이 즉시 전환한다 — jumpToGlobalPage(슬라이더 이동)와 같은 패턴으로
-// turnToPage를 조용히 호출하고, 페이지 인디케이터/진행률 저장/창 재정렬은 우리가
-// 직접 처리한다.
-// 위 #page-turn-flash 주석 참고 — 애니메이션 없이 즉시 전환되는 jumpToPrevPage에
-// 짧은 플래시 펄스를 대신 넣어 "페이지가 넘어갔다"는 최소한의 시각 신호를 준다.
-// 같은 애니메이션이 연속으로 빠르게 재요청돼도(연타) 매번 다시 보이도록, 클래스를
-// 뗐다가 강제 리플로우 후 다시 붙인다.
-function flashPageTurn() {
-  const el = document.getElementById('page-turn-flash');
-  if (!el) return;
-  el.classList.remove('flash');
-  void el.offsetWidth; // 강제 리플로우: 같은 클래스를 다시 붙여도 애니메이션이 처음부터 재생되게 함
-  el.classList.add('flash');
-}
-
+// 💡 이전 페이지도 이제 next와 완전히 대칭이다 — page-flip 라이브러리(StPageFlip)
+// 자체를 패치해서, portrait(세로, 한 페이지) 모드에서 backward flip이 2겹 합성 안 되던
+// 업스트림 버그를 고쳤다(PageCollection.getFlippingPage/getBottomPage가 같은 페이지
+// 객체를 반환해서 "위에서 말리는 복사본"과 "밑에서 드러나는 실제 이전 페이지"가
+// 물리적으로 같은 객체이던 문제 — js/vendor/page-flip.browser.js 상단 주석 참고).
+// 그래서 더 이상 우리가 애니메이션을 대신 만들 필요 없이, 라이브러리의 진짜
+// flipPrev()를 그대로 쓰면 된다 — goToNextPage가 flipNext()를 그대로 쓰는 것과
+// 완전히 대칭. 'flip' 이벤트 핸들러가 진행상황 저장/페이지 인디케이터 갱신/창
+// 재정렬을 알아서 다 처리해준다.
 function jumpToPrevPage() {
-  if (!pageFlip || isShiftingWindow) return;
+  if (!pageFlip) return;
   const globalIndex = windowStartIndex + pageFlip.getCurrentPageIndex();
   if (globalIndex <= 0) {
     // 지금까지 알려진 것 중 첫 페이지에 도달했다 — 진짜 책 시작이면 조용히 아무 일도
@@ -827,27 +814,7 @@ function jumpToPrevPage() {
     if (!pendingBackwardDone) setStatus('아직 이 부분을 준비하고 있어요. 잠시 후 다시 시도해주세요.');
     return;
   }
-  const targetGlobal = globalIndex - 1;
-
-  isShiftingWindow = true; // turnToPage가 내부적으로 쏘는 'flip' 이벤트를 무시시키기 위한 가드
-  try {
-    pageFlip.turnToPage(targetGlobal - windowStartIndex);
-  } finally {
-    isShiftingWindow = false;
-  }
-  flashPageTurn();
-
-  currentLastCharIndex = pageStartIndices[targetGlobal] || 0;
-  progressDirty = true;
-  updatePageIndicator(targetGlobal);
-
-  clearTimeout(debounceSaveTimer);
-  debounceSaveTimer = setTimeout(() => {
-    saveProgress(currentFileName, currentLastCharIndex);
-    progressDirty = false;
-  }, 300);
-
-  maybeShiftPageWindow(targetGlobal);
+  pageFlip.flipPrev();
 }
 
 // pageFlip.flipNext()를 직접 부르는 모든 자리(스와이프/탭/휠/키보드)를 이걸로

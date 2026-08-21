@@ -9,7 +9,7 @@
 // ⚠️ 정적 파일 목록을 바꿨으면(js/ 새 파일 추가 등) 아래 CACHE_VERSION을 올려야
 // 새 캐시가 만들어지고 옛 캐시가 정리된다 — 안 올리면 사용자는 계속 옛날 파일을
 // 오프라인 캐시에서 받게 된다.
-const CACHE_VERSION = 'bookify-shell-v28';
+const CACHE_VERSION = 'bookify-shell-v35';
 
 // 같은 출처(오리진) 정적 파일 — 설치 시점에 전부 미리 받아둔다.
 const PRECACHE_URLS = [
@@ -32,6 +32,7 @@ const PRECACHE_URLS = [
   './js/library.js',
   './js/auth.js',
   './js/storage-stats.js',
+  './js/vendor/page-flip.browser.js',
   './fonts/gowun-dodum.woff2',
   './fonts/noto-sans-kr-400.woff2',
   './fonts/noto-sans-kr-700.woff2',
@@ -39,17 +40,14 @@ const PRECACHE_URLS = [
   './fonts/noto-serif-kr-700.woff2',
 ];
 
-// PageFlip 라이브러리와 Firebase SDK도 같이 미리 받아둔다 — 전부 CDN(교차 출처)이지만
-// 없으면 앱이 아예 안 뜬다.
+// Firebase SDK도 같이 미리 받아둔다 — CDN(교차 출처)이지만 없으면 앱이 아예 안 뜬다.
+// PageFlip 라이브러리는 더 이상 여기 해당 안 됨 — js/vendor/page-flip.browser.js로 자체
+// 호스팅해서 PRECACHE_URLS(같은 출처)에 들어가 있다(index.html 주석 참고).
 // ⚠️ 실제로 있었던 버그: Firebase SDK(firebase-app/firestore/storage/auth.js)를 여기
 // 빠뜨렸었다 — firebase-init.js가 모듈 그래프 맨 앞쪽에서 이 파일들을 import하는데,
 // 캐싱이 안 돼있으니 오프라인일 때 이 fetch가 끝없이 멈춰버리고(에러도 안 남) 그 뒤
 // 모든 모듈이 영원히 로딩되지 않아 화면이 통째로 빈 채로 멈추는 원인이었다.
-// 일반 <script src>로 불러오는 PageFlip은 CORS 헤더가 없어도 실행되니 no-cors로 충분하다.
-const PRECACHE_NO_CORS_URLS = [
-  'https://cdn.jsdelivr.net/npm/page-flip/dist/js/page-flip.browser.js',
-];
-// ⚠️ 반면 Firebase SDK는 js 파일들이 <script type="module">의 import로 불러오는
+// ⚠️ Firebase SDK는 js 파일들이 <script type="module">의 import로 불러오는
 // 교차 출처 ES 모듈이라, no-cors로 캐싱한 "opaque" 응답을 돌려주면 브라우저의 모듈
 // 로더가 CORS 승인 정보가 없다고 보고 거부할 수 있다 — 반드시 진짜 CORS 모드(기본값)로
 // 받아서 캐싱해야 한다. gstatic.com은 정식으로 CORS를 지원하는 CDN이라 문제없다.
@@ -64,7 +62,7 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(CACHE_VERSION);
-      // ⚠️ cache.addAll()은 "전부 성공 아니면 전부 실패"라서, 17개 파일 중 하나라도
+      // ⚠️ cache.addAll()은 "전부 성공 아니면 전부 실패"라서, 이 중 하나라도
       // (일시적 네트워크 문제 등으로) 실패하면 설치 전체가 실패해서 단 하나도
       // 캐싱되지 않는다 — 그러면 서비스워커가 영영 활성화되지 못해 오프라인 지원 자체가
       // 통째로 죽는다. 그래서 하나씩 개별 실패를 허용하며 캐싱한다: 안 되는 파일이
@@ -74,13 +72,6 @@ self.addEventListener('install', (event) => {
         PRECACHE_URLS.map((url) =>
           cache.add(url).catch((err) => {
             console.error('[sw] 사전 캐싱 실패:', url, err);
-          })
-        )
-      );
-      await Promise.all(
-        PRECACHE_NO_CORS_URLS.map((url) =>
-          cache.add(new Request(url, { mode: 'no-cors' })).catch(() => {
-            // CDN이 그 순간 안 잡히면 그냥 넘어간다 — 다음 fetch 때 runtime 캐싱으로 보충됨
           })
         )
       );
@@ -119,7 +110,6 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(req.url);
   const isSameOrigin = url.origin === self.location.origin;
-  const isPageFlipCdn = url.href.startsWith('https://cdn.jsdelivr.net/npm/page-flip/');
   // Firebase SDK 본체(js/firebase-init.js 등이 import하는 실제 코드 파일들) — PRECACHE_CORS_URLS
   // 참고. www.gstatic.com이고, 실제 데이터 API(firestore.googleapis.com 등)와는 다른 도메인이다.
   const isFirebaseSdkCdn = url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/');
@@ -127,7 +117,7 @@ self.addEventListener('fetch', (event) => {
   // Firestore/Storage/Auth의 실제 데이터 API 요청(firestore.googleapis.com 등)은 그대로
   // 네트워크로 흘려보낸다 — 여긴 우리가 캐싱을 대신 결정할 자리가 아니라, book/library
   // 쪽 자체 오프라인 캐시(js/offline-cache.js, localStorage)가 각자 알아서 처리한다.
-  if (!isSameOrigin && !isPageFlipCdn && !isFirebaseSdkCdn) return;
+  if (!isSameOrigin && !isFirebaseSdkCdn) return;
 
   event.respondWith(
     (async () => {
