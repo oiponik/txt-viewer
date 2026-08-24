@@ -172,12 +172,21 @@ export function playPortraitPageTurn({
   activeAnimation = {
     leaf,
     onAnimationEnd,
-    // ⚠️ 탭이 백그라운드로 가면(다른 앱 전환, 화면 잠금 등) 브라우저가 CSS 애니메이션을
-    // 멈추거나 animationend를 안 쏠 수 있다 — 그 상태에서 이벤트만 기다리면 사용자가
-    // 다시 돌아왔을 때 넘어가다 만 페이지에 영원히 멈춰있는 것처럼 보인다. 이벤트와
-    // 별개로 흘러가는 setTimeout을 안전장치로 같이 걸어서, 어느 쪽이든 먼저 끝나는
-    // 쪽이 마무리를 맡는다.
-    safetyTimer: setTimeout(finish, duration + 500),
+    // ⚠️ 2026-08-25 3차 수정 — 이 타이머는 원래 "탭이 백그라운드로 가는 등 드문 경우에만
+    // 발동하는 안전장치"로 설계돼서 `duration + 500`(500ms 여유)이었다. 그런데 사용자가
+    // 키프레임/이징을 다 고친 뒤에도(2차 수정, 90도 교차 시점을 duration의 94%까지 밀어냄)
+    // "여전히 한 박자 쉬고 페이지 번호가 바뀐다"고 재신고했다 — 이 프로젝트의 자동화
+    // 브라우저 환경은 `document.hidden`이라 `animationend`가 원천적으로 절대 안 뜨고 항상
+    // 이 타이머가 완료를 처리하는데(위 파일 히스토리에서 반복 확인됨), 만약 실기기(특히
+    // iOS Safari — backface-visibility로 사라지는 3D 회전 요소는 `animationend`가 안 뜨는
+    // 걸로 알려진 사례들이 있다)에서도 같은 이유로 `animationend`가 안정적으로 안 뜬다면,
+    // *매번* 이 타이머가 완료를 처리하게 되고, 그러면 시각적으로는 duration(1000ms)
+    // 근처에 이미 다 끝난 페이지 전환이 여기 있던 여유분 500ms만큼 *추가로* 더 늦게야
+    // 코드에 반영된다 — 정확히 "한 박자 쉬고" 증상과 들어맞는 크기다. `animationend`가
+    // 뜨는지 여부와 무관하게 완료 시점을 우리가 정한 `duration`에 최대한 가깝게 못박기
+    // 위해, 여유분을 500ms→80ms(이벤트 디스패치/스케줄링 지터를 흡수할 정도만)로
+    // 줄였다 — `animationend`가 안 뜨는 기기에서도 이제 최대 80ms 안에는 확실히 끝난다.
+    safetyTimer: setTimeout(finish, duration + 80),
   };
   return true;
 }
