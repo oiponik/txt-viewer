@@ -611,23 +611,27 @@
        (접히는 쪽으로 살짝 눌리면서 종이가 휘어지는 느낌)과 translateZ(살짝 들어올려
        입체감)를 더하고, 그림자도 같은 타이밍에 짙어지게 해서 자연스러움을 더했다.
        ⚠️ rotateY가 90deg를 넘는 순간 backface-visibility:hidden 때문에 leaf가 완전히
-       안 보이게 된다 — 즉 애니메이션의 "뒷부분"(90~180deg)은 사용자 눈에 아예 안 보인다.
-       처음엔 감속 구간을 전체 타임라인의 뒷쪽(0~100%)에 걸어놨더니, 보이는 구간(대략
-       0~60% 근방까지)엔 곡선의 빠른 초반부만 노출되고 정작 "부드럽게 착지"하는 감속은
-       안 보이는 뒤쪽에서 낭비되고 있었다(사용자 피드백: "너무 빠르게 보인다") — 그래서
-       0% 키프레임에만 `animation-timing-function`을 걸어서, 딱 "거의 옆에서 보여 사라지기
-       직전"인 62% 지점까지만 그 감속 곡선이 적용되게 했다(키프레임별 타이밍 함수는 그
-       키프레임에서 *다음* 키프레임까지 구간에만 적용된다) — 그 이후(62%~100%, 이미 안
-       보이는 구간)는 지정 안 함(=아래 JS의 전체 애니메이션 기본값인 linear)이라 상관없다. */
+       안 보이게 된다 — 2026-08-25 이전엔 100% 지점을 -180deg(한 바퀴 다 돎)로 잡아놔서,
+       전체 duration의 뒤쪽 구간(대략 62%~100%)이 이미 안 보이는 채로 그냥 흘러갔다.
+       이게 두 가지 실제 문제를 만들었다: (1) 감속 곡선이 그 안 보이는 구간에 낭비돼서
+       "부드럽게 착지"하는 느낌이 안 보였고, (2) 더 심각하게는 — 유저 눈엔 leaf가 사라지고
+       (아래 base가 드러나서) 페이지가 이미 넘어간 것처럼 보이는 시점(~62~70% 지점)과
+       실제 `animationend`가 발동해서 `finishManualPageTurn()`(진행상황 저장/페이지
+       인디케이터 갱신)이 실행되는 시점(100%) 사이에 실제로 눈에 띄는 간극이 있어서,
+       "애니메이션이 끝나고 나서(=페이지가 이미 넘어간 것처럼 보인 다음 한참 뒤에) 페이지
+       번호가 움직이는" 것처럼 느껴졌다(사용자 신고, 2026-08-25). 그래서 100% 지점을 아예
+       "화면에서 사라지는 그 지점"(rotateY 92deg — 90을 살짝 넘겨 확실히 안 보이게)으로
+       당겼다 — 이제 `animationend`가 곧 "시각적으로 사라지는 순간"과 사실상 일치해서,
+       페이지 인디케이터 갱신도 눈으로 보이는 전환과 같은 타이밍에 일어난다. 감속 곡선도
+       더는 "몇 % 구간에만" 걸 필요가 없어져서, 키프레임 안 트릭 대신 아래 JS의 `animation`
+       shorthand에 통째로 걸었다(js/portrait-flip.js 참고). */
     @keyframes portrait-flip-leaf-next {
-      0%   { transform: rotateY(0deg) translateZ(0) scaleX(1); box-shadow: -14px 0 30px rgba(0,0,0,0.3); animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
-      62%  { transform: rotateY(-88deg) translateZ(24px) scaleX(0.84); box-shadow: -40px 0 60px rgba(0,0,0,0.5); }
-      100% { transform: rotateY(-180deg) translateZ(0) scaleX(1); box-shadow: -14px 0 30px rgba(0,0,0,0.3); }
+      0%   { transform: rotateY(0deg) translateZ(0) scaleX(1); box-shadow: -14px 0 30px rgba(0,0,0,0.3); }
+      100% { transform: rotateY(-92deg) translateZ(24px) scaleX(0.84); box-shadow: -40px 0 60px rgba(0,0,0,0.5); }
     }
     @keyframes portrait-flip-leaf-prev {
-      0%   { transform: rotateY(0deg) translateZ(0) scaleX(1); box-shadow: 14px 0 30px rgba(0,0,0,0.3); animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
-      62%  { transform: rotateY(88deg) translateZ(24px) scaleX(0.84); box-shadow: 40px 0 60px rgba(0,0,0,0.5); }
-      100% { transform: rotateY(180deg) translateZ(0) scaleX(1); box-shadow: 14px 0 30px rgba(0,0,0,0.3); }
+      0%   { transform: rotateY(0deg) translateZ(0) scaleX(1); box-shadow: 14px 0 30px rgba(0,0,0,0.3); }
+      100% { transform: rotateY(92deg) translateZ(24px) scaleX(0.84); box-shadow: 40px 0 60px rgba(0,0,0,0.5); }
     }
 
     /* 밝기 오버레이 — 브라우저는 실제 기기 화면 밝기를 제어할 수 없어서, 읽기
