@@ -16,7 +16,7 @@ import { currentUser, isDevUser, lastOpenedFileKey, fileDocId, DEV_BOOK_FILENAME
 import { setStatus, showLibraryScreen, openSheet, closeSheet, releaseWakeLock, resetWakeLockIdleTimer } from "./ui-shared.js";
 import { markActiveFileRow, refreshRecentFiles } from "./library.js";
 import { isBookCached, isBookStale, getCachedBookText, cacheBookText } from "./offline-cache.js";
-import { flashPageTurn } from "./portrait-flip.js";
+import { playPortraitPageTurn, isPortraitFlipAnimating, cancelPortraitFlip } from "./portrait-flip.js";
 
 export let currentFileName = "";
 export function setCurrentFileName(name) {
@@ -232,6 +232,7 @@ function hideBookLoadingOverlay() {
 // 로그아웃 시 뷰어 상태를 정리한다 (auth.js가 currentFileName/rawTextData/pageFlip에
 // 직접 손댈 수 없어서 — 모듈 바깥에서 재할당 불가 — 대신 이 함수를 호출해서 정리한다)
 export function resetReaderSession() {
+  cancelPortraitFlip();
   if (pageFlip) { pageFlip.destroy(); pageFlip = null; }
   currentFileName = "";
   rawTextData = "";
@@ -803,7 +804,7 @@ function updateBookmarkToggleButton() {
   btn.classList.toggle('active', bookmarked);
 }
 
-// 세로(한 페이지) 모드에서 페이지를 애니메이션 없이 즉시 넘길 때 호출 — pageFlip.on('flip', ...)
+// 세로(한 페이지) 모드에서 portrait-flip.js 애니메이션이 끝난 뒤 호출 — pageFlip.on('flip', ...)
 // 핸들러가 가로 모드의 라이브러리 애니메이션 뒤에 하는 일(진행 상황 저장/페이지 인디케이터
 // 갱신/창 재정렬/화면 항상 켜짐 타이머 리셋)을 그대로 재현한다. isShiftingWindow로 감싸서
 // turnToPage()가 쏘는 합성 'flip' 이벤트가 이 로직을 중복 실행하지 않게 막는다 —
@@ -832,12 +833,10 @@ function finishManualPageTurn(targetGlobal) {
 
 // ⚠️ 세로(한 페이지) 모드와 가로(2페이지 스프레드) 모드가 완전히 다른 경로를 탄다:
 //   - 가로: 원래부터 문제없던 StPageFlip의 flipPrev()/flipNext()를 그대로 쓴다.
-//   - 세로: 애니메이션 자체를 아예 안 쓴다. StPageFlip 패치(9라운드) → 순수 translate3d
-//     밀기 → 원본 커얼 수학을 진짜 1페이지 컨테이너에 이식, 이렇게 세 번을 서로 다른
-//     방식으로 다시 구현했는데도 매번 실기기에서 같은 종류의 렌더링 글리치가 재발했다
-//     (js/portrait-flip.js 상단 주석 참고) — 그래서 사용자 결정으로 세로 모드의 페이지
-//     넘김 애니메이션 자체를 포기했다. 지금은 pageFlip.turnToPage()로 콘텐츠를 즉시
-//     바꾸고, flashPageTurn()의 짧은 명암 펄스 하나로만 "넘어갔다"는 걸 알려준다.
+//   - 세로: StPageFlip 내부 애니메이션 대신 portrait-flip.js의 별도 구현을 쓴다 —
+//     clip-path 기반 커얼을 세 가지 방식으로 다시 구현해봐도 실기기에서 계속 같은
+//     종류의 글리치가 재발해서(js/portrait-flip.js 상단 주석 참고), 사용자 결정으로
+//     clip-path 기법 자체를 버리고 CSS 3D rotateY 카드 뒤집기로 완전히 다시 만들었다.
 function jumpToPrevPage() {
   if (!pageFlip) return;
   const globalIndex = windowStartIndex + pageFlip.getCurrentPageIndex();
@@ -849,15 +848,26 @@ function jumpToPrevPage() {
   }
 
   if (isSinglePageMode) {
-    finishManualPageTurn(globalIndex - 1);
-    flashPageTurn();
+    if (isPortraitFlipAnimating()) return; // 애니메이션 도중 겹쳐 눌림 방지
+    const targetGlobal = globalIndex - 1;
+    playPortraitPageTurn({
+      stage: stageContainer,
+      width: currentRenderWidth,
+      height: currentRenderHeight,
+      direction: 'prev',
+      leavingText: allTextPages[globalIndex],
+      leavingFooter: `- ${globalIndex + 1} / ${totalPages} -`,
+      revealingText: allTextPages[targetGlobal],
+      revealingFooter: `- ${targetGlobal + 1} / ${totalPages} -`,
+      onDone: () => finishManualPageTurn(targetGlobal),
+    });
     return;
   }
 
   pageFlip.flipPrev();
 }
 
-// pageFlip.flipNext()/finishManualPageTurn을 직접 부르는 모든 자리(스와이프/탭/휠/
+// pageFlip.flipNext()/portrait-flip.js 재생을 직접 부르는 모든 자리(스와이프/탭/휠/
 // 키보드)를 이걸로 대체한다 — 지금까지 알려진 마지막 페이지에서 더 넘기려 할 때, 진짜
 // 책 끝이면 조용히 아무 일도 안 하고, 아직 배경 계산이 거기까지 못 미친 것뿐이면
 // 안내한다(jumpToPrevPage의 반대쪽과 대응).
@@ -870,11 +880,22 @@ function goToNextPage() {
   }
 
   if (isSinglePageMode) {
+    if (isPortraitFlipAnimating()) return;
+    const targetGlobal = globalIndex + 1;
     // 진짜 책 끝(더 넘길 페이지가 없음) — flipNext()가 라이브러리 안에서 조용히
     // 무시하던 것과 똑같이, 여기서도 그냥 아무 일도 안 하고 끝낸다.
-    if (globalIndex + 1 >= totalPages) return;
-    finishManualPageTurn(globalIndex + 1);
-    flashPageTurn();
+    if (targetGlobal >= totalPages) return;
+    playPortraitPageTurn({
+      stage: stageContainer,
+      width: currentRenderWidth,
+      height: currentRenderHeight,
+      direction: 'next',
+      leavingText: allTextPages[globalIndex],
+      leavingFooter: `- ${globalIndex + 1} / ${totalPages} -`,
+      revealingText: allTextPages[targetGlobal],
+      revealingFooter: `- ${targetGlobal + 1} / ${totalPages} -`,
+      onDone: () => finishManualPageTurn(targetGlobal),
+    });
     return;
   }
 
@@ -1508,6 +1529,7 @@ async function buildFlipBook() {
 
   const myBuildGeneration = ++buildGeneration;
 
+  cancelPortraitFlip();
   if (pageFlip) {
     pageFlip.destroy();
     pageFlip = null;

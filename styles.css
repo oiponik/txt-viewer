@@ -632,27 +632,6 @@
     }
     #brightness-drag-indicator.visible { opacity: 1; }
 
-    /* 세로(한 페이지) 모드 전용 페이지 넘김 피드백 — js/portrait-flip.js의 flashPageTurn()이
-       재생한다. 세로 모드는 애니메이션 없이 페이지 콘텐츠가 즉시 바뀌므로(왜 그런지는
-       js/portrait-flip.js 상단 주석 참고), 뭔가 바뀌었다는 걸 알려주는 짧은 명암 펄스만
-       담당한다 — 두 읽기 테마(밝음/어둠) 모두에서 보이도록 고정색이 아니라 읽기 테마
-       변수(--reading-text)를 쓴다. ⚠️ #brightness-overlay와 같은 이유로 #book-stage
-       "밖"(#main-content 바로 아래)에 둬야 한다. */
-    #page-turn-flash {
-      position: absolute; inset: 0;
-      background: var(--reading-text);
-      opacity: 0;
-      pointer-events: none;
-      z-index: 6;
-    }
-    #page-turn-flash.flash {
-      animation: page-turn-flash-pulse 0.22s ease-out;
-    }
-    @keyframes page-turn-flash-pulse {
-      from { opacity: 0.16; }
-      to { opacity: 0; }
-    }
-
     /* 책 로딩 오버레이 — 다른 책을 열면 다운로드+페이지 분할이 끝날 때까지(buildFlipBook이
        #book-stage.innerHTML을 교체하기 전까지) 방금 전까지 보던 이전 책의 마지막 화면이
        그대로 남아있던 문제를 막는다. loadFileFromStorage가 시작되자마자 이걸로 덮어서

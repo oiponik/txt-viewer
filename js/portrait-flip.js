@@ -1,40 +1,161 @@
-// js/portrait-flip.js — 세로(모바일, 한 페이지) 모드 전용 페이지 넘기기 시각 효과.
+// js/portrait-flip.js — 세로(모바일, 한 페이지) 모드 전용 페이지 넘기기 애니메이션.
 //
 // ⚠️ 이 파일의 역사(중요, 다시 손댈 때 꼭 읽을 것):
-// 2026-08-18~24 사이, 세로 모드의 "이전 페이지" 커얼 애니메이션을 StPageFlip
-// (js/vendor/page-flip.browser.js) 패치로 고치려는 시도가 9라운드 이어졌다 — 라이브러리가
-// 세로 모드를 "2페이지 스프레드 중 왼쪽 페이지를 화면 밖으로 숨겨서 1페이지처럼 보이게"
-// 만드는 구조라, 그 좌표계 안에서 backward 방향 애니메이션이 실기기에서 계속 글자 겹침
-// 글리치를 냈다. 이후 StPageFlip을 완전히 버리고 순수 translate3d 밀기 방식으로,
-// 그 다음엔 원본 커얼 수학을 진짜 1페이지 컨테이너에 직접 이식하는 방식으로 두 차례 더
-// 다시 구현했지만 — 이 코드가 이론적으로 검증됐다고 확인한 뒤에도, 실기기에서는
-// **똑같은 종류의 문제가 계속 재발**했다(사용자 확인, 2026-08-24). 세 번의 서로 다른
-// 구현이 전부 이 환경의 자동화 브라우저(document.hidden=true라 실제 페인트를 직접 볼 수
-// 없음, CLAUDE.md 진행 상황 메모 참고)에서는 "검증됨"으로 나왔는데 실기기에서는 계속
-// 깨진다는 패턴 자체가, 이 클래스의 애니메이션(페이지 콘텐츠에 매 프레임 clip-path/rotate
-// 등 복잡한 변형을 거는 방식)을 이 환경에서 신뢰성 있게 구현/검증하는 것 자체가 무리라는
-// 뜻으로 받아들여 — 사용자 결정으로 **세로 모드의 페이지 넘김 애니메이션을 통째로 포기**
-// 하고, 아주 단순한 깜빡임(flash) 피드백 하나로 완전히 대체했다.
+// StPageFlip의 세로 모드 커얼(clip-path 다각형 + rotate를 매 프레임 JS로 갱신하는 방식)을
+// 세 가지 서로 다른 구현으로 시도했다 — ① 라이브러리 자체를 9라운드에 걸쳐 패치, ②
+// 순수 translate3d 밀기(문제는 없었지만 사용자가 원한 "진짜 애니메이션"이 아니었음),
+// ③ 라이브러리 소스의 커얼 수학을 진짜 1페이지 컨테이너에 직접 이식. 셋 다 이 환경에서는
+// 검증됐다고 나왔지만(수식·좌표·DOM 값이 논리적으로 맞음을 확인) — 실기기에서는 매번
+// 같은 종류의 글리치(회전된 텍스트 조각/겹침)가 재발했다(사용자 확인, 2026-08-24 여러 차례,
+// 다른 컴퓨터의 이전 세션들 포함). 원인이 명확히 하나로 좁혀지지 않은 채(포팅 버그일
+// 수도, 이 조합 자체의 브라우저 렌더링 한계일 수도 있음) 반복됐기 때문에, 사용자 결정으로
+// **"clip-path + 매 프레임 JS 스타일 갱신" 기법 자체를 완전히 버리고** 처음부터 다른
+// 메커니즘으로 다시 만들었다 — 이전 세 구현의 코드는 전혀 재사용하지 않는다.
 //
-// 지금 이 파일은 그래서 아주 작다: `flashPageTurn()` 하나뿐이고, 페이지 콘텐츠 자체는
-// (jumpToPrevPage/goToNextPage에서) 애니메이션 없이 즉시 바뀐다 — 이 함수는 그 순간
-// "뭔가 바뀌었다"는 걸 알려주는 짧은 명암 펄스만 담당한다. clip-path/rotate/translate3d로
-// 페이지 콘텐츠 자체를 변형하는 코드는 이제 전혀 없다 — 그게 3번의 재구현 내내 문제의
-// 근원이었으므로, 아예 그 종류의 코드 자체를 다시 안 쓴다.
+// 새 방식: CSS 3D `perspective` + `rotateY` 카드 뒤집기.
+//   - clip-path를 아예 안 쓴다 — 지금까지 문제의 공통분모였던 요소 자체가 없다.
+//   - 매 프레임 JS가 스타일을 직접 쓰지 않는다 — `leaf.style.transform`을 한 번만
+//     바꾸고 나머지는 CSS `transition`이 브라우저 자체 보간으로 처리한다(JS 구동 rAF
+//     루프가 아예 없음). 이건 아주 오래되고 널리 쓰이는 검증된 기법(카드 뒤집기 UI 등)
+//     이라 실기기 신뢰성이 지금까지 시도보다 훨씬 높다.
+//   - 실제 DOM(.page 요소, createPageElements가 쓰는 것과 같은 구조)을 그대로 쓴다 —
+//     캔버스나 이미지 스냅샷이 아니라서 폰트/렌더링이 항상 정확하고, 스냅샷 관련 위험
+//     (예: 커스텀 웹폰트가 SVG foreignObject 안에서 깨지는 WebKit 특유의 버그)이 없다.
+//   - ⚠️ 시각적으로 종이가 대각선으로 말리는 느낌(PC의 진짜 커얼)과는 다르다 — 세로축
+//     중심으로 평평하게 회전하는 카드 뒤집기 느낌이다. 슬라이드보다는 훨씬 "진짜
+//     애니메이션"에 가깝지만, PC와 완전히 동일한 모양은 아니라는 트레이드오프를 사용자도
+//     인지하고 진행하기로 함.
 //
 // 가로(PC, 2페이지 스프레드) 모드는 이 파일과 전혀 무관하다 — 계속 StPageFlip의
 // flipNext()/flipPrev()를 그대로 쓴다(원래도 문제 없었고, 지금도 안 건드린다).
 
-// stage는 #book-stage(부모가 이미 position:relative) — 안 쓴다, 대신 #page-turn-flash가
-// #book-stage "밖"(#main-content 바로 아래)에 고정으로 떠 있다(#brightness-overlay와
-// 같은 이유 — buildFlipBook이 #book-stage.innerHTML을 통째로 갈아끼우므로 그 안에 두면
-// 페이지를 새로 열 때마다 사라진다). 그래서 이 함수는 인자를 받지 않는다.
-export function flashPageTurn() {
-  const el = document.getElementById('page-turn-flash');
-  if (!el) return;
-  // 연타해도 매번 다시 보이도록: 애니메이션 클래스를 뗐다가(강제 리플로우로 확실히
-  // 반영시킨 뒤) 다시 붙여서 재생을 처음부터 다시 시작시킨다.
-  el.classList.remove('flash');
-  void el.offsetWidth; // 강제 리플로우
-  el.classList.add('flash');
+let activeAnimation = null; // 겹쳐 눌림 방지 — 애니메이션 도중 새 호출은 조용히 무시한다
+
+export function isPortraitFlipAnimating() {
+  return activeAnimation !== null;
+}
+
+// buildFlipBook이 리사이즈 등으로 #book-stage를 통째로 갈아끼우기 직전에 부른다 —
+// 그 시점에 마침 애니메이션이 돌고 있었다면, DOM이 밑에서 통째로 사라지므로 onDone()을
+// 호출해봤자(finishManualPageTurn이 방금 파괴된 pageFlip 인스턴스를 건드리게 됨) 의미가
+// 없다. 진행 중이던 리스너/타이머만 조용히 정리하고 onDone은 아예 부르지 않는다 —
+// 어차피 buildFlipBook이 새 pageFlip을 만들면서 현재 페이지를 다시 정확히 그려준다.
+export function cancelPortraitFlip() {
+  if (!activeAnimation) return;
+  clearTimeout(activeAnimation.safetyTimer);
+  activeAnimation.leaf.removeEventListener('transitionend', activeAnimation.onTransitionEnd);
+  activeAnimation = null;
+}
+
+// createPageElements()(reader.js)가 진짜 페이지에 쓰는 것과 정확히 같은 DOM
+// 구조(.page > .page-content + .page-footer)를 그대로 재현한다 — styles.css의
+// .page 스타일(배경색/글꼴/패딩 등)을 별도 손질 없이 그대로 물려받기 위함이다.
+function buildPageElement(text, footer, width, height) {
+  const el = document.createElement('div');
+  el.className = 'page';
+  el.style.position = 'absolute';
+  el.style.top = '0';
+  el.style.left = '0';
+  el.style.width = width + 'px';
+  el.style.height = height + 'px';
+
+  const content = document.createElement('div');
+  content.className = 'page-content';
+  content.textContent = text;
+
+  const footerEl = document.createElement('div');
+  footerEl.className = 'page-footer';
+  footerEl.textContent = footer;
+
+  el.appendChild(content);
+  el.appendChild(footerEl);
+  return el;
+}
+
+// direction: 'next' | 'prev'. stage는 오버레이를 붙일 기준 요소(#book-stage, position:relative
+// 이미 걸려있음) — 오버레이가 그 안을 정확히 꽉 채운다.
+// 반환값: 애니메이션을 실제로 시작했으면 true, 이미 진행 중이라 무시했으면 false.
+export function playPortraitPageTurn({
+  stage, width, height, direction,
+  leavingText, leavingFooter, revealingText, revealingFooter,
+  duration = 600, onDone,
+}) {
+  if (activeAnimation) return false;
+
+  const perspectiveStage = document.createElement('div');
+  perspectiveStage.className = 'portrait-flip-stage';
+  perspectiveStage.style.position = 'absolute';
+  perspectiveStage.style.inset = '0';
+  perspectiveStage.style.zIndex = '20';
+  perspectiveStage.style.pointerEvents = 'none';
+  perspectiveStage.style.perspective = '1600px';
+
+  // 아래층 — 새로 드러날 페이지. 처음부터 제자리에 고정, 애니메이션 내내 움직이지 않는다.
+  const base = buildPageElement(revealingText, revealingFooter, width, height);
+  base.style.zIndex = '1';
+
+  // 위층 — 지금 보이던(넘어가는) 페이지. 이게 세로축을 중심으로 90도를 넘어 회전하면
+  // backface-visibility:hidden 덕분에 뒷면(안 보이는 쪽)을 보게 되는 순간 시각적으로
+  // "사라져서" 밑에 있던 base가 드러나는 것처럼 보인다.
+  const leaf = buildPageElement(leavingText, leavingFooter, width, height);
+  leaf.style.zIndex = '2';
+  leaf.style.backfaceVisibility = 'hidden';
+  leaf.style.webkitBackfaceVisibility = 'hidden';
+  leaf.style.transformStyle = 'preserve-3d';
+  leaf.style.willChange = 'transform';
+  // next(다음 페이지): 왼쪽 가장자리를 축으로 왼쪽으로 접히듯 회전.
+  // prev(이전 페이지): 오른쪽 가장자리를 축으로 오른쪽으로 접히듯 회전.
+  // 부호(sign) 하나만 다르고 나머지 로직은 완전히 동일해서, 두 방향이 항상 대칭이다.
+  const sign = direction === 'next' ? -1 : 1;
+  leaf.style.transformOrigin = sign < 0 ? 'left center' : 'right center';
+  leaf.style.transform = 'rotateY(0deg)';
+  leaf.style.transition = `transform ${duration}ms ease-in-out`;
+  // 회전 중 입체감을 주는 고정 그림자 — 매 프레임 갱신되는 그림자가 아니라 각도 자체가
+  // 안 바뀌는 static box-shadow라서, 지금까지 문제였던 것과는 완전히 다른(훨씬 단순한)
+  // 렌더링 경로를 탄다.
+  leaf.style.boxShadow = sign < 0
+    ? '-14px 0 30px rgba(0,0,0,0.3)'
+    : '14px 0 30px rgba(0,0,0,0.3)';
+
+  perspectiveStage.appendChild(base);
+  perspectiveStage.appendChild(leaf);
+  stage.appendChild(perspectiveStage);
+
+  let finished = false;
+
+  function finish() {
+    if (finished) return;
+    finished = true;
+    if (activeAnimation) {
+      clearTimeout(activeAnimation.safetyTimer);
+      leaf.removeEventListener('transitionend', onTransitionEnd);
+    }
+    perspectiveStage.remove();
+    activeAnimation = null;
+    onDone();
+  }
+
+  function onTransitionEnd(e) {
+    if (e.target !== leaf || e.propertyName !== 'transform') return;
+    finish();
+  }
+  leaf.addEventListener('transitionend', onTransitionEnd);
+
+  // 강제 리플로우 후 목표 각도로 트랜지션을 시작한다 — 리플로우 없이 바로 값을 바꾸면
+  // 브라우저가 시작 상태(rotateY(0deg))와 목표 상태를 한 프레임에 합쳐서 트랜지션 없이
+  // 바로 끝난 모습으로 그려버릴 수 있다.
+  void leaf.offsetWidth;
+  leaf.style.transform = `rotateY(${sign * 180}deg)`;
+
+  activeAnimation = {
+    leaf,
+    onTransitionEnd,
+    // ⚠️ 탭이 백그라운드로 가면(다른 앱 전환, 화면 잠금 등) 브라우저가 CSS 트랜지션을
+    // 멈추거나 transitionend를 안 쏠 수 있다 — 그 상태에서 이벤트만 기다리면 사용자가
+    // 다시 돌아왔을 때 넘어가다 만 페이지에 영원히 멈춰있는 것처럼 보인다. 이벤트와
+    // 별개로 흘러가는 setTimeout을 안전장치로 같이 걸어서, 어느 쪽이든 먼저 끝나는
+    // 쪽이 마무리를 맡는다.
+    safetyTimer: setTimeout(finish, duration + 500),
+  };
+  return true;
 }
