@@ -257,3 +257,8 @@ Bookify — 로그인한 사용자가 `.txt` 파일을 업로드해서 페이지
   - **검증**: 이 환경 특유의 캐싱-프록시 문제(같은 탭을 계속 재사용하면 예전 파일을 계속 서빙하는 것으로 보임 — CLAUDE.md에 이미 기록된 증상)를 이번에 직접 겪었다 — 기존 탭에서 PFDEBUG 로그가 여전히 찍혀서 처음엔 "코드 삭제가 실패했나?" 헷갈렸는데, 새 탭을 열어 다시 확인하니 깨끗했다. 최종적으로 새 탭에서: 로그 완전히 사라짐 확인, `leaf.style.animation`이 `"650ms linear ... portrait-flip-leaf-next"`로 설정됨, `document.styleSheets`에서 `@keyframes portrait-flip-leaf-next`의 0% 규칙에 `animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1)`이 정확히 걸려있고 62%/100% 값도 의도한 그대로임을 확인, 가로 모드 재검증(landscape 정상, PFDEBUG 없음), 콘솔에 앱 관련 실제 에러 없음(리소스 400 에러 하나는 검증 중 내가 직접 시도한 `127.0.0.1` 접속 실패였을 뿐, 앱과 무관).
   - `sw.js`의 `CACHE_VERSION`을 `v47`→`v48`로 올림.
   - 여전히 이 환경에서 감속 곡선이 실제로 자연스럽게 느껴지는지는 확인 불가 — 사용자가 실기기에서 "착지가 이제 보이는지, 속도가 적당한지" 다시 판단해야 한다.
+- ✅ **완료·커밋됨 (2026-08-25)**: 위 타이밍 튜닝 이후에도 사용자가 실기기에서 "페이지 넘어가는 속도가 너무 빠르게 느껴진다"고 피드백 — 세로 모드 애니메이션 전체 길이만 늘림.
+  - `js/portrait-flip.js`의 `playPortraitPageTurn()` 기본 `duration`을 `650`→`850`ms로 늘렸다(호출부인 `js/reader.js`의 `jumpToPrevPage`/`goToNextPage`가 `duration`을 안 넘기므로 이 기본값이 그대로 적용됨). `safetyTimer`(`duration + 500`)는 이미 `duration` 변수를 참조해서 자동으로 같이 늘어남 — 별도 수정 불필요.
+  - 키프레임 자체(`styles.css`의 `portrait-flip-leaf-next`/`-prev`, 감속 곡선이 걸리는 0~62% 구간 비율, scaleX 눌림 정도)는 안 건드림 — "속도"에 대한 피드백이라 전체 길이만 조정, 곡선 모양은 그대로 유지.
+  - `sw.js`의 `CACHE_VERSION`을 `v48`→`v49`로 올림.
+  - **검증 한계**: 이 세션도 브라우저 자동화로 실제 애니메이션 재생 속도(체감)를 확인할 방법이 없다(과거 라운드들과 동일한 rAF/CSS transition 정지 제약) — 순수 상수 변경이라 로직 리스크는 낮지만, 최종 판단(650→850ms가 충분한지, 더 늘려야 하는지)은 사용자가 실기기에서 확인해야 한다.

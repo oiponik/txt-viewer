@@ -83,7 +83,7 @@ function buildPageElement(text, footer, width, height) {
 export function playPortraitPageTurn({
   stage, width, height, direction,
   leavingText, leavingFooter, revealingText, revealingFooter,
-  duration = 650, onDone,
+  duration = 850, onDone,
 }) {
   if (activeAnimation) return false;
 
