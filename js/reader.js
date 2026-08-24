@@ -16,6 +16,7 @@ import { currentUser, isDevUser, lastOpenedFileKey, fileDocId, DEV_BOOK_FILENAME
 import { setStatus, showLibraryScreen, openSheet, closeSheet, releaseWakeLock, resetWakeLockIdleTimer } from "./ui-shared.js";
 import { markActiveFileRow, refreshRecentFiles } from "./library.js";
 import { isBookCached, isBookStale, getCachedBookText, cacheBookText } from "./offline-cache.js";
+import { playPortraitPageTurn, isPortraitFlipAnimating, cancelPortraitFlip } from "./portrait-flip.js";
 
 export let currentFileName = "";
 export function setCurrentFileName(name) {
@@ -23,6 +24,12 @@ export function setCurrentFileName(name) {
 }
 let rawTextData = "";
 let pageFlip = null;
+// 세로(한 페이지) 모드인지 + PageFlip에 실제로 넘긴 렌더링 크기 — buildFlipBook에서만
+// 계산되던 로컬 값이었는데, jumpToPrevPage/goToNextPage가 세로 모드에서는
+// portrait-flip.js의 별도 애니메이션으로 갈아타야 해서 모듈 스코프로 끌어올렸다.
+let isSinglePageMode = false;
+let currentRenderWidth = 0;
+let currentRenderHeight = 0;
 let debounceSaveTimer = null;
 let resizeTimer = null;
 let buildGeneration = 0; // buildFlipBook 재진입/경합 방지용 세대 번호
@@ -225,6 +232,7 @@ function hideBookLoadingOverlay() {
 // 로그아웃 시 뷰어 상태를 정리한다 (auth.js가 currentFileName/rawTextData/pageFlip에
 // 직접 손댈 수 없어서 — 모듈 바깥에서 재할당 불가 — 대신 이 함수를 호출해서 정리한다)
 export function resetReaderSession() {
+  cancelPortraitFlip();
   if (pageFlip) { pageFlip.destroy(); pageFlip = null; }
   currentFileName = "";
   rawTextData = "";
@@ -796,15 +804,42 @@ function updateBookmarkToggleButton() {
   btn.classList.toggle('active', bookmarked);
 }
 
-// 💡 이전 페이지도 이제 next와 완전히 대칭이다 — page-flip 라이브러리(StPageFlip)
-// 자체를 패치해서, portrait(세로, 한 페이지) 모드에서 backward flip이 2겹 합성 안 되던
-// 업스트림 버그를 고쳤다(PageCollection.getFlippingPage/getBottomPage가 같은 페이지
-// 객체를 반환해서 "위에서 말리는 복사본"과 "밑에서 드러나는 실제 이전 페이지"가
-// 물리적으로 같은 객체이던 문제 — js/vendor/page-flip.browser.js 상단 주석 참고).
-// 그래서 더 이상 우리가 애니메이션을 대신 만들 필요 없이, 라이브러리의 진짜
-// flipPrev()를 그대로 쓰면 된다 — goToNextPage가 flipNext()를 그대로 쓰는 것과
-// 완전히 대칭. 'flip' 이벤트 핸들러가 진행상황 저장/페이지 인디케이터 갱신/창
-// 재정렬을 알아서 다 처리해준다.
+// 세로(한 페이지) 모드에서 portrait-flip.js 애니메이션이 끝난 뒤 호출 — pageFlip.on('flip', ...)
+// 핸들러가 라이브러리 자체 애니메이션 뒤에 하는 일(진행 상황 저장/페이지 인디케이터 갱신/
+// 창 재정렬/화면 항상 켜짐 타이머 리셋)을 그대로 재현한다. isShiftingWindow로 감싸서
+// turnToPage()가 쏘는 합성 'flip' 이벤트가 이 로직을 중복 실행하지 않게 막는다 —
+// maybeShiftPageWindow가 이미 쓰고 있는 것과 같은 패턴.
+function finishManualPageTurn(targetGlobal) {
+  isShiftingWindow = true;
+  try {
+    pageFlip.turnToPage(targetGlobal - windowStartIndex);
+  } finally {
+    isShiftingWindow = false;
+  }
+
+  currentLastCharIndex = pageStartIndices[targetGlobal] || 0;
+  progressDirty = true;
+  updatePageIndicator(targetGlobal);
+
+  clearTimeout(debounceSaveTimer);
+  debounceSaveTimer = setTimeout(() => {
+    saveProgress(currentFileName, currentLastCharIndex);
+    progressDirty = false;
+  }, 300);
+
+  maybeShiftPageWindow(targetGlobal);
+  resetWakeLockIdleTimer();
+}
+
+// ⚠️ 세로(한 페이지) 모드와 가로(2페이지 스프레드) 모드가 완전히 다른 경로를 탄다:
+//   - 가로: 원래부터 문제없던 StPageFlip의 flipPrev()/flipNext()를 그대로 쓴다.
+//   - 세로: StPageFlip 내부 애니메이션 대신 portrait-flip.js의 별도 구현을 쓴다.
+//     StPageFlip이 세로 모드를 "2페이지 스프레드의 왼쪽 페이지를 화면 밖으로 숨겨서
+//     1페이지처럼 보이게" 만드는 구조라, 그 안에서 backward 방향 커얼 애니메이션이
+//     9라운드에 걸친 라이브러리 패치(js/vendor/page-flip.browser.js 상단 주석 참고)
+//     로도 실기기에서 계속 글자가 겹쳐 보였다 — 계산되는 모든 값은 검증됐는데
+//     실제 페인트만 깨지는, JS로는 못 잡아내는 종류의 결함으로 결론 내렸다. 그래서
+//     세로 모드는 StPageFlip을 아예 안 쓰는 별도 구현으로 완전히 분리했다.
 function jumpToPrevPage() {
   if (!pageFlip) return;
   const globalIndex = windowStartIndex + pageFlip.getCurrentPageIndex();
@@ -814,13 +849,31 @@ function jumpToPrevPage() {
     if (!pendingBackwardDone) setStatus('아직 이 부분을 준비하고 있어요. 잠시 후 다시 시도해주세요.');
     return;
   }
+
+  if (isSinglePageMode) {
+    if (isPortraitFlipAnimating()) return; // 애니메이션 도중 겹쳐 눌림 방지
+    const targetGlobal = globalIndex - 1;
+    playPortraitPageTurn({
+      stage: stageContainer,
+      width: currentRenderWidth,
+      height: currentRenderHeight,
+      direction: 'prev',
+      leavingText: allTextPages[globalIndex],
+      leavingFooter: `- ${globalIndex + 1} / ${totalPages} -`,
+      revealingText: allTextPages[targetGlobal],
+      revealingFooter: `- ${targetGlobal + 1} / ${totalPages} -`,
+      onDone: () => finishManualPageTurn(targetGlobal),
+    });
+    return;
+  }
+
   pageFlip.flipPrev();
 }
 
-// pageFlip.flipNext()를 직접 부르는 모든 자리(스와이프/탭/휠/키보드)를 이걸로
-// 대체한다 — 지금까지 알려진 마지막 페이지에서 더 넘기려 할 때, 진짜 책 끝이면
-// 조용히 아무 일도 안 하고(flipNext가 알아서 무시함), 아직 배경 계산이 거기까지
-// 못 미친 것뿐이면 안내한다(jumpToPrevPage의 반대쪽과 대응).
+// pageFlip.flipNext()/portrait-flip.js 재생을 직접 부르는 모든 자리(스와이프/탭/휠/
+// 키보드)를 이걸로 대체한다 — 지금까지 알려진 마지막 페이지에서 더 넘기려 할 때, 진짜
+// 책 끝이면 조용히 아무 일도 안 하고, 아직 배경 계산이 거기까지 못 미친 것뿐이면
+// 안내한다(jumpToPrevPage의 반대쪽과 대응).
 function goToNextPage() {
   if (!pageFlip) return;
   const globalIndex = windowStartIndex + pageFlip.getCurrentPageIndex();
@@ -828,6 +881,27 @@ function goToNextPage() {
     setStatus('아직 이 부분을 준비하고 있어요. 잠시 후 다시 시도해주세요.');
     return;
   }
+
+  if (isSinglePageMode) {
+    if (isPortraitFlipAnimating()) return;
+    const targetGlobal = globalIndex + 1;
+    // 진짜 책 끝(더 넘길 페이지가 없음) — flipNext()가 라이브러리 안에서 조용히
+    // 무시하던 것과 똑같이, 여기서도 그냥 아무 일도 안 하고 끝낸다.
+    if (targetGlobal >= totalPages) return;
+    playPortraitPageTurn({
+      stage: stageContainer,
+      width: currentRenderWidth,
+      height: currentRenderHeight,
+      direction: 'next',
+      leavingText: allTextPages[globalIndex],
+      leavingFooter: `- ${globalIndex + 1} / ${totalPages} -`,
+      revealingText: allTextPages[targetGlobal],
+      revealingFooter: `- ${targetGlobal + 1} / ${totalPages} -`,
+      onDone: () => finishManualPageTurn(targetGlobal),
+    });
+    return;
+  }
+
   pageFlip.flipNext();
 }
 
@@ -1458,6 +1532,7 @@ async function buildFlipBook() {
 
   const myBuildGeneration = ++buildGeneration;
 
+  cancelPortraitFlip();
   if (pageFlip) {
     pageFlip.destroy();
     pageFlip = null;
@@ -1499,6 +1574,11 @@ async function buildFlipBook() {
   // 뚜렷하게 드러났다.
   const renderWidth = isSinglePage ? stageWidth : stageWidth / 2;
   const renderHeight = stageHeight;
+  // jumpToPrevPage/goToNextPage가 세로 모드 여부와 정확한 렌더링 크기를 알아야
+  // portrait-flip.js로 갈아탈지 판단하고, 넘길 페이지 요소 크기를 맞출 수 있다.
+  isSinglePageMode = isSinglePage;
+  currentRenderWidth = renderWidth;
+  currentRenderHeight = renderHeight;
 
   // 💡 같은 파일을 같은 창 크기로 다시 열면(책 재방문, 창 크기 원복 등) 페이지 분할을
   // 다시 계산하지 않고 캐시에서 즉시 가져온다. 순서: 메모리 캐시 → localStorage(다른
@@ -1876,7 +1956,7 @@ window.addEventListener('pointerup', (e) => {
     if (dx < 0) {
       goToNextPage(); // 왼쪽으로 스와이프 → 다음 페이지
     } else {
-      jumpToPrevPage(); // 오른쪽으로 스와이프 → 이전 페이지 (애니메이션 없이 즉시 전환)
+      jumpToPrevPage(); // 오른쪽으로 스와이프 → 이전 페이지
     }
     return;
   }
@@ -1911,7 +1991,7 @@ stageContainer.addEventListener('wheel', (e) => {
   if (e.deltaY > 0) {
     goToNextPage(); // 아래로 스크롤 → 다음 페이지
   } else {
-    jumpToPrevPage(); // 위로 스크롤 → 이전 페이지 (애니메이션 없이 즉시 전환)
+    jumpToPrevPage(); // 위로 스크롤 → 이전 페이지
   }
 }, { passive: false });
 
