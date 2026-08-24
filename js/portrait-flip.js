@@ -14,10 +14,15 @@
 //
 // 새 방식: CSS 3D `perspective` + `rotateY` 카드 뒤집기.
 //   - clip-path를 아예 안 쓴다 — 지금까지 문제의 공통분모였던 요소 자체가 없다.
-//   - 매 프레임 JS가 스타일을 직접 쓰지 않는다 — `leaf.style.transform`을 한 번만
-//     바꾸고 나머지는 CSS `transition`이 브라우저 자체 보간으로 처리한다(JS 구동 rAF
+//   - 매 프레임 JS가 스타일을 직접 쓰지 않는다 — `leaf.style.animation`을 한 번만
+//     설정하고 나머지는 CSS `@keyframes`가 브라우저 자체 보간으로 처리한다(JS 구동 rAF
 //     루프가 아예 없음). 이건 아주 오래되고 널리 쓰이는 검증된 기법(카드 뒤집기 UI 등)
 //     이라 실기기 신뢰성이 지금까지 시도보다 훨씬 높다.
+//   - 2026-08-24 튜닝: 사용자가 참고차 보여준 다른 flipbook(WebGL 기반, 기법 자체는
+//     안 가져옴)의 애니메이션이 더 자연스러워 보인다고 해서, 단순 rotateY 회전에
+//     가속·감속 커브(cubic-bezier)와 중간 지점(45%)의 scaleX 압축(휘어지는 느낌)+
+//     translateZ(입체감)+동적 그림자를 얹었다(styles.css의 `@keyframes
+//     portrait-flip-leaf-next/prev`) — 여전히 clip-path 없음, 여전히 선언적 애니메이션.
 //   - 실제 DOM(.page 요소, createPageElements가 쓰는 것과 같은 구조)을 그대로 쓴다 —
 //     캔버스나 이미지 스냅샷이 아니라서 폰트/렌더링이 항상 정확하고, 스냅샷 관련 위험
 //     (예: 커스텀 웹폰트가 SVG foreignObject 안에서 깨지는 WebKit 특유의 버그)이 없다.
@@ -43,7 +48,7 @@ export function isPortraitFlipAnimating() {
 export function cancelPortraitFlip() {
   if (!activeAnimation) return;
   clearTimeout(activeAnimation.safetyTimer);
-  activeAnimation.leaf.removeEventListener('transitionend', activeAnimation.onTransitionEnd);
+  activeAnimation.leaf.removeEventListener('animationend', activeAnimation.onAnimationEnd);
   activeAnimation = null;
 }
 
@@ -108,14 +113,13 @@ export function playPortraitPageTurn({
   // 부호(sign) 하나만 다르고 나머지 로직은 완전히 동일해서, 두 방향이 항상 대칭이다.
   const sign = direction === 'next' ? -1 : 1;
   leaf.style.transformOrigin = sign < 0 ? 'left center' : 'right center';
-  leaf.style.transform = 'rotateY(0deg)';
-  leaf.style.transition = `transform ${duration}ms ease-in-out`;
-  // 회전 중 입체감을 주는 고정 그림자 — 매 프레임 갱신되는 그림자가 아니라 각도 자체가
-  // 안 바뀌는 static box-shadow라서, 지금까지 문제였던 것과는 완전히 다른(훨씬 단순한)
-  // 렌더링 경로를 탄다.
-  leaf.style.boxShadow = sign < 0
-    ? '-14px 0 30px rgba(0,0,0,0.3)'
-    : '14px 0 30px rgba(0,0,0,0.3)';
+  // 회전(rotateY) + 압축(scaleX, 접히는 쪽으로 살짝 눌려 종이가 휘어지는 느낌) + 들어올림
+  // (translateZ, 입체감) + 동적 그림자를 전부 styles.css의 @keyframes 하나로 묶어뒀다 —
+  // transition 두 단계(시작값→목표값)가 아니라 중간 지점(45%)에 별도 상태가 있는
+  // 애니메이션이라 @keyframes가 필요하다. 그래도 여전히 clip-path 없음, JS 매 프레임
+  // 갱신 없음 — 브라우저가 알아서 보간하는 선언적 애니메이션인 건 그대로다.
+  leaf.style.animation =
+    `portrait-flip-leaf-${direction} ${duration}ms cubic-bezier(0.22, 1, 0.36, 1)`;
 
   perspectiveStage.appendChild(base);
   perspectiveStage.appendChild(leaf);
@@ -128,30 +132,24 @@ export function playPortraitPageTurn({
     finished = true;
     if (activeAnimation) {
       clearTimeout(activeAnimation.safetyTimer);
-      leaf.removeEventListener('transitionend', onTransitionEnd);
+      leaf.removeEventListener('animationend', onAnimationEnd);
     }
     perspectiveStage.remove();
     activeAnimation = null;
     onDone();
   }
 
-  function onTransitionEnd(e) {
-    if (e.target !== leaf || e.propertyName !== 'transform') return;
+  function onAnimationEnd(e) {
+    if (e.target !== leaf || e.animationName !== `portrait-flip-leaf-${direction}`) return;
     finish();
   }
-  leaf.addEventListener('transitionend', onTransitionEnd);
-
-  // 강제 리플로우 후 목표 각도로 트랜지션을 시작한다 — 리플로우 없이 바로 값을 바꾸면
-  // 브라우저가 시작 상태(rotateY(0deg))와 목표 상태를 한 프레임에 합쳐서 트랜지션 없이
-  // 바로 끝난 모습으로 그려버릴 수 있다.
-  void leaf.offsetWidth;
-  leaf.style.transform = `rotateY(${sign * 180}deg)`;
+  leaf.addEventListener('animationend', onAnimationEnd);
 
   activeAnimation = {
     leaf,
-    onTransitionEnd,
-    // ⚠️ 탭이 백그라운드로 가면(다른 앱 전환, 화면 잠금 등) 브라우저가 CSS 트랜지션을
-    // 멈추거나 transitionend를 안 쏠 수 있다 — 그 상태에서 이벤트만 기다리면 사용자가
+    onAnimationEnd,
+    // ⚠️ 탭이 백그라운드로 가면(다른 앱 전환, 화면 잠금 등) 브라우저가 CSS 애니메이션을
+    // 멈추거나 animationend를 안 쏠 수 있다 — 그 상태에서 이벤트만 기다리면 사용자가
     // 다시 돌아왔을 때 넘어가다 만 페이지에 영원히 멈춰있는 것처럼 보인다. 이벤트와
     // 별개로 흘러가는 setTimeout을 안전장치로 같이 걸어서, 어느 쪽이든 먼저 끝나는
     // 쪽이 마무리를 맡는다.
