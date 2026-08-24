@@ -83,7 +83,7 @@ function buildPageElement(text, footer, width, height) {
 export function playPortraitPageTurn({
   stage, width, height, direction,
   leavingText, leavingFooter, revealingText, revealingFooter,
-  duration = 600, onDone,
+  duration = 650, onDone,
 }) {
   if (activeAnimation) return false;
 
@@ -115,11 +115,14 @@ export function playPortraitPageTurn({
   leaf.style.transformOrigin = sign < 0 ? 'left center' : 'right center';
   // 회전(rotateY) + 압축(scaleX, 접히는 쪽으로 살짝 눌려 종이가 휘어지는 느낌) + 들어올림
   // (translateZ, 입체감) + 동적 그림자를 전부 styles.css의 @keyframes 하나로 묶어뒀다 —
-  // transition 두 단계(시작값→목표값)가 아니라 중간 지점(45%)에 별도 상태가 있는
+  // transition 두 단계(시작값→목표값)가 아니라 중간 지점(62%)에 별도 상태가 있는
   // 애니메이션이라 @keyframes가 필요하다. 그래도 여전히 clip-path 없음, JS 매 프레임
   // 갱신 없음 — 브라우저가 알아서 보간하는 선언적 애니메이션인 건 그대로다.
-  leaf.style.animation =
-    `portrait-flip-leaf-${direction} ${duration}ms cubic-bezier(0.22, 1, 0.36, 1)`;
+  // ⚠️ 여기서는 전체 타이밍 함수로 linear를 준다 — 실제 감속 곡선은 styles.css의
+  // @keyframes 0% 규칙에 걸린 animation-timing-function이 "보이는 구간(0~62%)"에만
+  // 적용되도록 별도로 맡고 있다(90도를 넘으면 backface-visibility로 안 보이니, 안 보이는
+  // 뒷부분에 감속을 낭비하지 않기 위함 — 자세한 이유는 styles.css 주석 참고).
+  leaf.style.animation = `portrait-flip-leaf-${direction} ${duration}ms linear`;
 
   perspectiveStage.appendChild(base);
   perspectiveStage.appendChild(leaf);
