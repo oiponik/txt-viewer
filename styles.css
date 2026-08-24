@@ -621,17 +621,29 @@
        "애니메이션이 끝나고 나서(=페이지가 이미 넘어간 것처럼 보인 다음 한참 뒤에) 페이지
        번호가 움직이는" 것처럼 느껴졌다(사용자 신고, 2026-08-25). 그래서 100% 지점을 아예
        "화면에서 사라지는 그 지점"(rotateY 92deg — 90을 살짝 넘겨 확실히 안 보이게)으로
-       당겼다 — 이제 `animationend`가 곧 "시각적으로 사라지는 순간"과 사실상 일치해서,
-       페이지 인디케이터 갱신도 눈으로 보이는 전환과 같은 타이밍에 일어난다. 감속 곡선도
+       당겼다.
+       ⚠️ 그런데 그것만으로는 부족했다 — 사용자가 실기기에서 재확인 후 같은 증상을
+       재신고했다("한 박자 쉬고 페이지 번호가 움직인다"). Web Animations API로 실제
+       rotateY(t)를 duration 전체에 걸쳐 프레임별로 실측해보니: 그때 감속 곡선으로 쓰던
+       `cubic-bezier(0.16, 1, 0.3, 1)`(easeOutExpo 계열, 아주 급격한 감속)이 목표각(92deg)
+       대부분을 duration 초반(~55%)에 이미 다 돌아버리고, 나머지 45%는 마지막 2도를
+       극도로 느리게(=이미 90도를 넘어 안 보이는 상태로) 채우는 데 낭비되고 있었다 —
+       즉 100%를 "화면에서 사라지는 지점"으로 맞춰놔도, 감속 곡선 자체가 그 지점에
+       도달하는 시점을 duration 중반으로 앞당겨버린 것. 그래서 두 가지를 같이 고쳤다:
+       (1) 감속 곡선을 훨씬 완만한 표준 `ease-out`으로 바꾸고, (2) 목표각을 92→91deg로
+       살짝 낮췄다 — 이 조합을 같은 방식(Web Animations API, currentTime을 프레임 단위로
+       설정해 실측)으로 재검증한 결과 duration의 약 92%(920ms/1000ms) 지점에야 90도를
+       넘는 것으로 나왔다(이전엔 55%). 남은 ~8%(약 80ms)의 무의미한 여백은 있지만
+       사람이 인지하기 어려운 수준이라 실용적으로 충분하다고 판단했다. 감속 곡선도
        더는 "몇 % 구간에만" 걸 필요가 없어져서, 키프레임 안 트릭 대신 아래 JS의 `animation`
        shorthand에 통째로 걸었다(js/portrait-flip.js 참고). */
     @keyframes portrait-flip-leaf-next {
       0%   { transform: rotateY(0deg) translateZ(0) scaleX(1); box-shadow: -14px 0 30px rgba(0,0,0,0.3); }
-      100% { transform: rotateY(-92deg) translateZ(24px) scaleX(0.84); box-shadow: -40px 0 60px rgba(0,0,0,0.5); }
+      100% { transform: rotateY(-91deg) translateZ(24px) scaleX(0.84); box-shadow: -40px 0 60px rgba(0,0,0,0.5); }
     }
     @keyframes portrait-flip-leaf-prev {
       0%   { transform: rotateY(0deg) translateZ(0) scaleX(1); box-shadow: 14px 0 30px rgba(0,0,0,0.3); }
-      100% { transform: rotateY(92deg) translateZ(24px) scaleX(0.84); box-shadow: 40px 0 60px rgba(0,0,0,0.5); }
+      100% { transform: rotateY(91deg) translateZ(24px) scaleX(0.84); box-shadow: 40px 0 60px rgba(0,0,0,0.5); }
     }
 
     /* 밝기 오버레이 — 브라우저는 실제 기기 화면 밝기를 제어할 수 없어서, 읽기

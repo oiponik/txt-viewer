@@ -23,13 +23,21 @@
 //     가속·감속 커브(cubic-bezier)와 중간 지점의 scaleX 압축(휘어지는 느낌)+
 //     translateZ(입체감)+동적 그림자를 얹었다(styles.css의 `@keyframes
 //     portrait-flip-leaf-next/prev`) — 여전히 clip-path 없음, 여전히 선언적 애니메이션.
-//   - 2026-08-25 수정: 키프레임의 100% 지점을 rotateY 92deg(=backface-visibility로
+//   - 2026-08-25 수정(1차): 키프레임의 100% 지점을 rotateY 92deg(=backface-visibility로
 //     화면에서 사라지는 바로 그 지점)로 당겼다 — 예전엔 100%가 180deg(한 바퀴 다 돎)라
 //     duration의 뒤쪽 상당 구간이 이미 안 보이는 채로 낭비됐고, 그 탓에 유저 눈엔
 //     페이지가 이미 넘어간 것처럼 보인 뒤에도 `animationend`(→페이지 인디케이터 갱신)가
 //     한참 늦게 발동해서 "애니메이션이 끝나고 나서 페이지 번호가 움직이는" 것처럼
-//     보였다(사용자 신고). 이제 duration 전체가 보이는 구간이라 그 간극이 없다 —
-//     자세한 경위는 styles.css의 키프레임 위 주석 참고.
+//     보였다(사용자 신고).
+//   - 2026-08-25 수정(2차): 1차 수정만으로는 부족했다 — 사용자가 실기기에서 같은 증상을
+//     재신고("한 박자 쉬고 페이지 번호가 움직인다")했다. Web Animations API로 실제
+//     rotateY(t)를 프레임 단위로 실측해보니, 그때 쓰던 급격한 감속 곡선
+//     (`cubic-bezier(0.16, 1, 0.3, 1)`)이 목표각(92deg)을 duration의 ~55% 지점에서 이미
+//     다 돌아버려서 나머지 ~45%는 여전히 낭비되고 있었다 — 100%를 "사라지는 지점"에
+//     맞춰도 곡선 자체가 급하면 소용없다는 뜻. 감속 곡선을 완만한 `ease-out`으로 바꾸고
+//     목표각을 91deg로 살짝 낮춰서, 같은 방식으로 재측정한 결과 duration의 ~92%
+//     지점에야 90도를 넘는 것으로 확인됐다(자세한 수치는 styles.css의 키프레임 위
+//     주석·js/portrait-flip.js의 `leaf.style.animation` 근처 주석 참고).
 //   - 실제 DOM(.page 요소, createPageElements가 쓰는 것과 같은 구조)을 그대로 쓴다 —
 //     캔버스나 이미지 스냅샷이 아니라서 폰트/렌더링이 항상 정확하고, 스냅샷 관련 위험
 //     (예: 커스텀 웹폰트가 SVG foreignObject 안에서 깨지는 WebKit 특유의 버그)이 없다.
@@ -124,11 +132,18 @@ export function playPortraitPageTurn({
   // (translateZ, 입체감) + 동적 그림자를 전부 styles.css의 @keyframes 하나로 묶어뒀다.
   // 그래도 여전히 clip-path 없음, JS 매 프레임 갱신 없음 — 브라우저가 알아서 보간하는
   // 선언적 애니메이션인 건 그대로다.
-  // 2026-08-25: 키프레임의 100%가 이제 rotateY 92deg(=화면에서 사라지는 지점)에서 끝나서
-  // duration 전체가 "보이는 구간"이다 — 예전처럼 "안 보이는 뒷부분에 감속을 낭비하지
+  // 2026-08-25: 키프레임의 100%가 이제 rotateY 91deg(=화면에서 사라지는 지점 바로 너머)에서
+  // 끝나서 duration 전체가 "보이는 구간"이다 — 예전처럼 "안 보이는 뒷부분에 감속을 낭비하지
   // 않기 위해 0% 키프레임에만 timing-function을 거는" 트릭이 더 필요 없다. 감속 곡선을
   // 그냥 여기 animation shorthand에 통째로 건다(styles.css 키프레임 위 주석 참고).
-  leaf.style.animation = `portrait-flip-leaf-${direction} ${duration}ms cubic-bezier(0.16, 1, 0.3, 1)`;
+  // ⚠️ 여기서 `ease-out`을 쓰는 이유(같은 날 두 번째 수정) — 처음엔 더 급격한
+  // `cubic-bezier(0.16, 1, 0.3, 1)`(easeOutExpo)을 그대로 썼는데, 실측(Web Animations API로
+  // currentTime을 프레임 단위로 찍어 실제 rotateY(t)를 측정)해보니 이 곡선이 목표각의
+  // 대부분을 duration 초반 ~55%에 이미 다 돌아버리고 나머지 45%는 이미 안 보이는 상태로
+  // 낭비됐다 — 키프레임 100%를 "사라지는 지점"에 맞춰놔도 급격한 감속 곡선 자체가 그
+  // 지점 도달 시점을 앞당겨버리면 소용없다는 뜻. 훨씬 완만한 표준 `ease-out`으로
+  // 바꾸니 같은 측정 방법으로 duration의 ~92% 지점에야 90도를 넘는 것으로 확인됐다.
+  leaf.style.animation = `portrait-flip-leaf-${direction} ${duration}ms ease-out`;
 
   perspectiveStage.appendChild(base);
   perspectiveStage.appendChild(leaf);
