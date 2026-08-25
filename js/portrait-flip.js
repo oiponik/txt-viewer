@@ -93,10 +93,17 @@ function buildPageElement(text, footer, width, height) {
 }
 
 // direction: 'next' | 'prev'. stage는 오버레이를 붙일 기준 요소(#book-stage, position:relative
-// 이미 걸려있음) — 오버레이가 그 안을 정확히 꽉 채운다.
+// 이미 걸려있음).
+// offsetTop/offsetLeft: 진짜 PageFlip 페이지가 stage 안에서 실제로 그려지는 정확한 위치
+// (js/reader.js의 getActiveRealPageRect() 참고) — 예전엔 `inset:0`으로 stage 전체를
+// 그냥 덮었는데, 실기기 로그로 확인해보니 라이브러리 자체의 CSS 버그(.stf__wrapper를
+// .sft__wrapper로 잘못 쓴 오타 — 아래 자세한 경위는 reader.js의 getActiveRealPageRect
+// 위 주석 참고) 때문에 진짜 페이지가 stage 전체를 정확히 안 채우고 최대 39px 정도
+// 어긋난 위치에 그려진다. 원인(라이브러리 CSS 버그)을 직접 고치는 대신, 오버레이를
+// "stage 전체"가 아니라 "진짜 페이지가 실제로 있는 그 자리"에 정확히 겹쳐 그린다.
 // 반환값: 애니메이션을 실제로 시작했으면 true, 이미 진행 중이라 무시했으면 false.
 export function playPortraitPageTurn({
-  stage, width, height, direction,
+  stage, width, height, direction, offsetTop = 0, offsetLeft = 0,
   leavingText, leavingFooter, revealingText, revealingFooter,
   duration = 1000, onDone,
 }) {
@@ -105,7 +112,10 @@ export function playPortraitPageTurn({
   const perspectiveStage = document.createElement('div');
   perspectiveStage.className = 'portrait-flip-stage';
   perspectiveStage.style.position = 'absolute';
-  perspectiveStage.style.inset = '0';
+  perspectiveStage.style.top = offsetTop + 'px';
+  perspectiveStage.style.left = offsetLeft + 'px';
+  perspectiveStage.style.width = width + 'px';
+  perspectiveStage.style.height = height + 'px';
   perspectiveStage.style.zIndex = '20';
   perspectiveStage.style.pointerEvents = 'none';
   perspectiveStage.style.perspective = '1600px';

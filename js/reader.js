@@ -817,26 +817,42 @@ function updateBookmarkToggleButton() {
 // 알림 등)가 뒤늦게 교정하는 것으로 추정하지만 확인은 안 됐다.
 // **원인이 확인되면 이 로깅 전부(이 두 함수, 아래 호출부 4곳, ResizeObserver 콜백의
 // 로그 한 줄)를 제거할 것** — CLAUDE.md 진행상황 메모에 이 조사의 배경이 남아있다.
-// ⚠️ 2026-08-25 — 실기기 로그로 확인된 진짜 원인에 대한 수정: portrait-flip.js의
-// 임시 애니메이션 카드(leaf/base)는 `currentRenderWidth`/`currentRenderHeight`(buildFlipBook
-// 시점에 한 번 측정해 그 뒤로 절대 안 바뀌는 값)로 크기를 잡는데, 실제 PageFlip이 그리는
-// 진짜 페이지는 라이브러리 자체의 내부 래퍼 체인(.stf__wrapper의 퍼센트 기반 종횡비 등)을
-// 거쳐서 크기가 정해진다 — 이 둘이 정확히 같은 값으로 안 맞아떨어지면(실측 결과 최대
-// 39px 정도 차이), 애니메이션 도중(임시 카드가 보이는 동안)엔 footer가 한 위치에 있다가
-// 애니메이션이 끝나고 진짜 페이지가 드러나는 순간 그 차이만큼 footer가 툭 튀는 것처럼
-// 보인다 — 사용자가 "페이지 표시 위치가 바뀐다"고 신고한 게 바로 이것.
-// 고정된 값을 더 정교하게 다시 계산하는 대신, **매번 애니메이션을 시작하기 직전 실제로
-// 지금 화면에 보이고 있는 진짜 페이지의 실측 크기를 그대로 재는 쪽**을 택했다 — 이러면
-// 라이브러리 내부 래퍼가 정확히 몇 px를 차지하든 상관없이(그리고 나중에 라이브러리
-// 버전이 바뀌어 그 값이 달라져도) 임시 카드가 항상 "지금 실제로 보이는 페이지"와
-// 픽셀 단위로 똑같은 크기가 된다.
-function getActiveRealPageSize() {
+// ⚠️ 2026-08-25 — 실기기 로그로 확인된 진짜 원인에 대한 수정.
+// 1차 시도(폐기): 임시 애니메이션 카드(leaf/base)의 크기를 `currentRenderWidth`/
+// `currentRenderHeight`(buildFlipBook 시점에 한 번 측정해 그 뒤로 절대 안 바뀌는 값)
+// 대신 애니메이션 시작 직전 실측한 진짜 페이지 크기로 바꿔봤지만, 실기기 재검증에서
+// `deltaW`/`deltaH`가 둘 다 0으로 나왔다 — 즉 크기 자체는 처음부터 완전히 같았다.
+// 그런데도 footer는 여전히 튀었다.
+// 2차 확인(진짜 원인): 임시 카드의 footer와 진짜 페이지의 footer를 각각 직접
+// `getBoundingClientRect()`로 재보니 — 크기(width/height)와 위치(#my-book의
+// #book-stage 대비 오프셋)가 전부 동일한데도 **footer의 화면 Y좌표 자체가 39px
+// 차이났다.** 원인을 더 파보니 `js/vendor/page-flip.browser.js`가 자체 주입하는
+// CSS에 실제 오타 버그가 있었다 — `.stf__wrapper`를 `.sft__wrapper`로 잘못 써서
+// (철자 순서 오타) 그 규칙이 실제 `.stf__wrapper` 요소에 전혀 적용이 안 되고,
+// 의도했던 `position: relative`를 못 받는다. 그 결과 자식 `.stf__block`
+// (`position: absolute`)의 containing block이 의도한 `.stf__wrapper`가 아니라
+// 그 위의 다른 조상으로 튀면서, 실제 페이지의 위치 계산이 우리가 단순하게 재현한
+// 것과 미묘하게 어긋난다 — 정확히 이만큼이 39px로 나타난 것으로 보인다.
+// **수정 방향**: 이 업스트림 CSS 오타 자체를 고치는 건 라이브러리 내부에 더 깊이
+// 손대는 위험한 선택이라(다른 부작용 가능성), 대신 *원인을 몰라도 되는* 방식을
+// 택했다 — 임시 카드의 크기뿐 아니라 **화면상 정확한 위치(top/left)까지** 진짜
+// 페이지에서 그대로 재서 맞춘다. 라이브러리 내부 CSS가 왜 그런 값을 내는지 몰라도,
+// "지금 실제로 보이는 페이지가 정확히 어디 있는지"만 알면 임시 카드를 그 자리에
+// 그대로 겹쳐 그릴 수 있다.
+function getActiveRealPageRect() {
+  const fallback = { width: currentRenderWidth, height: currentRenderHeight, offsetTop: 0, offsetLeft: 0 };
   const activePage = [...document.querySelectorAll('#my-book .page')]
     .find((el) => getComputedStyle(el).display !== 'none');
-  if (!activePage) return { width: currentRenderWidth, height: currentRenderHeight };
+  if (!activePage) return fallback;
   const rect = activePage.getBoundingClientRect();
-  if (!rect.width || !rect.height) return { width: currentRenderWidth, height: currentRenderHeight };
-  return { width: rect.width, height: rect.height };
+  if (!rect.width || !rect.height) return fallback;
+  const stageRect = stageContainer.getBoundingClientRect();
+  return {
+    width: rect.width,
+    height: rect.height,
+    offsetTop: rect.top - stageRect.top,
+    offsetLeft: rect.left - stageRect.left,
+  };
 }
 
 function logFooterDiagnostics(label) {
@@ -936,17 +952,20 @@ function jumpToPrevPage() {
     if (isPortraitFlipAnimating()) return; // 애니메이션 도중 겹쳐 눌림 방지
     const targetGlobal = globalIndex - 1;
     logFooterDiagnostics('trigger-prev'); // ⚠️ 임시 디버그 로깅, finishManualPageTurn 위 주석 참고
-    const activeSize = getActiveRealPageSize(); // ⚠️ getActiveRealPageSize 위 주석 참고
-    console.log('[FOOTERDEBUG] activeSize vs frozen render size', JSON.stringify({
-      activeW: Math.round(activeSize.width), activeH: Math.round(activeSize.height),
+    const activeRect = getActiveRealPageRect(); // ⚠️ getActiveRealPageRect 위 주석 참고
+    console.log('[FOOTERDEBUG] activeRect vs frozen render size', JSON.stringify({
+      activeW: Math.round(activeRect.width), activeH: Math.round(activeRect.height),
+      offsetTop: Math.round(activeRect.offsetTop), offsetLeft: Math.round(activeRect.offsetLeft),
       renderW: currentRenderWidth, renderH: currentRenderHeight,
-      deltaW: Math.round(activeSize.width - currentRenderWidth),
-      deltaH: Math.round(activeSize.height - currentRenderHeight),
+      deltaW: Math.round(activeRect.width - currentRenderWidth),
+      deltaH: Math.round(activeRect.height - currentRenderHeight),
     }));
     playPortraitPageTurn({
       stage: stageContainer,
-      width: activeSize.width,
-      height: activeSize.height,
+      width: activeRect.width,
+      height: activeRect.height,
+      offsetTop: activeRect.offsetTop,
+      offsetLeft: activeRect.offsetLeft,
       direction: 'prev',
       leavingText: allTextPages[globalIndex],
       leavingFooter: `- ${globalIndex + 1} / ${totalPages} -`,
@@ -979,17 +998,20 @@ function goToNextPage() {
     // 무시하던 것과 똑같이, 여기서도 그냥 아무 일도 안 하고 끝낸다.
     if (targetGlobal >= totalPages) return;
     logFooterDiagnostics('trigger-next'); // ⚠️ 임시 디버그 로깅, finishManualPageTurn 위 주석 참고
-    const activeSize = getActiveRealPageSize(); // ⚠️ getActiveRealPageSize 위 주석 참고
-    console.log('[FOOTERDEBUG] activeSize vs frozen render size', JSON.stringify({
-      activeW: Math.round(activeSize.width), activeH: Math.round(activeSize.height),
+    const activeRect = getActiveRealPageRect(); // ⚠️ getActiveRealPageRect 위 주석 참고
+    console.log('[FOOTERDEBUG] activeRect vs frozen render size', JSON.stringify({
+      activeW: Math.round(activeRect.width), activeH: Math.round(activeRect.height),
+      offsetTop: Math.round(activeRect.offsetTop), offsetLeft: Math.round(activeRect.offsetLeft),
       renderW: currentRenderWidth, renderH: currentRenderHeight,
-      deltaW: Math.round(activeSize.width - currentRenderWidth),
-      deltaH: Math.round(activeSize.height - currentRenderHeight),
+      deltaW: Math.round(activeRect.width - currentRenderWidth),
+      deltaH: Math.round(activeRect.height - currentRenderHeight),
     }));
     playPortraitPageTurn({
       stage: stageContainer,
-      width: activeSize.width,
-      height: activeSize.height,
+      width: activeRect.width,
+      height: activeRect.height,
+      offsetTop: activeRect.offsetTop,
+      offsetLeft: activeRect.offsetLeft,
       direction: 'next',
       leavingText: allTextPages[globalIndex],
       leavingFooter: `- ${globalIndex + 1} / ${totalPages} -`,
