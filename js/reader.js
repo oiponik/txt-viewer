@@ -1005,14 +1005,21 @@ function finishManualPageTurn(targetGlobal) {
 // 통일했다(사용자 요청: "통일성 있게"). 원래 가로 모드는 StPageFlip 자체 flipNext()/
 // flipPrev()를 그대로 썼고 한 번도 버그가 없었다 — 이 확장은 순수히 "통일성"을 위한
 // 것이지 가로 모드에 문제가 있어서가 아니다(js/portrait-flip.js 상단 "가로 모드 확장"
-// 절 참고). 좌/우 두 패널의 진짜 페이지 실측(getActiveRealSpreadRects) + 스왑
+// 절 참고). 좌/우 페이지의 진짜 페이지 실측(getActiveRealSpreadRects) + 스왑
 // (swapRealPageForFlip을 왼쪽 로컬 인덱스로 호출 — StPageFlip은 스프레드를 항상
 // 왼쪽=짝수 로컬 인덱스로 정렬하므로 왼쪽 페이지만 지정하면 오른쪽은 자동으로 딸려온다)
-// + 두 패널 동시 애니메이션(playSpreadPageTurn) 조합만 다르고, 나머지 흐름은 세로 모드와
-// 동일하다. `--left`/`--right` 클래스가 붙은 real .page가 하나라도 없으면(마지막 스프레드가
-// 홀수 페이지라 한쪽이 없는 경우 등) 그 패널은 그냥 애니메이션에서 빠진다 — panels가
-// 아예 비면(극단적으로 양쪽 다 없음) 애니메이션 없이 즉시 전환한다(진짜 페이지 전환
-// 자체는 이미 끝나 있으므로 기능적으로는 문제없다, 시각 효과만 생략).
+// 조합만 다르고, 나머지 흐름은 세로 모드와 동일하다.
+// ⚠️ 처음엔 좌/우 패널을 둘 다 동시에 돌렸는데(양쪽이 대칭으로 회전) — 실기기에서
+// 확인한 사용자 피드백: "양쪽 페이지가 같이 넘어가는데 이게 무슨 책 넘기는 효과야,
+// 한쪽만 넘어가야지." 그래서 이 함수는 여전히 좌/우 패널 데이터를 둘 다 만들지만,
+// 호출자(jumpToPrevPage/goToNextPage)가 실제 책처럼 **방향에 맞는 한쪽만**
+// (다음=오른쪽, 이전=왼쪽) 걸러서 애니메이션에 넘긴다 — 반대쪽은 애니메이션 없이,
+// swapRealPageForFlip()에서 이미 끝난 진짜 페이지 전환 결과를 그 자리에서 바로
+// 보여준다. `--left`/`--right` 클래스가 붙은 real .page가 없으면(마지막 스프레드가
+// 홀수 페이지라 한쪽이 없는 경우 등) 그 side는 애초에 데이터가 안 만들어진다 —
+// 필터링 후 panels가 비면(애니메이션 대상 쪽 페이지가 아예 없는 경우) 애니메이션
+// 없이 즉시 전환한다(진짜 페이지 전환 자체는 이미 끝나 있으므로 기능적으로는
+// 문제없다, 시각 효과만 생략).
 function buildSpreadPanels({ currentLeftGlobal, currentRightGlobal, targetLeftGlobal, targetRightGlobal, fromRects, toRects }) {
   const panels = [];
   if (fromRects.left && toRects.left) {
@@ -1095,11 +1102,17 @@ function jumpToPrevPage() {
   const fromSpreadRects = getActiveRealSpreadRects();
   swapRealPageForFlip(targetLeftGlobal);
   const toSpreadRects = getActiveRealSpreadRects();
+  // ⚠️ 2026-08-25: 처음엔 좌/우 패널을 둘 다 동시에 돌렸는데, 실기기에서 확인한 사용자
+  // 피드백 — "양쪽 페이지가 같이 넘어가는데 이게 무슨 책 넘기는 효과야, 한쪽만
+  // 넘어가야지." 실제 책처럼 "이전"은 왼쪽 페이지만 오른쪽으로 접히듯 넘어가고(오른쪽
+  // 가장자리를 축으로), 반대쪽(오른쪽) 페이지는 애니메이션 없이 — 진짜 페이지 전환은
+  // swapRealPageForFlip()에서 이미 끝나 있으므로 — 그 자리에서 바로 새 내용을 보여준다.
+  // buildSpreadPanels가 만든 좌/우 패널 중 왼쪽만 남기고 걸러낸다.
   const spreadPanels = buildSpreadPanels({
     currentLeftGlobal: globalIndex, currentRightGlobal: globalIndex + 1,
     targetLeftGlobal, targetRightGlobal: targetLeftGlobal + 1,
     fromRects: fromSpreadRects, toRects: toSpreadRects,
-  });
+  }).filter((panel) => panel.side === 'left');
   if (spreadPanels.length === 0) {
     finishManualPageTurn(targetLeftGlobal); // 진짜 페이지 전환은 이미 끝났다 — 시각 효과만 생략
     return;
@@ -1166,11 +1179,13 @@ function goToNextPage() {
   const fromSpreadRects = getActiveRealSpreadRects();
   swapRealPageForFlip(targetLeftGlobal);
   const toSpreadRects = getActiveRealSpreadRects();
+  // ⚠️ jumpToPrevPage 위 주석 참고 — "다음"은 오른쪽 페이지만 왼쪽으로 접히듯 넘어가고,
+  // 왼쪽 페이지는 애니메이션 없이 그 자리에서 바로 새 내용을 보여준다(실제 책처럼).
   const spreadPanels = buildSpreadPanels({
     currentLeftGlobal: globalIndex, currentRightGlobal: globalIndex + 1,
     targetLeftGlobal, targetRightGlobal: targetLeftGlobal + 1,
     fromRects: fromSpreadRects, toRects: toSpreadRects,
-  });
+  }).filter((panel) => panel.side === 'right');
   if (spreadPanels.length === 0) {
     finishManualPageTurn(targetLeftGlobal); // 진짜 페이지 전환은 이미 끝났다 — 시각 효과만 생략
     return;
