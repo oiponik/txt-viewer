@@ -149,11 +149,40 @@ export function playPortraitPageTurn({
   perspectiveStage.appendChild(leaf);
   stage.appendChild(perspectiveStage);
 
+  // ⚠️ 임시 디버그 로깅 (2026-08-25) — 임시 카드(base)의 footer가 실제로 어느 화면
+  // 좌표에 그려지는지 직접 측정. js/reader.js의 [FOOTERDEBUG] 로깅과 짝을 이룬다 —
+  // 그쪽은 실제 PageFlip 페이지(#my-book)만 쟀지 이 임시 카드는 한 번도 잰 적이
+  // 없었다. reader.js의 finishManualPageTurn 위 주석 참고. 원인 확인되면 제거할 것.
+  try {
+    const baseFooter = base.querySelector('.page-footer');
+    const stageRect = stage.getBoundingClientRect();
+    const baseFooterRect = baseFooter ? baseFooter.getBoundingClientRect() : null;
+    console.log('[FOOTERDEBUG] overlay base footer @ start', JSON.stringify({
+      t: Math.round(performance.now()),
+      stageTop: Math.round(stageRect.top), stageBottom: Math.round(stageRect.bottom),
+      baseFooterY: baseFooterRect ? Math.round(baseFooterRect.top) : null,
+      baseFooterText: baseFooter ? baseFooter.textContent : null,
+    }));
+  } catch (err) { /* 진단용, 실패해도 애니메이션엔 영향 없음 */ }
+
   let finished = false;
 
   function finish() {
     if (finished) return;
     finished = true;
+    // ⚠️ 임시 디버그 로깅 (2026-08-25) — perspectiveStage.remove() 직전, 즉 유저가 마지막으로
+    // 본 임시 카드의 footer 위치를 기록한다. 위 '@ start' 로그와 짝.
+    try {
+      const baseFooter = base.querySelector('.page-footer');
+      const stageRect = stage.getBoundingClientRect();
+      const baseFooterRect = baseFooter ? baseFooter.getBoundingClientRect() : null;
+      console.log('[FOOTERDEBUG] overlay base footer @ removal', JSON.stringify({
+        t: Math.round(performance.now()),
+        stageTop: Math.round(stageRect.top), stageBottom: Math.round(stageRect.bottom),
+        baseFooterY: baseFooterRect ? Math.round(baseFooterRect.top) : null,
+        baseFooterText: baseFooter ? baseFooter.textContent : null,
+      }));
+    } catch (err) { /* 진단용, 실패해도 정리엔 영향 없음 */ }
     if (activeAnimation) {
       clearTimeout(activeAnimation.safetyTimer);
       leaf.removeEventListener('animationend', onAnimationEnd);

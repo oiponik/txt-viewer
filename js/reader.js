@@ -842,6 +842,8 @@ function getActiveRealPageSize() {
 function logFooterDiagnostics(label) {
   try {
     const stageRect = stageContainer.getBoundingClientRect();
+    const myBook = document.getElementById('my-book');
+    const myBookRect = myBook ? myBook.getBoundingClientRect() : null;
     const wrapper = document.querySelector('.stf__wrapper');
     const wrapperRect = wrapper ? wrapper.getBoundingClientRect() : null;
     const wrapperPaddingBottom = wrapper ? getComputedStyle(wrapper).paddingBottom : null;
@@ -852,7 +854,15 @@ function logFooterDiagnostics(label) {
     const footerRect = footerEl ? footerEl.getBoundingClientRect() : null;
     console.log('[FOOTERDEBUG]', label, JSON.stringify({
       t: Math.round(performance.now()),
+      // 뷰포트 기준 절대 좌표 — portrait-flip.js의 'overlay base footer' 로그와
+      // 직접 비교하려면 상대값(round된 W/H)이 아니라 이 절대 top이 필요하다.
+      stageTop: Math.round(stageRect.top), stageBottom: Math.round(stageRect.bottom),
       stageW: Math.round(stageRect.width), stageH: Math.round(stageRect.height),
+      // #my-book이 #book-stage 안에서 (flex 가운데 정렬 등으로) 오프셋이 있는지 확인용.
+      myBookOffsetTop: myBookRect ? Math.round(myBookRect.top - stageRect.top) : null,
+      myBookOffsetLeft: myBookRect ? Math.round(myBookRect.left - stageRect.left) : null,
+      myBookW: myBookRect ? Math.round(myBookRect.width) : null,
+      myBookH: myBookRect ? Math.round(myBookRect.height) : null,
       wrapperW: wrapperRect ? Math.round(wrapperRect.width) : null,
       wrapperH: wrapperRect ? Math.round(wrapperRect.height) : null,
       wrapperPaddingBottom,
