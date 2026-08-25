@@ -902,19 +902,40 @@ function pollFooterDiagnostics(durationMs = 2000, intervalMs = 50) {
   }, intervalMs);
 }
 
-// 세로(한 페이지) 모드에서 portrait-flip.js 애니메이션이 끝난 뒤 호출 — pageFlip.on('flip', ...)
-// 핸들러가 가로 모드의 라이브러리 애니메이션 뒤에 하는 일(진행 상황 저장/페이지 인디케이터
-// 갱신/창 재정렬/화면 항상 켜짐 타이머 리셋)을 그대로 재현한다. isShiftingWindow로 감싸서
-// turnToPage()가 쏘는 합성 'flip' 이벤트가 이 로직을 중복 실행하지 않게 막는다 —
-// maybeShiftPageWindow가 이미 쓰고 있는 것과 같은 패턴.
-function finishManualPageTurn(targetGlobal) {
+// ⚠️ 2026-08-25 — 실기기 로그로 드러난 진짜 진짜 원인에 대한 수정(이전 offsetTop/offsetLeft
+// 보정 시도는 무효과였다 — 실측해보니 offsetTop/offsetLeft가 매번 0이라 애초에 고칠 게
+// 없었다). 페이지를 연달아 넘기며 진짜 PageFlip 페이지의 footer 위치를 실측해보니
+// **같은 책 안에서도 서로 다른 진짜 `.page` 요소끼리 footer 위치가 다르게 나온다**
+// (예: 472페이지는 999, 473페이지는 973 — 26px 차이). 임시 카드는 항상 고정된 값
+// 하나(1038)로 그려지니 어느 쪽에 맞춰도 절반은 어긋날 수밖에 없는 구조였다.
+// **수정**: "애니메이션이 끝난 뒤 진짜 페이지로 바꾸고, 그 전에는 미리 잰 크기로
+// 임시 카드를 그린다"는 순서 자체를 뒤집었다 — 진짜 페이지 전환(`pageFlip.turnToPage()`
+// + `maybeShiftPageWindow()`)을 **애니메이션을 시작하기도 전에, 오버레이 뒤에 숨겨진
+// 채로 먼저** 끝내버린다(오버레이가 화면 전체를 곧바로 덮을 것이므로 사용자 눈엔 아무
+// 변화도 안 보인다 — 전부 같은 동기 실행 안이라 중간 프레임이 그려질 틈도 없다). 그
+// 직후 `getActiveRealPageRect()`로 "지금 막 진짜로 보여주게 된 바로 그 페이지"의
+// 실측 크기/위치를 재서 임시 카드에 넘긴다 — 어떤 페이지가 어떤 높이로 렌더링되든
+// 상관없이 항상 100% 일치한다(같은 페이지를 재는 것이므로).
+// 아래 함수가 이제 두 단계로 나뉜다: `swapRealPageForFlip`(애니메이션 시작 *전*, 진짜
+// DOM 전환만 — 화면엔 안 보임)과 `finishManualPageTurn`(애니메이션이 끝난 *뒤*, 사용자
+// 눈에 보이는 하단 인디케이터/진행상황 저장 등만 — 이건 여전히 시각적 완료 시점에 맞춰야
+// 해서 그대로 둔다, 예전에 여러 라운드에 걸쳐 튜닝했던 부분).
+function swapRealPageForFlip(targetGlobal) {
   isShiftingWindow = true;
   try {
     pageFlip.turnToPage(targetGlobal - windowStartIndex);
   } finally {
     isShiftingWindow = false;
   }
+  maybeShiftPageWindow(targetGlobal);
+}
 
+// 세로(한 페이지) 모드에서 portrait-flip.js 애니메이션이 끝난 뒤 호출 — pageFlip.on('flip', ...)
+// 핸들러가 가로 모드의 라이브러리 애니메이션 뒤에 하는 일(진행 상황 저장/페이지 인디케이터
+// 갱신/화면 항상 켜짐 타이머 리셋)을 그대로 재현한다. 진짜 페이지 전환 자체는 이제
+// `swapRealPageForFlip`이 애니메이션 시작 전에 이미 끝내놨다 — 여기선 사용자 눈에
+// 보이는 것만 다룬다.
+function finishManualPageTurn(targetGlobal) {
   currentLastCharIndex = pageStartIndices[targetGlobal] || 0;
   progressDirty = true;
   updatePageIndicator(targetGlobal);
@@ -925,7 +946,6 @@ function finishManualPageTurn(targetGlobal) {
     progressDirty = false;
   }, 300);
 
-  maybeShiftPageWindow(targetGlobal);
   resetWakeLockIdleTimer();
 
   logFooterDiagnostics('finishManualPageTurn-end');
@@ -952,7 +972,8 @@ function jumpToPrevPage() {
     if (isPortraitFlipAnimating()) return; // 애니메이션 도중 겹쳐 눌림 방지
     const targetGlobal = globalIndex - 1;
     logFooterDiagnostics('trigger-prev'); // ⚠️ 임시 디버그 로깅, finishManualPageTurn 위 주석 참고
-    const activeRect = getActiveRealPageRect(); // ⚠️ getActiveRealPageRect 위 주석 참고
+    swapRealPageForFlip(targetGlobal); // ⚠️ swapRealPageForFlip 위 주석 참고 — 진짜 페이지 전환을 여기서 먼저(숨겨진 채로) 끝낸다
+    const activeRect = getActiveRealPageRect(); // ⚠️ 이제 방금 전환된 타겟 페이지 자체를 실측한다
     console.log('[FOOTERDEBUG] activeRect vs frozen render size', JSON.stringify({
       activeW: Math.round(activeRect.width), activeH: Math.round(activeRect.height),
       offsetTop: Math.round(activeRect.offsetTop), offsetLeft: Math.round(activeRect.offsetLeft),
@@ -998,7 +1019,8 @@ function goToNextPage() {
     // 무시하던 것과 똑같이, 여기서도 그냥 아무 일도 안 하고 끝낸다.
     if (targetGlobal >= totalPages) return;
     logFooterDiagnostics('trigger-next'); // ⚠️ 임시 디버그 로깅, finishManualPageTurn 위 주석 참고
-    const activeRect = getActiveRealPageRect(); // ⚠️ getActiveRealPageRect 위 주석 참고
+    swapRealPageForFlip(targetGlobal); // ⚠️ swapRealPageForFlip 위 주석 참고 — 진짜 페이지 전환을 여기서 먼저(숨겨진 채로) 끝낸다
+    const activeRect = getActiveRealPageRect(); // ⚠️ 이제 방금 전환된 타겟 페이지 자체를 실측한다
     console.log('[FOOTERDEBUG] activeRect vs frozen render size', JSON.stringify({
       activeW: Math.round(activeRect.width), activeH: Math.round(activeRect.height),
       offsetTop: Math.round(activeRect.offsetTop), offsetLeft: Math.round(activeRect.offsetLeft),
