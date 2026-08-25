@@ -1,4 +1,5 @@
-// js/portrait-flip.js — 세로(모바일, 한 페이지) 모드 전용 페이지 넘기기 애니메이션.
+// js/portrait-flip.js — 페이지 넘기기 애니메이션(원래는 세로/한 페이지 모드 전용이었지만,
+// 2026-08-25에 가로/2페이지 스프레드 모드까지 확장했다 — 아래 "가로 모드 확장" 절 참고).
 //
 // ⚠️ 이 파일의 역사(중요, 다시 손댈 때 꼭 읽을 것):
 // StPageFlip의 세로 모드 커얼(clip-path 다각형 + rotate를 매 프레임 JS로 갱신하는 방식)을
@@ -23,21 +24,17 @@
 //     가속·감속 커브(cubic-bezier)와 중간 지점의 scaleX 압축(휘어지는 느낌)+
 //     translateZ(입체감)+동적 그림자를 얹었다(styles.css의 `@keyframes
 //     portrait-flip-leaf-next/prev`) — 여전히 clip-path 없음, 여전히 선언적 애니메이션.
-//   - 2026-08-25 수정(1차): 키프레임의 100% 지점을 rotateY 92deg(=backface-visibility로
-//     화면에서 사라지는 바로 그 지점)로 당겼다 — 예전엔 100%가 180deg(한 바퀴 다 돎)라
-//     duration의 뒤쪽 상당 구간이 이미 안 보이는 채로 낭비됐고, 그 탓에 유저 눈엔
-//     페이지가 이미 넘어간 것처럼 보인 뒤에도 `animationend`(→페이지 인디케이터 갱신)가
-//     한참 늦게 발동해서 "애니메이션이 끝나고 나서 페이지 번호가 움직이는" 것처럼
-//     보였다(사용자 신고).
-//   - 2026-08-25 수정(2차): 1차 수정만으로는 부족했다 — 사용자가 실기기에서 같은 증상을
-//     재신고("한 박자 쉬고 페이지 번호가 움직인다")했다. Web Animations API로 실제
-//     rotateY(t)를 프레임 단위로 실측해보니, 그때 쓰던 급격한 감속 곡선
-//     (`cubic-bezier(0.16, 1, 0.3, 1)`)이 목표각(92deg)을 duration의 ~55% 지점에서 이미
-//     다 돌아버려서 나머지 ~45%는 여전히 낭비되고 있었다 — 100%를 "사라지는 지점"에
-//     맞춰도 곡선 자체가 급하면 소용없다는 뜻. 감속 곡선을 완만한 `ease-out`으로 바꾸고
-//     목표각을 91deg로 살짝 낮춰서, 같은 방식으로 재측정한 결과 duration의 ~92%
-//     지점에야 90도를 넘는 것으로 확인됐다(자세한 수치는 styles.css의 키프레임 위
-//     주석·js/portrait-flip.js의 `leaf.style.animation` 근처 주석 참고).
+//   - 2026-08-25 수정(1차~2차): 키프레임/이징을 여러 번 조정해 "안 보이는 구간에 감속이
+//     낭비되는" 문제와 "완료 판정이 시각적 완료보다 늦는" 문제를 좁혔다 — 자세한 수치는
+//     styles.css의 키프레임 위 주석 참고.
+//   - 2026-08-25 (footer 위치 점프 사가, 6~10차): 이 파일과는 별개로, 진짜 PageFlip
+//     페이지의 footer가 애니메이션 카드와 다른 위치에 그려지는 버그를 여러 라운드에
+//     걸쳐 쫓았다 — 최종 원인과 수정은 js/reader.js의 getActiveRealPageRect()/
+//     swapRealPageForFlip() 위 주석과 styles.css의 .page-content/.page-footer 위
+//     주석에 자세히 남아있다(요약: 실제 페이지 렌더링 시 라이브러리가 `display:block`을
+//     인라인으로 강제해서 우리 CSS의 flex가 깨졌던 게 원인 — .page-content/.page-footer를
+//     flex 대신 position:absolute로 바꿔서 라이브러리가 무슨 display 값을 강제하든
+//     구조적으로 안 깨지게 고쳤다).
 //   - 실제 DOM(.page 요소, createPageElements가 쓰는 것과 같은 구조)을 그대로 쓴다 —
 //     캔버스나 이미지 스냅샷이 아니라서 폰트/렌더링이 항상 정확하고, 스냅샷 관련 위험
 //     (예: 커스텀 웹폰트가 SVG foreignObject 안에서 깨지는 WebKit 특유의 버그)이 없다.
@@ -46,10 +43,19 @@
 //     애니메이션"에 가깝지만, PC와 완전히 동일한 모양은 아니라는 트레이드오프를 사용자도
 //     인지하고 진행하기로 함.
 //
-// 가로(PC, 2페이지 스프레드) 모드는 이 파일과 전혀 무관하다 — 계속 StPageFlip의
-// flipNext()/flipPrev()를 그대로 쓴다(원래도 문제 없었고, 지금도 안 건드린다).
+// ⚠️ 가로(2페이지 스프레드) 모드 확장 (2026-08-25): 원래 이 파일은 세로 모드 전용이고
+// 가로 모드는 원래부터 문제없던 StPageFlip의 flipNext()/flipPrev()를 그대로 썼다.
+// 사용자가 "통일성 있게" 양쪽 모드가 똑같은 방식으로 넘어가길 원해서, 가로 모드도
+// 이 파일의 rotateY 카드 뒤집기로 옮겼다 — 좌/우 두 패널을 동시에, 각자 독립적으로
+// 똑같은 애니메이션으로 회전시킨다(둘 다 방향에 따른 sign 하나만 다르고 나머지 로직은
+// 세로 모드와 완전히 동일 — "통일성"의 핵심). 이를 위해 기존 단일 패널 로직을
+// buildPanelAnimation()으로 뽑아내고, playPortraitPageTurn()(세로, 패널 1개)과
+// playSpreadPageTurn()(가로, 패널 1~2개)이 둘 다 이 헬퍼를 공유한다.
+// ⚠️ 가로 모드는 지금까지 이 사가 내내 한 번도 버그가 없었던 코드라 — 이 확장은 순수하게
+// 사용자가 요청한 "통일성"을 위한 것이지, 가로 모드에 어떤 문제가 있어서가 아니다.
+// 실기기 검증 전까지는 회귀 위험을 안고 있는 새 코드로 취급할 것.
 
-let activeAnimation = null; // 겹쳐 눌림 방지 — 애니메이션 도중 새 호출은 조용히 무시한다
+let activeAnimation = null; // 겹쳐 눌림 방지 — 진행 중인 패널 핸들 배열(1개=세로, 1~2개=가로). null이면 idle.
 
 export function isPortraitFlipAnimating() {
   return activeAnimation !== null;
@@ -62,8 +68,10 @@ export function isPortraitFlipAnimating() {
 // 어차피 buildFlipBook이 새 pageFlip을 만들면서 현재 페이지를 다시 정확히 그려준다.
 export function cancelPortraitFlip() {
   if (!activeAnimation) return;
-  clearTimeout(activeAnimation.safetyTimer);
-  activeAnimation.leaf.removeEventListener('animationend', activeAnimation.onAnimationEnd);
+  for (const handle of activeAnimation) {
+    clearTimeout(handle.safetyTimer);
+    handle.leaf.removeEventListener('animationend', handle.onAnimationEnd);
+  }
   activeAnimation = null;
 }
 
@@ -92,30 +100,17 @@ function buildPageElement(text, footer, width, height) {
   return el;
 }
 
-// direction: 'next' | 'prev'. stage는 오버레이를 붙일 기준 요소(#book-stage, position:relative
-// 이미 걸려있음).
-// offsetTop/offsetLeft/width/height: base(새로 드러날 페이지)와 오버레이 컨테이너 자체의
-// 정확한 위치·크기 — 진짜 PageFlip 페이지가 지금 실제로 그려지는 자리를 그대로 잰 값이다
-// (js/reader.js의 getActiveRealPageRect() 참고, 스왑 *이후* 측정 = TO 페이지 기준).
-// leavingWidth/leavingHeight: leaf(넘어가는 옛 페이지) 전용 크기 — 생략하면 width/height와
-// 같다고 가정하지만, **반드시 스왑 *이전*(FROM 페이지) 기준으로 별도로 재서 넘겨야 한다.**
-// ⚠️ 2026-08-25 6차 수정 때는 이 둘을 구분 안 하고 TO 페이지 크기 하나로 base/leaf를
-// 똑같이 그렸는데, 실기기 로그로 "같은 책 안에서도 진짜 페이지끼리 footer 위치가 다르다"
-// (예: 999 vs 973, 26px 차이)는 게 확인된 뒤라 — FROM과 TO가 실제로 다른 크기일 수 있다는
-// 뜻이고, 그럴 때 leaf에 TO 페이지 크기를 잘못 적용하면 leaf 자신이 화면에 보이는 동안
-// (회전해서 사라지기 전까지) footer가 원래 그 페이지가 보여줬어야 할 위치와 다르게
-// 그려진다 — 사용자가 "여전히 튄다"고 재신고한 원인으로 추정된다.
-// 반환값: 애니메이션을 실제로 시작했으면 true, 이미 진행 중이라 무시했으면 false.
-export function playPortraitPageTurn({
-  stage, width, height, direction, offsetTop = 0, offsetLeft = 0,
+// 패널 하나(세로 모드에서는 페이지 전체, 가로 모드에서는 좌/우 절반 중 하나)의 leaf/base
+// 카드를 만들고 애니메이션을 건다. `activeAnimation` 등록/해제는 호출자(playPortraitPageTurn/
+// playSpreadPageTurn)가 맡는다 — 이 함수는 패널 하나의 DOM/애니메이션 생명주기만 다룬다.
+// onPanelDone: 이 패널의 애니메이션이 끝나면(정상 종료든 safetyTimer든) 호출된다.
+// 반환값: { leaf, onAnimationEnd, safetyTimer } — cancelPortraitFlip이 정리할 수 있도록.
+function buildPanelAnimation({
+  stage, width, height, direction, offsetTop, offsetLeft,
   leavingWidth, leavingHeight,
   leavingText, leavingFooter, revealingText, revealingFooter,
-  duration = 1000, onDone,
+  duration, onPanelDone, debugLabel,
 }) {
-  if (activeAnimation) return false;
-  if (leavingWidth == null) leavingWidth = width;
-  if (leavingHeight == null) leavingHeight = height;
-
   const perspectiveStage = document.createElement('div');
   perspectiveStage.className = 'portrait-flip-stage';
   perspectiveStage.style.position = 'absolute';
@@ -134,7 +129,9 @@ export function playPortraitPageTurn({
   // 위층 — 지금 보이던(넘어가는) 페이지. 이게 세로축을 중심으로 90도를 넘어 회전하면
   // backface-visibility:hidden 덕분에 뒷면(안 보이는 쪽)을 보게 되는 순간 시각적으로
   // "사라져서" 밑에 있던 base가 드러나는 것처럼 보인다. base와 다른 크기(leavingWidth/
-  // leavingHeight)를 쓸 수 있다 — 위 주석 참고.
+  // leavingHeight)를 쓸 수 있다 — 서로 다른 실제 페이지 인스턴스가 다른 높이로 렌더링될
+  // 수 있다는 게 footer 위치 점프 사가에서 실측으로 확인됐기 때문(js/reader.js의
+  // getActiveRealPageRect 위 주석 참고).
   const leaf = buildPageElement(leavingText, leavingFooter, leavingWidth, leavingHeight);
   leaf.style.zIndex = '2';
   leaf.style.backfaceVisibility = 'hidden';
@@ -143,41 +140,34 @@ export function playPortraitPageTurn({
   leaf.style.willChange = 'transform';
   // next(다음 페이지): 왼쪽 가장자리를 축으로 왼쪽으로 접히듯 회전.
   // prev(이전 페이지): 오른쪽 가장자리를 축으로 오른쪽으로 접히듯 회전.
-  // 부호(sign) 하나만 다르고 나머지 로직은 완전히 동일해서, 두 방향이 항상 대칭이다.
+  // 부호(sign) 하나만 다르고 나머지 로직은 완전히 동일해서, 두 방향이 항상 대칭이다 —
+  // 가로 모드에서도 좌/우 패널 둘 다 이 부호를 그대로 따른다(패널별로 다른 축을 쓰지
+  // 않는다 — "통일성" 요청에 맞춰 세로 모드와 완전히 같은 규칙을 그대로 재사용).
   const sign = direction === 'next' ? -1 : 1;
   leaf.style.transformOrigin = sign < 0 ? 'left center' : 'right center';
   // 회전(rotateY) + 압축(scaleX, 접히는 쪽으로 살짝 눌려 종이가 휘어지는 느낌) + 들어올림
   // (translateZ, 입체감) + 동적 그림자를 전부 styles.css의 @keyframes 하나로 묶어뒀다.
   // 그래도 여전히 clip-path 없음, JS 매 프레임 갱신 없음 — 브라우저가 알아서 보간하는
-  // 선언적 애니메이션인 건 그대로다.
-  // 2026-08-25: 키프레임의 100%가 이제 rotateY 91deg(=화면에서 사라지는 지점 바로 너머)에서
-  // 끝나서 duration 전체가 "보이는 구간"이다 — 예전처럼 "안 보이는 뒷부분에 감속을 낭비하지
-  // 않기 위해 0% 키프레임에만 timing-function을 거는" 트릭이 더 필요 없다. 감속 곡선을
-  // 그냥 여기 animation shorthand에 통째로 건다(styles.css 키프레임 위 주석 참고).
-  // ⚠️ 여기서 `ease-out`을 쓰는 이유(같은 날 두 번째 수정) — 처음엔 더 급격한
-  // `cubic-bezier(0.16, 1, 0.3, 1)`(easeOutExpo)을 그대로 썼는데, 실측(Web Animations API로
-  // currentTime을 프레임 단위로 찍어 실제 rotateY(t)를 측정)해보니 이 곡선이 목표각의
-  // 대부분을 duration 초반 ~55%에 이미 다 돌아버리고 나머지 45%는 이미 안 보이는 상태로
-  // 낭비됐다 — 키프레임 100%를 "사라지는 지점"에 맞춰놔도 급격한 감속 곡선 자체가 그
-  // 지점 도달 시점을 앞당겨버리면 소용없다는 뜻. 훨씬 완만한 표준 `ease-out`으로
-  // 바꾸니 같은 측정 방법으로 duration의 ~92% 지점에야 90도를 넘는 것으로 확인됐다.
+  // 선언적 애니메이션인 건 그대로다. 키프레임의 100%가 rotateY 91deg(=화면에서 사라지는
+  // 지점 바로 너머)에서 끝나서 duration 전체가 "보이는 구간"이다 — 자세한 튜닝 경위는
+  // styles.css의 키프레임 위 주석 참고.
   leaf.style.animation = `portrait-flip-leaf-${direction} ${duration}ms ease-out`;
 
   perspectiveStage.appendChild(base);
   perspectiveStage.appendChild(leaf);
   stage.appendChild(perspectiveStage);
 
-  // ⚠️ 임시 디버그 로깅 (2026-08-25) — 임시 카드(base)의 footer가 실제로 어느 화면
-  // 좌표에 그려지는지 직접 측정. js/reader.js의 [FOOTERDEBUG] 로깅과 짝을 이룬다 —
-  // 그쪽은 실제 PageFlip 페이지(#my-book)만 쟀지 이 임시 카드는 한 번도 잰 적이
-  // 없었다. reader.js의 finishManualPageTurn 위 주석 참고. 원인 확인되면 제거할 것.
+  // ⚠️ 임시 디버그 로깅 (2026-08-25) — 임시 카드(base/leaf)의 footer가 실제로 어느 화면
+  // 좌표에 그려지는지 직접 측정. js/reader.js의 [FOOTERDEBUG] 로깅과 짝을 이룬다.
+  // debugLabel로 세로 모드("portrait")/가로 모드 좌우 패널("spread-left"/"spread-right")을
+  // 구분한다. 원인 확인되면 이 로깅 전부 제거할 것.
   try {
     const baseFooter = base.querySelector('.page-footer');
     const leafFooter = leaf.querySelector('.page-footer');
     const stageRect = stage.getBoundingClientRect();
     const baseFooterRect = baseFooter ? baseFooter.getBoundingClientRect() : null;
     const leafFooterRect = leafFooter ? leafFooter.getBoundingClientRect() : null;
-    console.log('[FOOTERDEBUG] overlay base+leaf footer @ start', JSON.stringify({
+    console.log('[FOOTERDEBUG] overlay base+leaf footer @ start', debugLabel || '', JSON.stringify({
       t: Math.round(performance.now()),
       stageTop: Math.round(stageRect.top), stageBottom: Math.round(stageRect.bottom),
       baseFooterY: baseFooterRect ? Math.round(baseFooterRect.top) : null,
@@ -188,56 +178,114 @@ export function playPortraitPageTurn({
   } catch (err) { /* 진단용, 실패해도 애니메이션엔 영향 없음 */ }
 
   let finished = false;
+  const handle = { leaf, onAnimationEnd: null, safetyTimer: null };
 
   function finish() {
     if (finished) return;
     finished = true;
-    // ⚠️ 임시 디버그 로깅 (2026-08-25) — perspectiveStage.remove() 직전, 즉 유저가 마지막으로
-    // 본 임시 카드의 footer 위치를 기록한다. 위 '@ start' 로그와 짝.
     try {
       const baseFooter = base.querySelector('.page-footer');
       const stageRect = stage.getBoundingClientRect();
       const baseFooterRect = baseFooter ? baseFooter.getBoundingClientRect() : null;
-      console.log('[FOOTERDEBUG] overlay base footer @ removal', JSON.stringify({
+      console.log('[FOOTERDEBUG] overlay base footer @ removal', debugLabel || '', JSON.stringify({
         t: Math.round(performance.now()),
         stageTop: Math.round(stageRect.top), stageBottom: Math.round(stageRect.bottom),
         baseFooterY: baseFooterRect ? Math.round(baseFooterRect.top) : null,
         baseFooterText: baseFooter ? baseFooter.textContent : null,
       }));
     } catch (err) { /* 진단용, 실패해도 정리엔 영향 없음 */ }
-    if (activeAnimation) {
-      clearTimeout(activeAnimation.safetyTimer);
-      leaf.removeEventListener('animationend', onAnimationEnd);
-    }
+    clearTimeout(handle.safetyTimer);
+    leaf.removeEventListener('animationend', handle.onAnimationEnd);
     perspectiveStage.remove();
-    activeAnimation = null;
-    onDone();
+    onPanelDone();
   }
 
   function onAnimationEnd(e) {
     if (e.target !== leaf || e.animationName !== `portrait-flip-leaf-${direction}`) return;
     finish();
   }
+  handle.onAnimationEnd = onAnimationEnd;
   leaf.addEventListener('animationend', onAnimationEnd);
 
-  activeAnimation = {
-    leaf,
-    onAnimationEnd,
-    // ⚠️ 2026-08-25 3차 수정 — 이 타이머는 원래 "탭이 백그라운드로 가는 등 드문 경우에만
-    // 발동하는 안전장치"로 설계돼서 `duration + 500`(500ms 여유)이었다. 그런데 사용자가
-    // 키프레임/이징을 다 고친 뒤에도(2차 수정, 90도 교차 시점을 duration의 94%까지 밀어냄)
-    // "여전히 한 박자 쉬고 페이지 번호가 바뀐다"고 재신고했다 — 이 프로젝트의 자동화
-    // 브라우저 환경은 `document.hidden`이라 `animationend`가 원천적으로 절대 안 뜨고 항상
-    // 이 타이머가 완료를 처리하는데(위 파일 히스토리에서 반복 확인됨), 만약 실기기(특히
-    // iOS Safari — backface-visibility로 사라지는 3D 회전 요소는 `animationend`가 안 뜨는
-    // 걸로 알려진 사례들이 있다)에서도 같은 이유로 `animationend`가 안정적으로 안 뜬다면,
-    // *매번* 이 타이머가 완료를 처리하게 되고, 그러면 시각적으로는 duration(1000ms)
-    // 근처에 이미 다 끝난 페이지 전환이 여기 있던 여유분 500ms만큼 *추가로* 더 늦게야
-    // 코드에 반영된다 — 정확히 "한 박자 쉬고" 증상과 들어맞는 크기다. `animationend`가
-    // 뜨는지 여부와 무관하게 완료 시점을 우리가 정한 `duration`에 최대한 가깝게 못박기
-    // 위해, 여유분을 500ms→80ms(이벤트 디스패치/스케줄링 지터를 흡수할 정도만)로
-    // 줄였다 — `animationend`가 안 뜨는 기기에서도 이제 최대 80ms 안에는 확실히 끝난다.
-    safetyTimer: setTimeout(finish, duration + 80),
-  };
+  // ⚠️ 이 타이머는 원래 "탭이 백그라운드로 가는 등 드문 경우에만 발동하는 안전장치"로
+  // 설계돼서 `duration + 500`이었는데, 이 프로젝트의 자동화 브라우저 환경(document.hidden)
+  // 에서는 `animationend`가 원천적으로 절대 안 뜨고 항상 이 타이머가 완료를 처리한다는 걸
+  // 알게 된 뒤 80ms로 줄였다 — 자세한 경위는 이 파일의 이전 히스토리(git log)와
+  // CLAUDE.md 참고. `animationend`가 뜨든 안 뜨든 완료가 duration 근처에서 최대한
+  // 못박히도록, 여유분은 이벤트 디스패치/스케줄링 지터를 흡수할 정도(80ms)로만 둔다.
+  handle.safetyTimer = setTimeout(finish, duration + 80);
+  return handle;
+}
+
+// 세로(한 페이지) 모드 전용 — direction: 'next' | 'prev'. stage는 오버레이를 붙일 기준
+// 요소(#book-stage, position:relative 이미 걸려있음).
+// offsetTop/offsetLeft/width/height: base(새로 드러날 페이지)와 오버레이 컨테이너 자체의
+// 정확한 위치·크기 — 진짜 PageFlip 페이지가 지금 실제로 그려지는 자리를 그대로 잰 값이다
+// (js/reader.js의 getActiveRealPageRect() 참고, 스왑 *이후* 측정 = TO 페이지 기준).
+// leavingWidth/leavingHeight: leaf(넘어가는 옛 페이지) 전용 크기 — 생략하면 width/height와
+// 같다고 가정하지만, **반드시 스왑 *이전*(FROM 페이지) 기준으로 별도로 재서 넘겨야 한다.**
+// 반환값: 애니메이션을 실제로 시작했으면 true, 이미 진행 중이라 무시했으면 false.
+export function playPortraitPageTurn({
+  stage, width, height, direction, offsetTop = 0, offsetLeft = 0,
+  leavingWidth, leavingHeight,
+  leavingText, leavingFooter, revealingText, revealingFooter,
+  duration = 1000, onDone,
+}) {
+  if (activeAnimation) return false;
+  if (leavingWidth == null) leavingWidth = width;
+  if (leavingHeight == null) leavingHeight = height;
+
+  const handle = buildPanelAnimation({
+    stage, width, height, direction, offsetTop, offsetLeft,
+    leavingWidth, leavingHeight,
+    leavingText, leavingFooter, revealingText, revealingFooter,
+    duration, debugLabel: 'portrait',
+    onPanelDone: () => {
+      activeAnimation = null;
+      onDone();
+    },
+  });
+  activeAnimation = [handle];
+  return true;
+}
+
+// 가로(2페이지 스프레드) 모드용 — 좌/우 패널을 동시에 각자 독립적으로 rotateY 카드
+// 뒤집기로 회전시킨다. panels: [{side, width, height, offsetTop, offsetLeft, leavingWidth,
+// leavingHeight, leavingText, leavingFooter, revealingText, revealingFooter}, ...] —
+// 보통 2개(좌/우 다 있는 일반적인 스프레드)지만, 호출자가 한쪽만 넘기면(예: 왜 그런
+// 상황이 생기는지는 reader.js 쪽에서 판단) 그 패널만 애니메이션한다.
+// direction: 'next' | 'prev' — 모든 패널에 공통 적용(좌/우 패널이 서로 다른 축을 쓰지
+// 않는다 — 위 buildPanelAnimation의 sign 관련 주석 참고, "통일성" 요청의 핵심).
+// 반환값: 애니메이션을 실제로 시작했으면 true, 이미 진행 중이거나 패널이 하나도 없으면 false.
+export function playSpreadPageTurn({ stage, direction, duration = 1000, onDone, panels }) {
+  if (activeAnimation) return false;
+  if (!panels || panels.length === 0) return false;
+
+  const handles = [];
+  let remaining = panels.length;
+  function onPanelDone() {
+    remaining -= 1;
+    if (remaining === 0) {
+      activeAnimation = null;
+      onDone();
+    }
+  }
+
+  for (const panel of panels) {
+    const leavingWidth = panel.leavingWidth == null ? panel.width : panel.leavingWidth;
+    const leavingHeight = panel.leavingHeight == null ? panel.height : panel.leavingHeight;
+    handles.push(buildPanelAnimation({
+      stage,
+      width: panel.width, height: panel.height,
+      offsetTop: panel.offsetTop, offsetLeft: panel.offsetLeft,
+      leavingWidth, leavingHeight,
+      direction,
+      leavingText: panel.leavingText, leavingFooter: panel.leavingFooter,
+      revealingText: panel.revealingText, revealingFooter: panel.revealingFooter,
+      duration, debugLabel: 'spread-' + (panel.side || '?'),
+      onPanelDone,
+    }));
+  }
+  activeAnimation = handles;
   return true;
 }

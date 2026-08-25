@@ -16,7 +16,7 @@ import { currentUser, isDevUser, lastOpenedFileKey, fileDocId, DEV_BOOK_FILENAME
 import { setStatus, showLibraryScreen, openSheet, closeSheet, releaseWakeLock, resetWakeLockIdleTimer } from "./ui-shared.js";
 import { markActiveFileRow, refreshRecentFiles } from "./library.js";
 import { isBookCached, isBookStale, getCachedBookText, cacheBookText } from "./offline-cache.js";
-import { playPortraitPageTurn, isPortraitFlipAnimating, cancelPortraitFlip } from "./portrait-flip.js";
+import { playPortraitPageTurn, playSpreadPageTurn, isPortraitFlipAnimating, cancelPortraitFlip } from "./portrait-flip.js";
 
 export let currentFileName = "";
 export function setCurrentFileName(name) {
@@ -870,6 +870,40 @@ function getActiveRealPageRect() {
   };
 }
 
+// ⚠️ 2026-08-25 — 가로(2페이지 스프레드) 모드 확장. getActiveRealPageRect()의 2패널
+// 버전 — 왼쪽/오른쪽 실측을 각각 따로 반환한다. StPageFlip이 각 real .page.stf__item에
+// 스프레드 쪽을 나타내는 `--left`/`--right` 클래스를 붙여주므로(setOrientation()), 그걸
+// 그대로 구분자로 쓴다 — display:none이 아닌(=지금 실제로 보이는) 요소만 대상으로 한다.
+// 마지막 스프레드가 홀수 페이지라 한쪽이 아예 없을 수 있다(orphan) — 그 경우 해당 side는
+// null을 반환한다(측정 실패로 인한 폴백과 구분하기 위해 폴백은 "요소는 있는데 아직 크기가
+// 0"일 때만 쓴다).
+function getActiveRealSpreadRects() {
+  const stageRect = stageContainer.getBoundingClientRect();
+  const pages = [...document.querySelectorAll('#my-book .page')]
+    .filter((el) => getComputedStyle(el).display !== 'none');
+  const leftEl = pages.find((el) => el.classList.contains('--left'));
+  const rightEl = pages.find((el) => el.classList.contains('--right'));
+
+  function toRect(el, fallbackOffsetLeft) {
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      return { width: currentRenderWidth, height: currentRenderHeight, offsetTop: 0, offsetLeft: fallbackOffsetLeft };
+    }
+    return {
+      width: rect.width,
+      height: rect.height,
+      offsetTop: rect.top - stageRect.top,
+      offsetLeft: rect.left - stageRect.left,
+    };
+  }
+
+  return {
+    left: toRect(leftEl, 0),
+    right: toRect(rightEl, currentRenderWidth),
+  };
+}
+
 function logFooterDiagnostics(label) {
   try {
     const stageRect = stageContainer.getBoundingClientRect();
@@ -967,12 +1001,53 @@ function finishManualPageTurn(targetGlobal) {
   pollFooterDiagnostics();
 }
 
+// ⚠️ 2026-08-25 — 가로(2페이지 스프레드) 모드도 세로 모드와 같은 rotateY 카드 뒤집기로
+// 통일했다(사용자 요청: "통일성 있게"). 원래 가로 모드는 StPageFlip 자체 flipNext()/
+// flipPrev()를 그대로 썼고 한 번도 버그가 없었다 — 이 확장은 순수히 "통일성"을 위한
+// 것이지 가로 모드에 문제가 있어서가 아니다(js/portrait-flip.js 상단 "가로 모드 확장"
+// 절 참고). 좌/우 두 패널의 진짜 페이지 실측(getActiveRealSpreadRects) + 스왑
+// (swapRealPageForFlip을 왼쪽 로컬 인덱스로 호출 — StPageFlip은 스프레드를 항상
+// 왼쪽=짝수 로컬 인덱스로 정렬하므로 왼쪽 페이지만 지정하면 오른쪽은 자동으로 딸려온다)
+// + 두 패널 동시 애니메이션(playSpreadPageTurn) 조합만 다르고, 나머지 흐름은 세로 모드와
+// 동일하다. `--left`/`--right` 클래스가 붙은 real .page가 하나라도 없으면(마지막 스프레드가
+// 홀수 페이지라 한쪽이 없는 경우 등) 그 패널은 그냥 애니메이션에서 빠진다 — panels가
+// 아예 비면(극단적으로 양쪽 다 없음) 애니메이션 없이 즉시 전환한다(진짜 페이지 전환
+// 자체는 이미 끝나 있으므로 기능적으로는 문제없다, 시각 효과만 생략).
+function buildSpreadPanels({ currentLeftGlobal, currentRightGlobal, targetLeftGlobal, targetRightGlobal, fromRects, toRects }) {
+  const panels = [];
+  if (fromRects.left && toRects.left) {
+    panels.push({
+      side: 'left',
+      width: toRects.left.width, height: toRects.left.height,
+      offsetTop: toRects.left.offsetTop, offsetLeft: toRects.left.offsetLeft,
+      leavingWidth: fromRects.left.width, leavingHeight: fromRects.left.height,
+      leavingText: allTextPages[currentLeftGlobal],
+      leavingFooter: `- ${currentLeftGlobal + 1} / ${totalPages} -`,
+      revealingText: allTextPages[targetLeftGlobal],
+      revealingFooter: `- ${targetLeftGlobal + 1} / ${totalPages} -`,
+    });
+  }
+  if (fromRects.right && toRects.right) {
+    panels.push({
+      side: 'right',
+      width: toRects.right.width, height: toRects.right.height,
+      offsetTop: toRects.right.offsetTop, offsetLeft: toRects.right.offsetLeft,
+      leavingWidth: fromRects.right.width, leavingHeight: fromRects.right.height,
+      leavingText: allTextPages[currentRightGlobal],
+      leavingFooter: `- ${currentRightGlobal + 1} / ${totalPages} -`,
+      revealingText: allTextPages[targetRightGlobal],
+      revealingFooter: `- ${targetRightGlobal + 1} / ${totalPages} -`,
+    });
+  }
+  return panels;
+}
+
 // ⚠️ 세로(한 페이지) 모드와 가로(2페이지 스프레드) 모드가 완전히 다른 경로를 탄다:
-//   - 가로: 원래부터 문제없던 StPageFlip의 flipPrev()/flipNext()를 그대로 쓴다.
 //   - 세로: StPageFlip 내부 애니메이션 대신 portrait-flip.js의 별도 구현을 쓴다 —
 //     clip-path 기반 커얼을 세 가지 방식으로 다시 구현해봐도 실기기에서 계속 같은
 //     종류의 글리치가 재발해서(js/portrait-flip.js 상단 주석 참고), 사용자 결정으로
 //     clip-path 기법 자체를 버리고 CSS 3D rotateY 카드 뒤집기로 완전히 다시 만들었다.
+//   - 가로: 위 buildSpreadPanels 주석 참고 — 이제 세로 모드와 같은 엔진을 쓴다.
 function jumpToPrevPage() {
   if (!pageFlip) return;
   const globalIndex = windowStartIndex + pageFlip.getCurrentPageIndex();
@@ -1013,7 +1088,28 @@ function jumpToPrevPage() {
     return;
   }
 
-  pageFlip.flipPrev();
+  // 가로(2페이지 스프레드) 모드 — buildSpreadPanels 위 주석 참고.
+  if (isPortraitFlipAnimating()) return;
+  const targetLeftGlobal = globalIndex - 2;
+  if (targetLeftGlobal < 0) return; // 첫 스프레드보다 더 앞으로 못 감 — flipPrev()도 조용히 무시하던 것과 동일
+  const fromSpreadRects = getActiveRealSpreadRects();
+  swapRealPageForFlip(targetLeftGlobal);
+  const toSpreadRects = getActiveRealSpreadRects();
+  const spreadPanels = buildSpreadPanels({
+    currentLeftGlobal: globalIndex, currentRightGlobal: globalIndex + 1,
+    targetLeftGlobal, targetRightGlobal: targetLeftGlobal + 1,
+    fromRects: fromSpreadRects, toRects: toSpreadRects,
+  });
+  if (spreadPanels.length === 0) {
+    finishManualPageTurn(targetLeftGlobal); // 진짜 페이지 전환은 이미 끝났다 — 시각 효과만 생략
+    return;
+  }
+  playSpreadPageTurn({
+    stage: stageContainer,
+    direction: 'prev',
+    panels: spreadPanels,
+    onDone: () => finishManualPageTurn(targetLeftGlobal),
+  });
 }
 
 // pageFlip.flipNext()/portrait-flip.js 재생을 직접 부르는 모든 자리(스와이프/탭/휠/
@@ -1061,7 +1157,30 @@ function goToNextPage() {
     return;
   }
 
-  pageFlip.flipNext();
+  // 가로(2페이지 스프레드) 모드 — jumpToPrevPage 위 buildSpreadPanels 주석 참고.
+  if (isPortraitFlipAnimating()) return;
+  const targetLeftGlobal = globalIndex + 2;
+  // 진짜 책 끝(더 넘길 스프레드가 없음) — flipNext()가 라이브러리 안에서 조용히
+  // 무시하던 것과 똑같이, 여기서도 그냥 아무 일도 안 하고 끝낸다.
+  if (targetLeftGlobal >= totalPages) return;
+  const fromSpreadRects = getActiveRealSpreadRects();
+  swapRealPageForFlip(targetLeftGlobal);
+  const toSpreadRects = getActiveRealSpreadRects();
+  const spreadPanels = buildSpreadPanels({
+    currentLeftGlobal: globalIndex, currentRightGlobal: globalIndex + 1,
+    targetLeftGlobal, targetRightGlobal: targetLeftGlobal + 1,
+    fromRects: fromSpreadRects, toRects: toSpreadRects,
+  });
+  if (spreadPanels.length === 0) {
+    finishManualPageTurn(targetLeftGlobal); // 진짜 페이지 전환은 이미 끝났다 — 시각 효과만 생략
+    return;
+  }
+  playSpreadPageTurn({
+    stage: stageContainer,
+    direction: 'next',
+    panels: spreadPanels,
+    onDone: () => finishManualPageTurn(targetLeftGlobal),
+  });
 }
 
 // 슬라이더로 임의의 페이지로 바로 이동 — maybeShiftPageWindow와 달리 "가장자리 근처"인지
