@@ -27,13 +27,30 @@
 //   - 2026-08-25 수정(1차~2차): 키프레임/이징을 여러 번 조정해 "안 보이는 구간에 감속이
 //     낭비되는" 문제와 "완료 판정이 시각적 완료보다 늦는" 문제를 좁혔다 — 자세한 수치는
 //     styles.css의 키프레임 위 주석 참고.
-//   - 2026-08-25 후속(목표각 91deg→180deg): 가로 모드 통일 후 사용자가 "90도에서
-//     없애지 말고 180도까지 돌아야 한다"고 요청 — backface-visibility 때문에 화면상
-//     결과는 동일하다고 설명했지만 그래도 180deg로 가져가기로 결정. 단순히 목표각만
-//     바꾸면 "사라지는 지점"이 앞당겨지면서 번호 갱신 지연 버그가 재발하므로, 키프레임에
-//     94% 지점을 91deg(기존 "사라지는 지점")로 직접 못박고 94%→100%(180deg)는 안 보이는
-//     채로 마저 돌게 해서 완료 타이밍(=duration 100%)을 조금도 안 바꿨다 — 자세한 설계는
-//     styles.css의 키프레임 위 주석 참고.
+//   - 2026-08-25 후속(목표각 91deg→180deg, 1차 시도 — 무효): 가로 모드 통일 후 사용자가
+//     "90도에서 없애지 말고 180도까지 돌아야 한다"고 요청 — backface-visibility 때문에
+//     화면상 결과는 동일하다고 설명했지만 그래도 180deg로 가져가기로 결정. 단순히 목표각만
+//     바꾸면 "사라지는 지점"이 앞당겨지면서 번호 갱신 지연 버그가 재발할 거라 판단해서,
+//     leaf 하나에 키프레임 94% 지점을 91deg(기존 "사라지는 지점")로 못박고 94%→100%
+//     (180deg)는 안 보이는 채로 마저 돌게 설계했었다 — **그런데 이건 애초에 헛수고였다.**
+//     leaf 자신에게 backface-visibility:hidden을 걸어둔 채로 그 leaf 하나를 통째로
+//     0→180도 돌리는 구조에서는, leaf가 90도를 넘는 그 순간 목표각이 91이든 180이든
+//     상관없이 leaf 자체가 무조건 안 보이게 된다(그게 backface-visibility:hidden의
+//     정의 그 자체) — 즉 "90도에서 사라지는 것처럼 보인다"는 결과는 목표각과 무관하게
+//     항상 똑같았다. 사용자가 180deg 적용 후에도 "여전히 90도 돌다가 없어진다"고
+//     재신고한 게 당연한 결과였던 것 — 이 사실을 뒤늦게 깨닫고 아래 2차 시도로 교체.
+//   - 2026-08-25 후속(2차 시도 — 앞/뒷면 분리): 진짜로 180도까지 뭔가 보이게 하려면
+//     leaf 자체에 "뒷면"이 있어야 한다는 결론 — 흔한 "플립 카드" 기법대로, 회전하는
+//     래퍼(leafCard) 안에 앞면(front, 넘어가는 페이지 내용, 로컬 rotateY 0)과 뒷면
+//     (back, 종이 뒷면 느낌의 빈 패널, 로컬 rotateY 180deg 미리 걸어둠) 두 장을 겹쳐
+//     넣었다. 카드가 90도를 넘는 순간 front의 유효 각도(카드+0)는 안 보이는 쪽으로,
+//     back의 유효 각도(카드+180)는 정확히 그 순간 보이는 쪽으로 넘어가서 이음매 없이
+//     서로 교대한다 — 카드가 180도에 다다르면 back이 정면으로 딱 보이면서 끝난다(실제
+//     책장이 뒤집혀 뒷면이 평평하게 자리잡는 모습). 이러면 duration 전체가 다시
+//     "무언가 보이는 구간"이 되므로, 1차 시도의 94%/91deg 키프레임 못박기 트릭 자체가
+//     필요 없어졌다(안 보이는 꼬리 구간이 없으니 번호 갱신 지연 문제도 원천적으로
+//     안 생긴다) — 키프레임을 0%/50%/100% 대칭 구조로 단순화했다. 자세한 설계는
+//     styles.css의 키프레임 위 주석과 아래 buildPanelAnimation()의 leafCard 주석 참고.
 //   - 2026-08-25 (footer 위치 점프 사가, 6~10차): 이 파일과는 별개로, 진짜 PageFlip
 //     페이지의 footer가 애니메이션 카드와 다른 위치에 그려지는 버그를 여러 라운드에
 //     걸쳐 쫓았다 — 최종 원인과 수정은 js/reader.js의 getActiveRealPageRect()/
@@ -137,63 +154,97 @@ function buildPanelAnimation({
   const base = buildPageElement(revealingText, revealingFooter, width, height);
   base.style.zIndex = '1';
 
-  // 위층 — 지금 보이던(넘어가는) 페이지. 이게 세로축을 중심으로 90도를 넘어 회전하면
-  // backface-visibility:hidden 덕분에 뒷면(안 보이는 쪽)을 보게 되는 순간 시각적으로
-  // "사라져서" 밑에 있던 base가 드러나는 것처럼 보인다. base와 다른 크기(leavingWidth/
-  // leavingHeight)를 쓸 수 있다 — 서로 다른 실제 페이지 인스턴스가 다른 높이로 렌더링될
-  // 수 있다는 게 footer 위치 점프 사가에서 실측으로 확인됐기 때문(js/reader.js의
-  // getActiveRealPageRect 위 주석 참고).
-  const leaf = buildPageElement(leavingText, leavingFooter, leavingWidth, leavingHeight);
-  leaf.style.zIndex = '2';
-  leaf.style.backfaceVisibility = 'hidden';
-  leaf.style.webkitBackfaceVisibility = 'hidden';
-  leaf.style.transformStyle = 'preserve-3d';
-  leaf.style.willChange = 'transform';
+  // 위층 — "뒤집히는 카드" 하나. 회전(rotateY 0→180)은 이 래퍼(leafCard) 혼자 담당하고,
+  // 그 안에 앞면(front, 지금 보이던/넘어가는 페이지 내용)과 뒷면(back, 종이 뒷면처럼
+  // 보이는 빈 패널) 두 장을 자식으로 겹쳐 넣는다 — 흔히 쓰는 "플립 카드" 기법이다.
+  // ⚠️ 2026-08-25 이전엔 leaf 자신에 backface-visibility:hidden을 걸고 그 하나를
+  // 0→180deg로 통째로 돌렸는데, 그러면 leaf 자신이 90도를 넘는 순간 통째로 안 보이게
+  // 돼서 — 목표각을 91이든 180이든 뭘로 잡아도 화면상 결과가 "90도에서 사라짐"으로
+  // 완전히 동일했다(사용자가 180deg 요청 후에도 "여전히 90도 돌다가 없어진다"고 재신고,
+  // 당연한 결과였다 — backface-visibility:hidden은 원래 "90도 넘으면 무조건 안 보이게"
+  // 하는 속성이라 목표각과 무관했다). 진짜 180도까지 뭔가 보이게 하려면 뒷면 자체가
+  // 있어야 해서 이렇게 앞/뒷면 두 장으로 다시 만들었다.
+  // 동작 원리: front는 카드 안에서 rotateY(0)(=카드와 같은 방향), back은 미리
+  // rotateY(180deg) 돌려둔 채로 얹는다. 카드가 0→90도를 도는 동안은 front의 유효
+  // 각도(카드+0)가 |값|<90이라 보이고 back의 유효 각도(카드+180)는 90을 넘어 안 보인다
+  // — 카드가 90도를 넘는 순간 정확히 반대(front 숨음/back 보임)로 뒤바뀌어서, 하나가
+  // 사라지는 바로 그 프레임에 다른 하나가 나타나는 이음매 없는 전환이 된다. 카드가
+  // 180도에 다다르면 back의 유효 각도가 0이 되어 정면으로 딱 보이면서 끝난다 — 실제
+  // 책장을 넘길 때 뒤집힌 종이의 뒷면이 평평하게 자리잡는 모습과 같은 그림이다.
+  const leafCard = document.createElement('div');
+  leafCard.className = 'portrait-flip-leaf-card';
+  leafCard.style.position = 'absolute';
+  leafCard.style.top = '0';
+  leafCard.style.left = '0';
+  leafCard.style.width = leavingWidth + 'px';
+  leafCard.style.height = leavingHeight + 'px';
+  leafCard.style.zIndex = '2';
+  leafCard.style.transformStyle = 'preserve-3d';
+  leafCard.style.willChange = 'transform';
   // next(다음 페이지): 왼쪽 가장자리를 축으로 왼쪽으로 접히듯 회전.
   // prev(이전 페이지): 오른쪽 가장자리를 축으로 오른쪽으로 접히듯 회전.
   // 부호(sign) 하나만 다르고 나머지 로직은 완전히 동일해서, 두 방향이 항상 대칭이다 —
   // 가로 모드에서도 좌/우 패널 둘 다 이 부호를 그대로 따른다(패널별로 다른 축을 쓰지
   // 않는다 — "통일성" 요청에 맞춰 세로 모드와 완전히 같은 규칙을 그대로 재사용).
   const sign = direction === 'next' ? -1 : 1;
-  leaf.style.transformOrigin = sign < 0 ? 'left center' : 'right center';
-  // 회전(rotateY) + 압축(scaleX, 접히는 쪽으로 살짝 눌려 종이가 휘어지는 느낌) + 들어올림
-  // (translateZ, 입체감) + 동적 그림자를 전부 styles.css의 @keyframes 하나로 묶어뒀다.
-  // 그래도 여전히 clip-path 없음, JS 매 프레임 갱신 없음 — 브라우저가 알아서 보간하는
-  // 선언적 애니메이션인 건 그대로다. 키프레임이 0%→94%(rotateY 91deg, 화면에서 사라지는
-  // 지점)→100%(rotateY 180deg, 안 보이는 채로 마저 돎)의 3단이고, 감속 곡선(ease-out/
-  // linear)도 이제 JS가 아니라 각 키프레임 자신에 박혀있다 — 그래서 여기선 duration만
-  // 지정한다(타이밍 함수는 지정 안 해도 무방, 모든 구간에 키프레임 자체 함수가 있음).
-  // 2026-08-25 후속: 목표각을 91deg→180deg로 바꾸면서도 "사라지는 지점"이 여전히
-  // duration의 94%에 정확히 고정되도록(=번호 갱신 타이밍 불변) 설계한 경위는 styles.css의
-  // 키프레임 위 주석 참고.
-  leaf.style.animation = `portrait-flip-leaf-${direction} ${duration}ms linear`;
+  leafCard.style.transformOrigin = sign < 0 ? 'left center' : 'right center';
+  // 회전(rotateY 0→180, 중간(90도)에서 scaleX로 얇게 눌렸다 펴지는 압축 + translateZ로
+  // 들어올렸다 내려놓는 입체감 + 그 타이밍에 짙어졌다 옅어지는 그림자)을 styles.css의
+  // @keyframes 하나로 묶어뒀다 — 여전히 clip-path 없음, JS 매 프레임 갱신 없음.
+  leafCard.style.animation = `portrait-flip-leaf-${direction} ${duration}ms ease-in-out`;
+
+  // 앞면 — 기존 leaf가 하던 역할 그대로(넘어가는 페이지 내용). 카드 안에서 회전을
+  // 더 얹지 않으므로(로컬 rotateY 0) 카드 각도가 곧 이 면의 유효 각도다.
+  const front = buildPageElement(leavingText, leavingFooter, leavingWidth, leavingHeight);
+  front.style.position = 'absolute';
+  front.style.top = '0';
+  front.style.left = '0';
+  front.style.backfaceVisibility = 'hidden';
+  front.style.webkitBackfaceVisibility = 'hidden';
+
+  // 뒷면 — 실제 내용이 없는 종이 뒷면 표현(순수 장식, styles.css의
+  // .portrait-flip-leaf-back 참고). 카드 안에서 미리 180도 돌려뒀기 때문에, 카드
+  // 자신이 180도까지 다 돌면 이 면의 유효 각도가 0이 되어 정면으로 보인다.
+  const back = document.createElement('div');
+  back.className = 'portrait-flip-leaf-back page';
+  back.style.position = 'absolute';
+  back.style.top = '0';
+  back.style.left = '0';
+  back.style.width = leavingWidth + 'px';
+  back.style.height = leavingHeight + 'px';
+  back.style.backfaceVisibility = 'hidden';
+  back.style.webkitBackfaceVisibility = 'hidden';
+  back.style.transform = 'rotateY(180deg)';
+
+  leafCard.appendChild(front);
+  leafCard.appendChild(back);
 
   perspectiveStage.appendChild(base);
-  perspectiveStage.appendChild(leaf);
+  perspectiveStage.appendChild(leafCard);
   stage.appendChild(perspectiveStage);
 
-  // ⚠️ 임시 디버그 로깅 (2026-08-25) — 임시 카드(base/leaf)의 footer가 실제로 어느 화면
+  // ⚠️ 임시 디버그 로깅 (2026-08-25) — 임시 카드(base/front)의 footer가 실제로 어느 화면
   // 좌표에 그려지는지 직접 측정. js/reader.js의 [FOOTERDEBUG] 로깅과 짝을 이룬다.
   // debugLabel로 세로 모드("portrait")/가로 모드 좌우 패널("spread-left"/"spread-right")을
   // 구분한다. 원인 확인되면 이 로깅 전부 제거할 것.
   try {
     const baseFooter = base.querySelector('.page-footer');
-    const leafFooter = leaf.querySelector('.page-footer');
+    const frontFooter = front.querySelector('.page-footer');
     const stageRect = stage.getBoundingClientRect();
     const baseFooterRect = baseFooter ? baseFooter.getBoundingClientRect() : null;
-    const leafFooterRect = leafFooter ? leafFooter.getBoundingClientRect() : null;
+    const frontFooterRect = frontFooter ? frontFooter.getBoundingClientRect() : null;
     console.log('[FOOTERDEBUG] overlay base+leaf footer @ start', debugLabel || '', JSON.stringify({
       t: Math.round(performance.now()),
       stageTop: Math.round(stageRect.top), stageBottom: Math.round(stageRect.bottom),
       baseFooterY: baseFooterRect ? Math.round(baseFooterRect.top) : null,
       baseFooterText: baseFooter ? baseFooter.textContent : null,
-      leafFooterY: leafFooterRect ? Math.round(leafFooterRect.top) : null,
-      leafFooterText: leafFooter ? leafFooter.textContent : null,
+      leafFooterY: frontFooterRect ? Math.round(frontFooterRect.top) : null,
+      leafFooterText: frontFooter ? frontFooter.textContent : null,
     }));
   } catch (err) { /* 진단용, 실패해도 애니메이션엔 영향 없음 */ }
 
   let finished = false;
-  const handle = { leaf, onAnimationEnd: null, safetyTimer: null };
+  const handle = { leaf: leafCard, onAnimationEnd: null, safetyTimer: null };
 
   function finish() {
     if (finished) return;
@@ -210,17 +261,17 @@ function buildPanelAnimation({
       }));
     } catch (err) { /* 진단용, 실패해도 정리엔 영향 없음 */ }
     clearTimeout(handle.safetyTimer);
-    leaf.removeEventListener('animationend', handle.onAnimationEnd);
+    leafCard.removeEventListener('animationend', handle.onAnimationEnd);
     perspectiveStage.remove();
     onPanelDone();
   }
 
   function onAnimationEnd(e) {
-    if (e.target !== leaf || e.animationName !== `portrait-flip-leaf-${direction}`) return;
+    if (e.target !== leafCard || e.animationName !== `portrait-flip-leaf-${direction}`) return;
     finish();
   }
   handle.onAnimationEnd = onAnimationEnd;
-  leaf.addEventListener('animationend', onAnimationEnd);
+  leafCard.addEventListener('animationend', onAnimationEnd);
 
   // ⚠️ 이 타이머는 원래 "탭이 백그라운드로 가는 등 드문 경우에만 발동하는 안전장치"로
   // 설계돼서 `duration + 500`이었는데, 이 프로젝트의 자동화 브라우저 환경(document.hidden)
