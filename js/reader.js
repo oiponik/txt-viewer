@@ -685,34 +685,26 @@ function finalizePaginationComplete(containerWidth, containerHeight, fontKey, ca
 // updateFromHtml)에 맡긴다.
 // 쪽 번호(footer)는 전역 번호/전역 총 페이지 수를 그대로 쓰기 때문에,
 // 일부만 그려져 있어도 사용자에게는 "- 1234 / 5000 -" 처럼 항상 정확하게 보인다.
-// ⚠️ 2026-08-25 — 세로(한 페이지) 모드 전용 명시적 크기 고정. 실기기 로그로 확인된 사실:
-// PageFlip이 그리는 진짜 `.page.stf__item` 요소는 `height:100%`가 라이브러리 내부 래퍼
-// 체인(`.stf__wrapper`의 퍼센트 기반 종횡비 등, 그 안에 실제 CSS 오타 버그도 있다 —
-// `.sft__wrapper`로 잘못 쓰여서 의도한 `position:relative`가 안 먹는다)을 거쳐 계산되는데,
-// **같은 책·같은 세션·같은 창(window) 안에서도 페이지 DOM 인스턴스마다 그 결과 높이가
-// 미묘하게 달랐다**(실측: 999px vs 973px, 26px 차이). portrait-flip.js의 임시 애니메이션
-// 카드는 이 "제멋대로인 진짜 높이"를 매번 실측해서 쫓아가려 했지만(여러 라운드에 걸친
-// 시도), 애니메이션 도중 카드가 보이는 동안과 애니메이션이 끝나 진짜 페이지가 드러나는
-// 순간 사이에 여전히 어긋남이 남아 footer가 튀는 것처럼 보였다.
-// **근본 수정**: 진짜 페이지 쪽을 고치기로 했다 — `height:100%`(조상 체인에 의존, 그래서
-// 흔들림) 대신 `position:absolute` + 명시적 픽셀 `width`/`height`(currentRenderWidth/
-// currentRenderHeight, 페이지네이션 자체가 이미 전제하고 있던 바로 그 값)를 인라인
-// 스타일로 직접 못박는다 — 조상 체인이 뭘 하든(오타 버그 포함) 상관없이 모든 `.page`
-// 인스턴스가 항상 정확히 같은 크기가 된다. 가로(2페이지 스프레드) 모드는 PageFlip 자체
-// 커얼 애니메이션이 이 요소들의 크기/위치를 직접 다루므로 손대지 않는다(세로 모드일
-// 때만 적용) — 가로 모드는 애초에 이 버그가 없었다.
+// ⚠️ 2026-08-25 — 8차 라운드에서 여기 `.page`에 명시적 `position:absolute`+픽셀
+// width/height를 인라인으로 박아봤지만 **효과가 없었다** — 이유를 실기기 콘솔로
+// 직접 확인: `document.querySelector('#my-book .page')?.getAttribute('style')`가
+// `"display: none;"`만 보여줬다. 즉 우리가 설정한 인라인 스타일이 라이브러리 자신의
+// 렌더 사이클에 의해 통째로 지워지고 있었다 — `js/vendor/page-flip.browser.js`의
+// `HTMLPage`/`HTMLRender` 코드가 `element.style.cssText = "display: none"`처럼
+// **`cssText` 전체 대입**으로 페이지를 그리고 있어서(개별 프로퍼티 설정이 아니라
+// style 속성 자체를 통째로 교체), 우리가 미리 설정해둔 값은 살아남을 수가 없었다.
+// 진짜 원인은 더 위쪽에 있었다 — `Render.getBlockWidth()`/`getBlockHeight()`가
+// `#my-book`의 `offsetWidth`/`offsetHeight`를 **렌더링할 때마다 실시간으로 다시
+// 측정**해서 페이지 위치 계산(`calculateBoundsRect`)에 넣고 있었고, 이 실시간 측정값이
+// 세션 도중 미묘하게 흔들리는 게 진짜 원인이었다. 그래서 여기(DOM 쪽)를 고치는 대신
+// `js/vendor/page-flip.browser.js`의 `getBlockWidth()`/`getBlockHeight()` 자체를
+// 패치해서 PageFlip 인스턴스당 한 번만 측정하고 캐싱하도록 고쳤다(그 파일 상단
+// 주석 참고) — 진짜 근본 수정은 거기 있다, 여기는 손댈 필요가 없었다.
 function createPageElements(start, end, total) {
   const elements = [];
   for (let i = start; i < end; i++) {
     const pageDiv = document.createElement('div');
     pageDiv.className = 'page';
-    if (isSinglePageMode) {
-      pageDiv.style.position = 'absolute';
-      pageDiv.style.top = '0';
-      pageDiv.style.left = '0';
-      pageDiv.style.width = currentRenderWidth + 'px';
-      pageDiv.style.height = currentRenderHeight + 'px';
-    }
 
     const pageContent = document.createElement('div');
     pageContent.className = 'page-content';
