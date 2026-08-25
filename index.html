@@ -139,17 +139,17 @@
   <!-- 화면 2: 뷰어 (책 읽기) -->
   <div id="viewer-screen" class="screen-hidden">
     <aside id="sidebar">
-      <!-- sw.js의 CACHE_VERSION을 아주 작게 표시 — 실사용 중에도 지금 이 기기가 어떤
-           캐시 버전을 받았는지 한눈에 확인할 수 있게 해서 캐싱 문제 진단에 쓴다.
-           읽는 데 방해되지 않도록 순전히 장식용(js/main.js가 채움, 클릭 불가) —
-           #sidebar가 몰입모드에서 위로 슬라이드되어 숨듯 이것도 같이 숨는다. -->
-      <span id="app-version-badge" aria-hidden="true"></span>
       <div class="sidebar-header">
         <button id="back-to-library" class="icon-btn" title="목록으로">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
         </button>
         <div class="sidebar-title-row">
           <strong id="current-title">책을 선택하세요</strong>
+          <!-- sw.js의 CACHE_VERSION을 표시 — 실사용 중에도 지금 이 기기가 어떤 캐시
+               버전을 받았는지 한눈에 확인할 수 있게 해서 캐싱 문제 진단에 쓴다.
+               제목 옆에 자연스러운 자리를 잡아서(코너에 절대배치로 욱여넣지 않음)
+               크기 제약 없이 눈에 잘 띄게 키울 수 있다 — js/main.js가 채움, 클릭 불가. -->
+          <span id="app-version-badge" aria-hidden="true"></span>
         </div>
         <button id="page-bookmark-toggle-btn" class="icon-btn" title="이 페이지 책갈피 추가/해제">
           <svg viewBox="0 0 120 120" width="19" height="19"><path d="M86.6,103L60,83.5L33.4,103c-1.7,1.3-4.2,0-4.2-2.1V19.5c0-1.7,1.4-3.1,3.1-3.1h55.3c1.7,0,3.1,1.4,3.1,3.1v81.4C90.7,103.1,88.3,104.3,86.6,103z" fill="currentColor" stroke="currentColor" stroke-width="6" stroke-linejoin="round"></path></svg>

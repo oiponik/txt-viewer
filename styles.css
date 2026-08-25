@@ -273,18 +273,6 @@
       display: flex; align-items: center; gap: 4px;
     }
 
-    /* 캐시 버전 배지 — #sidebar(position:fixed)를 기준으로 절대배치해서 sidebar-header의
-       flex 레이아웃(뒤로가기/제목/책갈피 3분할, 좌우 대칭이라 제목이 가운데로 보임)을
-       전혀 건드리지 않는다. 아주 작고 흐릿하게 구석에만 있어서 평소엔 거의 안 보이고,
-       읽기 자체(book-stage 영역)와는 무관하다 — 몰입모드에서 #sidebar가 위로 슬라이드돼
-       숨을 때 이것도 같이 숨는다. */
-    #app-version-badge {
-      position: absolute; top: 0; right: 6px;
-      font-size: 9px; line-height: 1; color: var(--text-color); opacity: 0.3;
-      pointer-events: none; user-select: none;
-      z-index: 51;
-    }
-
     .icon-btn {
       flex-shrink: 0;
       width: 38px; height: 38px; border-radius: 50%;
@@ -302,8 +290,18 @@
     .sidebar-title-row strong {
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       font-size: 14px; font-weight: 600;
+      min-width: 0; flex-shrink: 1; /* 옆의 배지가 생겨도 제목이 밀려나가지 않고 계속 줄임표로 줄어들도록 */
     }
 
+    /* 캐시 버전 배지 — 제목 옆 자연스러운 자리(원래 코너에 절대배치로 욱여넣었더니
+       "너무 작아서 안 보인다"는 피드백을 받아 옮김)에 두니 크기 제약이 없어져서 눈에
+       잘 띄게 키울 수 있다. 순전히 장식용(js/main.js가 채움, 클릭 불가) — #sidebar가
+       몰입모드에서 위로 슬라이드돼 숨듯 이것도 같이 숨는다. */
+    #app-version-badge {
+      flex-shrink: 0; margin-left: 6px;
+      font-size: 12px; font-weight: 600; color: var(--text-color); opacity: 0.55;
+      pointer-events: none; user-select: none;
+    }
 
     #file-list {
       list-style: none; margin: 0; padding: 4px 12px 12px; overflow-y: auto; flex: 1;
