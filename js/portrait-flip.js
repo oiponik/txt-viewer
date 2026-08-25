@@ -202,16 +202,25 @@ function buildPanelAnimation({
   front.style.backfaceVisibility = 'hidden';
   front.style.webkitBackfaceVisibility = 'hidden';
 
-  // 뒷면 — 실제 내용이 없는 종이 뒷면 표현(순수 장식, styles.css의
-  // .portrait-flip-leaf-back 참고). 카드 안에서 미리 180도 돌려뒀기 때문에, 카드
-  // 자신이 180도까지 다 돌면 이 면의 유효 각도가 0이 되어 정면으로 보인다.
-  const back = document.createElement('div');
-  back.className = 'portrait-flip-leaf-back page';
+  // 뒷면 — ⚠️ 2026-08-25 후속: 처음엔 실제 내용 없는 빈 패널(순수 장식)로 만들었었는데,
+  // 사용자가 실기기에서 "안 보이던 면의 글자는 페이지에 자연스럽게 붙어있지 않고
+  // 애니메이션이 끝난 뒤 뿅 하고 나타난다"고 지적 — 원인은 뒷면이 빈 패널이라 50%~100%
+  // 구간 동안 화면엔 아무 내용 없는 판만 보이다가, 애니메이션이 끝나 오버레이가 걷히는
+  // 순간에야 진짜 새 페이지(base)가 갑자기 드러났기 때문이었다. 그래서 뒷면도 base와
+  // 똑같은 진짜 내용(revealingText/revealingFooter)으로 채웠다 — 로컬 rotateY(180deg)를
+  // 이미 걸어뒀으므로, 카드 자신이 180도까지 다 돌면 180+180=360(=0)이 되어 **거울에
+  // 비친 것처럼 뒤집히지 않고 정상 방향 그대로** 정면으로 보인다(카드 뒤집기 기법에서
+  // 뒷면을 미리 180도 돌려두는 이유가 바로 이 "두 번 뒤집으면 원래대로" 상쇄 효과다).
+  // 카드가 90도를 넘어서부터 180도에 다다르기까지, 뒷면의 유효 각도는 -90도(거의
+  // 옆에서 봄)에서 매끄럽게 0도(정면)로 좁혀지므로, 진짜 새 페이지 내용이 회전하며
+  // "펼쳐지듯" 자연스럽게 드러난다 — 끝나고 나서 갑자기 나타나는 게 아니라, 회전
+  // 자체가 이미 그 내용을 보여주며 진행된다. 최종 상태(180도, 완전히 정면)가 밑에
+  // 깔린 base와 내용·위치·크기 모두 동일해서, 애니메이션이 끝나고 오버레이가 걷혀도
+  // 아무 변화 없이 이어진다(=이음매 없음).
+  const back = buildPageElement(revealingText, revealingFooter, width, height);
   back.style.position = 'absolute';
   back.style.top = '0';
   back.style.left = '0';
-  back.style.width = leavingWidth + 'px';
-  back.style.height = leavingHeight + 'px';
   back.style.backfaceVisibility = 'hidden';
   back.style.webkitBackfaceVisibility = 'hidden';
   back.style.transform = 'rotateY(180deg)';
