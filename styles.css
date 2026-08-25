@@ -725,7 +725,7 @@
        ⚠️ --bg-color/--text-color(전역 테마)가 아니라 --reading-bg/--reading-text
        (고정색)를 쓴다 — 사용자가 명시적으로 요청하기 전까진 절대 바꾸지 않는다. */
     .page {
-      position: relative; /* 우측 상단 책갈피 아이콘 절대배치 기준 */
+      position: relative; /* page-content/page-footer 절대배치 기준(우측 상단 책갈피 아이콘도 이걸 기준으로 쓸 예정) */
       background-color: var(--reading-bg);
       color: var(--reading-text);
       font-family: var(--reading-font-family);
@@ -736,9 +736,23 @@
          곱하는 방식이라, 화면 크기별 반응형 스케일링은 그대로 유지된다 */
       font-size: calc(var(--reading-font-scale) * clamp(13px, 1.1vw + 0.6rem, 16px));
       line-height: 1.65;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
+      /* ⚠️ 2026-08-25: 예전엔 여기서 `display:flex; flex-direction:column;
+         justify-content:space-between;`로 .page-footer를 바닥에 고정했는데, 실기기
+         콘솔로 확인해보니 PageFlip 라이브러리가 실제 페이지를 그릴 때
+         `element.style.cssText = "...display: block;..."`로 style 속성을 통째로
+         교체한다(js/vendor/page-flip.browser.js의 HTMLPage.simpleDraw()) — 인라인
+         스타일이 우리 클래스의 display:flex를 그대로 덮어써서 flex가 완전히
+         깨졌다. 그 결과 .page-content가 flex:1로 안 늘어나고 자기 텍스트
+         분량만큼만 차지하는 일반 블록으로 되돌아갔고, .page-footer는 그 바로
+         밑에 붙어서 **페이지마다 텍스트 분량에 따라 위치가 달라지는** 것처럼
+         보였다(사용자가 직접 관찰: ".page-content 바로 밑에 붙어서 세로 크기에
+         따라 위치가 달라짐") — 이게 몇 주간 쫓던 "footer 위치 점프" 버그의 진짜
+         정체였다. 라이브러리가 통째로 덮어쓰는 `display`값 자체를 우리가 통제할
+         방법이 없으므로, 아예 **flex에 기대지 않는 방식**으로 바꿨다 — 아래
+         .page-content/.page-footer가 `position:absolute`로 스스로 바닥에 고정된다.
+         `position:absolute` 자식은 부모의 `display`가 flex든 block이든 상관없이
+         "positioned 조상"(position이 static이 아닌 것)만 있으면 동일하게
+         동작하므로, 라이브러리가 무슨 값으로 덮어쓰든 절대 안 깨진다. */
       height: 100%;
       box-sizing: border-box;
       /* ⚠️ 2026-08-24: 잠깐 여기서 will-change:transform + backface-visibility:hidden을
@@ -763,9 +777,15 @@
       -webkit-touch-callout: none;
     }
 
+    /* ⚠️ 2026-08-25: flex 기반(`flex:1`)에서 절대배치로 바꿨다 — 이유는 .page 규칙 위
+       주석 참고. `position:absolute`라 부모(.page)의 padding 안쪽(패딩 박스) 기준으로
+       top/left/right/bottom이 정해진다 — .page의 반응형 좌우 여백(--reading-padding-x)이
+       그대로 자동 반영된다. bottom: 25px는 .page-footer의 높이(20px)+그 위 여백(5px)을
+       위한 예약 공간이다 — .page-footer 쪽 값을 바꾸면 여기도 같이 맞춰야 한다. */
     .page-content {
-      flex: 1;
-      min-height: 0;
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      bottom: 25px; /* .page-footer height(20px) + 위 여백(5px) — 아래 .page-footer와 짝 */
       overflow: hidden;
       word-break: break-all;
       overflow-wrap: anywhere;
@@ -773,13 +793,13 @@
     }
 
     .page-footer {
+      position: absolute;
+      left: 0; right: 0; bottom: 0; /* .page의 패딩 안쪽 바닥에 고정 — 위 .page-content 주석 참고 */
       height: 20px;
       line-height: 20px;
       text-align: center;
       font-size: 12px;
       opacity: 0.5;
-      flex-shrink: 0;
-      margin-top: 5px;
     }
 
     input[type="file"] { display: none; }
