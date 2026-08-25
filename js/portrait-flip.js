@@ -207,23 +207,13 @@ function buildPanelAnimation({
   // 오도록 했다 — 실제 눈이 책의 가운데를 보고 있는 상태를 흉내낸다.
   perspectiveStage.style.perspectiveOrigin = sign < 0 ? '0% 50%' : '100% 50%';
 
-  // ⚠️ 임시 디버그 로깅 (2026-08-26) — 사용자가 "축이 정가운데(=스파인)와 안 맞는다"고
-  // 재신고 — perspective-origin 수정 이후에도 여전히 그렇다는 뜻이라, 이번엔 추측 대신
-  // 실기기 콘솔 로그로 직접 좌표를 재서 비교한다. 원인 확인되면 이 블록은 제거할 것.
-  try {
-    const stageRect = stage.getBoundingClientRect();
-    const hingeAbsX = stageRect.left + offsetLeft + (sign < 0 ? 0 : width);
-    const spineEl = document.getElementById('book-spine');
-    const spineRect = spineEl && getComputedStyle(spineEl).display !== 'none' ? spineEl.getBoundingClientRect() : null;
-    const spineCenterX = spineRect ? (spineRect.left + spineRect.right) / 2 : null;
-    console.log('[AXISDEBUG]', debugLabel || '', direction, JSON.stringify({
-      hingeAbsX: Math.round(hingeAbsX),
-      spineCenterX: spineCenterX == null ? null : Math.round(spineCenterX),
-      deltaFromSpine: spineCenterX == null ? null : Math.round(hingeAbsX - spineCenterX),
-      panelOffsetLeft: Math.round(offsetLeft), panelWidth: Math.round(width),
-      stageLeft: Math.round(stageRect.left), stageWidth: Math.round(stageRect.width),
-    }));
-  } catch (err) { /* 진단용, 실패해도 애니메이션엔 영향 없음 */ }
+  // ⚠️ 2026-08-26 — 위 [AXISDEBUG] 임시 로깅(이젠 제거됨)으로 실기기에서 직접 재본 결과
+  // transform-origin 좌표 자체(hingeAbsX)는 스파인 중앙과 완벽히 일치했다(deltaFromSpine:
+  // 0) — "축의 정적 위치"는 처음부터 문제가 아니었다. 그런데도 사용자가 "회전 도중에만"
+  // 안 맞아 보인다고 확인해줘서 진짜 원인(회전 중 축 자체가 옆으로 밀리는 현상)을 찾아
+  // 고쳤다 — styles.css의 키프레임 위 "5차 시도" 주석 참고 (translateZ가 rotateY보다
+  // 안쪽(먼저 적용)에 있으면, 회전축 자기 자신도 translateZ→rotateY 합성 과정에서
+  // 화면상 `28×sin(θ)`만큼 옆으로 밀려 보인다 — 90도 근처에서 최대).
 
   // 아래층 — 새로 드러날 페이지. 처음부터 제자리에 고정, 애니메이션 내내 움직이지 않는다.
   const base = buildPageElement(revealingText, revealingFooter, width, height);

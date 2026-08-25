@@ -672,16 +672,38 @@
        것을 가지므로 무의미), duration만 지정한다. 부수 효과: 이러면서 "보이는 회전"이
        duration 전체에 훨씬 고르게 퍼지게 되어, 애니메이션이 시각적으로 다 끝난 뒤에도
        한참(수백 ms) 조작이 막혀있던 "먹통" 체감(2026-08-26 세션에서 별도로 확인한
-       완료 판정 지연 문제)도 상당 부분 같이 완화된다. */
+       완료 판정 지연 문제)도 상당 부분 같이 완화된다.
+       ⚠️ 2026-08-26, 5차 시도(회전 도중 축이 밀려 보이는 버그 — 진짜 원인) — 사용자가
+       "회전축이 화면 정가운데와 안 맞는다"고 재신고해서, `js/portrait-flip.js`에
+       `[AXISDEBUG]` 임시 로그를 심어 실기기에서 직접 측정했더니 **우리가 계산한 회전축
+       좌표 자체(`transform-origin`)는 스파인 정중앙과 완벽히 일치**했다(`deltaFromSpine:
+       0`) — 즉 "위치 계산"은 처음부터 틀린 적이 없었다. 그런데도 사용자는 "회전 도중
+       (접히는 순간)"에만 축이 안 맞아 보인다고 명확히 확인해줬다 — 이건 축의 *좌표*가
+       아니라 축이 *회전하는 동안 실제로 화면에 그려지는 위치*가 어긋난다는 뜻이었다.
+       좌표 수학을 직접 풀어보니 원인을 찾았다: `transform: rotateY(θ) translateZ(28px)
+       scaleX(k)`처럼 **`translateZ`가 `rotateY`보다 뒤(=먼저 적용되는 안쪽)에 있으면**,
+       변환은 (scaleX → translateZ → rotateY) 순서로 점에 적용된다 — `transform-origin`
+       지점(회전축 자기 자신, 로컬 좌표 0)조차도 `translateZ`로 먼저 z축으로
+       28px 밀린 뒤에 `rotateY`가 그 z-오프셋을 x축으로 섞어버려서, **회전각이 커질수록
+       축 자신이 `28×sin(θ)`만큼 화면에서 옆으로 밀려 보인다**(90도에서 최대, 정확히
+       28px — 직접 좌표 계산 + 수치 검산으로 재확인). 회전이 없을 때(0%)나 다 끝났을
+       때(100%)는 θ가 0/180이라 `sin`이 0이라 안 보이고, **정확히 "회전 도중"에만,
+       그것도 그림자가 가장 짙어지는 50%(90도) 근처에서 가장 크게** 드러나는 것까지
+       사용자 증상과 정확히 일치한다. **수정**: `translateZ`를 `rotateY`보다 앞(=바깥,
+       나중에 적용)으로 옮겼다(`translateZ(28px) rotateY(θ) scaleX(k)`) — 이러면
+       `translateZ`가 이미 회전이 다 끝난 *뒤*(화면 기준 z축)에 적용되므로 축 자신은
+       전혀 안 밀리고 순수하게 카메라 쪽으로만 들어올려진다(오히려 "화면 쪽으로
+       들어올려짐"이라는 원래 의도에도 이 순서가 더 정확하다 — 회전된 로컬 z축이
+       아니라 항상 화면을 보는 진짜 z축으로 들어올려야 자연스럽다). */
     @keyframes portrait-flip-leaf-next {
-      0%   { transform: rotateY(0deg) translateZ(0) scaleX(1); box-shadow: -14px 0 30px rgba(0,0,0,0.3); animation-timing-function: ease-in; }
-      50%  { transform: rotateY(-90deg) translateZ(28px) scaleX(0.06); box-shadow: -55px 0 70px rgba(0,0,0,0.55); animation-timing-function: ease-out; }
-      100% { transform: rotateY(-180deg) translateZ(0) scaleX(1); box-shadow: -14px 0 30px rgba(0,0,0,0.3); }
+      0%   { transform: translateZ(0) rotateY(0deg) scaleX(1); box-shadow: -14px 0 30px rgba(0,0,0,0.3); animation-timing-function: ease-in; }
+      50%  { transform: translateZ(28px) rotateY(-90deg) scaleX(0.06); box-shadow: -55px 0 70px rgba(0,0,0,0.55); animation-timing-function: ease-out; }
+      100% { transform: translateZ(0) rotateY(-180deg) scaleX(1); box-shadow: -14px 0 30px rgba(0,0,0,0.3); }
     }
     @keyframes portrait-flip-leaf-prev {
-      0%   { transform: rotateY(0deg) translateZ(0) scaleX(1); box-shadow: 14px 0 30px rgba(0,0,0,0.3); animation-timing-function: ease-in; }
-      50%  { transform: rotateY(90deg) translateZ(28px) scaleX(0.06); box-shadow: 55px 0 70px rgba(0,0,0,0.55); animation-timing-function: ease-out; }
-      100% { transform: rotateY(180deg) translateZ(0) scaleX(1); box-shadow: 14px 0 30px rgba(0,0,0,0.3); }
+      0%   { transform: translateZ(0) rotateY(0deg) scaleX(1); box-shadow: 14px 0 30px rgba(0,0,0,0.3); animation-timing-function: ease-in; }
+      50%  { transform: translateZ(28px) rotateY(90deg) scaleX(0.06); box-shadow: 55px 0 70px rgba(0,0,0,0.55); animation-timing-function: ease-out; }
+      100% { transform: translateZ(0) rotateY(180deg) scaleX(1); box-shadow: 14px 0 30px rgba(0,0,0,0.3); }
     }
 
     /* 밝기 오버레이 — 브라우저는 실제 기기 화면 밝기를 제어할 수 없어서, 읽기
