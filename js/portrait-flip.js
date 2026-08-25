@@ -94,20 +94,27 @@ function buildPageElement(text, footer, width, height) {
 
 // direction: 'next' | 'prev'. stage는 오버레이를 붙일 기준 요소(#book-stage, position:relative
 // 이미 걸려있음).
-// offsetTop/offsetLeft: 진짜 PageFlip 페이지가 stage 안에서 실제로 그려지는 정확한 위치
-// (js/reader.js의 getActiveRealPageRect() 참고) — 예전엔 `inset:0`으로 stage 전체를
-// 그냥 덮었는데, 실기기 로그로 확인해보니 라이브러리 자체의 CSS 버그(.stf__wrapper를
-// .sft__wrapper로 잘못 쓴 오타 — 아래 자세한 경위는 reader.js의 getActiveRealPageRect
-// 위 주석 참고) 때문에 진짜 페이지가 stage 전체를 정확히 안 채우고 최대 39px 정도
-// 어긋난 위치에 그려진다. 원인(라이브러리 CSS 버그)을 직접 고치는 대신, 오버레이를
-// "stage 전체"가 아니라 "진짜 페이지가 실제로 있는 그 자리"에 정확히 겹쳐 그린다.
+// offsetTop/offsetLeft/width/height: base(새로 드러날 페이지)와 오버레이 컨테이너 자체의
+// 정확한 위치·크기 — 진짜 PageFlip 페이지가 지금 실제로 그려지는 자리를 그대로 잰 값이다
+// (js/reader.js의 getActiveRealPageRect() 참고, 스왑 *이후* 측정 = TO 페이지 기준).
+// leavingWidth/leavingHeight: leaf(넘어가는 옛 페이지) 전용 크기 — 생략하면 width/height와
+// 같다고 가정하지만, **반드시 스왑 *이전*(FROM 페이지) 기준으로 별도로 재서 넘겨야 한다.**
+// ⚠️ 2026-08-25 6차 수정 때는 이 둘을 구분 안 하고 TO 페이지 크기 하나로 base/leaf를
+// 똑같이 그렸는데, 실기기 로그로 "같은 책 안에서도 진짜 페이지끼리 footer 위치가 다르다"
+// (예: 999 vs 973, 26px 차이)는 게 확인된 뒤라 — FROM과 TO가 실제로 다른 크기일 수 있다는
+// 뜻이고, 그럴 때 leaf에 TO 페이지 크기를 잘못 적용하면 leaf 자신이 화면에 보이는 동안
+// (회전해서 사라지기 전까지) footer가 원래 그 페이지가 보여줬어야 할 위치와 다르게
+// 그려진다 — 사용자가 "여전히 튄다"고 재신고한 원인으로 추정된다.
 // 반환값: 애니메이션을 실제로 시작했으면 true, 이미 진행 중이라 무시했으면 false.
 export function playPortraitPageTurn({
   stage, width, height, direction, offsetTop = 0, offsetLeft = 0,
+  leavingWidth, leavingHeight,
   leavingText, leavingFooter, revealingText, revealingFooter,
   duration = 1000, onDone,
 }) {
   if (activeAnimation) return false;
+  if (leavingWidth == null) leavingWidth = width;
+  if (leavingHeight == null) leavingHeight = height;
 
   const perspectiveStage = document.createElement('div');
   perspectiveStage.className = 'portrait-flip-stage';
@@ -126,8 +133,9 @@ export function playPortraitPageTurn({
 
   // 위층 — 지금 보이던(넘어가는) 페이지. 이게 세로축을 중심으로 90도를 넘어 회전하면
   // backface-visibility:hidden 덕분에 뒷면(안 보이는 쪽)을 보게 되는 순간 시각적으로
-  // "사라져서" 밑에 있던 base가 드러나는 것처럼 보인다.
-  const leaf = buildPageElement(leavingText, leavingFooter, width, height);
+  // "사라져서" 밑에 있던 base가 드러나는 것처럼 보인다. base와 다른 크기(leavingWidth/
+  // leavingHeight)를 쓸 수 있다 — 위 주석 참고.
+  const leaf = buildPageElement(leavingText, leavingFooter, leavingWidth, leavingHeight);
   leaf.style.zIndex = '2';
   leaf.style.backfaceVisibility = 'hidden';
   leaf.style.webkitBackfaceVisibility = 'hidden';
@@ -165,13 +173,17 @@ export function playPortraitPageTurn({
   // 없었다. reader.js의 finishManualPageTurn 위 주석 참고. 원인 확인되면 제거할 것.
   try {
     const baseFooter = base.querySelector('.page-footer');
+    const leafFooter = leaf.querySelector('.page-footer');
     const stageRect = stage.getBoundingClientRect();
     const baseFooterRect = baseFooter ? baseFooter.getBoundingClientRect() : null;
-    console.log('[FOOTERDEBUG] overlay base footer @ start', JSON.stringify({
+    const leafFooterRect = leafFooter ? leafFooter.getBoundingClientRect() : null;
+    console.log('[FOOTERDEBUG] overlay base+leaf footer @ start', JSON.stringify({
       t: Math.round(performance.now()),
       stageTop: Math.round(stageRect.top), stageBottom: Math.round(stageRect.bottom),
       baseFooterY: baseFooterRect ? Math.round(baseFooterRect.top) : null,
       baseFooterText: baseFooter ? baseFooter.textContent : null,
+      leafFooterY: leafFooterRect ? Math.round(leafFooterRect.top) : null,
+      leafFooterText: leafFooter ? leafFooter.textContent : null,
     }));
   } catch (err) { /* 진단용, 실패해도 애니메이션엔 영향 없음 */ }
 

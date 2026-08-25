@@ -972,21 +972,22 @@ function jumpToPrevPage() {
     if (isPortraitFlipAnimating()) return; // 애니메이션 도중 겹쳐 눌림 방지
     const targetGlobal = globalIndex - 1;
     logFooterDiagnostics('trigger-prev'); // ⚠️ 임시 디버그 로깅, finishManualPageTurn 위 주석 참고
+    const fromRect = getActiveRealPageRect(); // ⚠️ 스왑 *전* — 지금 넘어가는(leaving) 페이지 자체를 실측
     swapRealPageForFlip(targetGlobal); // ⚠️ swapRealPageForFlip 위 주석 참고 — 진짜 페이지 전환을 여기서 먼저(숨겨진 채로) 끝낸다
-    const activeRect = getActiveRealPageRect(); // ⚠️ 이제 방금 전환된 타겟 페이지 자체를 실측한다
-    console.log('[FOOTERDEBUG] activeRect vs frozen render size', JSON.stringify({
-      activeW: Math.round(activeRect.width), activeH: Math.round(activeRect.height),
-      offsetTop: Math.round(activeRect.offsetTop), offsetLeft: Math.round(activeRect.offsetLeft),
-      renderW: currentRenderWidth, renderH: currentRenderHeight,
-      deltaW: Math.round(activeRect.width - currentRenderWidth),
-      deltaH: Math.round(activeRect.height - currentRenderHeight),
+    const toRect = getActiveRealPageRect(); // ⚠️ 스왑 *후* — 새로 드러날(revealing) 페이지 자체를 실측
+    console.log('[FOOTERDEBUG] fromRect vs toRect', JSON.stringify({
+      fromW: Math.round(fromRect.width), fromH: Math.round(fromRect.height),
+      toW: Math.round(toRect.width), toH: Math.round(toRect.height),
+      deltaH: Math.round(toRect.height - fromRect.height),
     }));
     playPortraitPageTurn({
       stage: stageContainer,
-      width: activeRect.width,
-      height: activeRect.height,
-      offsetTop: activeRect.offsetTop,
-      offsetLeft: activeRect.offsetLeft,
+      width: toRect.width,
+      height: toRect.height,
+      offsetTop: toRect.offsetTop,
+      offsetLeft: toRect.offsetLeft,
+      leavingWidth: fromRect.width,
+      leavingHeight: fromRect.height,
       direction: 'prev',
       leavingText: allTextPages[globalIndex],
       leavingFooter: `- ${globalIndex + 1} / ${totalPages} -`,
@@ -1019,21 +1020,22 @@ function goToNextPage() {
     // 무시하던 것과 똑같이, 여기서도 그냥 아무 일도 안 하고 끝낸다.
     if (targetGlobal >= totalPages) return;
     logFooterDiagnostics('trigger-next'); // ⚠️ 임시 디버그 로깅, finishManualPageTurn 위 주석 참고
+    const fromRect = getActiveRealPageRect(); // ⚠️ 스왑 *전* — 지금 넘어가는(leaving) 페이지 자체를 실측
     swapRealPageForFlip(targetGlobal); // ⚠️ swapRealPageForFlip 위 주석 참고 — 진짜 페이지 전환을 여기서 먼저(숨겨진 채로) 끝낸다
-    const activeRect = getActiveRealPageRect(); // ⚠️ 이제 방금 전환된 타겟 페이지 자체를 실측한다
-    console.log('[FOOTERDEBUG] activeRect vs frozen render size', JSON.stringify({
-      activeW: Math.round(activeRect.width), activeH: Math.round(activeRect.height),
-      offsetTop: Math.round(activeRect.offsetTop), offsetLeft: Math.round(activeRect.offsetLeft),
-      renderW: currentRenderWidth, renderH: currentRenderHeight,
-      deltaW: Math.round(activeRect.width - currentRenderWidth),
-      deltaH: Math.round(activeRect.height - currentRenderHeight),
+    const toRect = getActiveRealPageRect(); // ⚠️ 스왑 *후* — 새로 드러날(revealing) 페이지 자체를 실측
+    console.log('[FOOTERDEBUG] fromRect vs toRect', JSON.stringify({
+      fromW: Math.round(fromRect.width), fromH: Math.round(fromRect.height),
+      toW: Math.round(toRect.width), toH: Math.round(toRect.height),
+      deltaH: Math.round(toRect.height - fromRect.height),
     }));
     playPortraitPageTurn({
       stage: stageContainer,
-      width: activeRect.width,
-      height: activeRect.height,
-      offsetTop: activeRect.offsetTop,
-      offsetLeft: activeRect.offsetLeft,
+      width: toRect.width,
+      height: toRect.height,
+      offsetTop: toRect.offsetTop,
+      offsetLeft: toRect.offsetLeft,
+      leavingWidth: fromRect.width,
+      leavingHeight: fromRect.height,
       direction: 'next',
       leavingText: allTextPages[globalIndex],
       leavingFooter: `- ${globalIndex + 1} / ${totalPages} -`,
