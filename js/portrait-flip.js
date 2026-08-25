@@ -117,6 +117,27 @@
 //   ⚠️ 검증 한계는 여전히 같다 — 이 환경은 실기기 렌더링을 직접 볼 방법이 없어서,
 //   1)은 프레임별 diff 실측으로 강하게 뒷받침되지만 2)는 "소실점 위치가 원인일
 //   가능성이 가장 크다"는 추론에 기반한 수정이다. 사용자가 실기기에서 다시 확인 필요.
+//
+// ⚠️ 2026-08-26, 후속(같은 세션) — 위 2)에 대해 사용자가 실기기 콘솔에서 [AXISDEBUG]
+// 로그를 캡처해줬는데 deltaFromSpine:0 — 축 좌표 자체는 처음부터 정확했다. 대신
+// "회전 도중(접히는 순간)"에만 어긋나 보인다는 걸 확인해줘서, `translateZ`가
+// `rotateY`보다 먼저 적용되는 순서 때문에 축 자신이 회전 중 `28×sin(θ)`만큼 화면에서
+// 밀려 보이는 진짜 버그를 찾아 고쳤다(translateZ를 rotateY 뒤로 옮김 — 아래
+// buildPanelAnimation()과 styles.css 키프레임 위 "5차 시도" 주석 참고). 실제 브라우저가
+// 계산한 3D 행렬(`getComputedStyle().transform`을 DOMMatrix로 파싱)로 드리프트가 0임을
+// 직접 확인했다 — [AXISDEBUG] 로깅 자체는 목적을 다해서 제거했다.
+//
+// ⚠️ 2026-08-26, 후속(같은 세션) — 사용자가 "축 기준으로 그림자가 생기는 부분이
+// 어색해 보인다"고 지적. 원인: 그림자(`box-shadow`)가 회전하는 `leafCard` 자신에게
+// 붙어있어서 카드와 똑같이 rotateY/scaleX의 영향을 받았다 — 90도 근처(scaleX(0.06)로
+// 카드가 짜부라지는 지점, 정작 그림자가 가장 짙어야 할 그 순간)에 그림자도 같이
+// 눌려서 부자연스러웠다. 실제 그림자는 회전하는 카드가 아니라 그 밑에 깔린 고정된
+// 표면 위에 드리워지는 것이라야 한다 — `box-shadow`를 leafCard에서 완전히 떼어내고,
+// 회전 변환을 전혀 안 받는 별도의 평평한 레이어(`shadowLayer`)로 옮겼다. opacity만
+// styles.css의 `portrait-flip-shadow-fade` 키프레임(0→1→0, leaf와 같은 타이밍으로
+// 50% 지점 속도 끊김 없음)으로 움직이므로, 카드가 아무리 눌려도 그림자는 항상
+// 평평하게 자랐다 옅어진다. 자세한 위치는 아래 buildPanelAnimation()의 shadowLayer
+// 생성부 참고.
 
 let activeAnimation = null; // 겹쳐 눌림 방지 — 진행 중인 패널 핸들 배열(1개=세로, 1~2개=가로). null이면 idle.
 
@@ -219,6 +240,30 @@ function buildPanelAnimation({
   const base = buildPageElement(revealingText, revealingFooter, width, height);
   base.style.zIndex = '1';
 
+  // 중간층 — 페이지 넘김 그림자, 회전 안 하는 평평한 레이어. ⚠️ 2026-08-26 —
+  // 예전엔 이 그림자가 leafCard 자신의 box-shadow였는데, 그러면 그림자가 카드와
+  // 똑같이 rotateY/scaleX의 영향을 받아서(90도 근처 scaleX(0.06)로 카드가 짜부라질
+  // 때 그림자도 같이 눌림) "축 근처에서 그림자가 부자연스럽게 일그러진다"는 지적을
+  // 받았다 — 실제 그림자는 회전하는 카드가 아니라 그 밑에 깔린 고정된 표면 위에
+  // 드리워지는 것이라, 카드가 뭘 하든 무관하게 그 자리에서 자연스럽게 자랐다 옅어져야
+  // 한다. 그래서 회전 변환을 전혀 안 받는 별도 레이어로 분리하고, opacity만
+  // styles.css의 `portrait-flip-shadow-fade` 키프레임(0→1→0, leaf와 같은 타이밍)으로
+  // 움직인다 — 그라디언트 방향(스파인 쪽이 짙고 바깥쪽으로 옅어짐)만 방향별로 여기서
+  // 인라인으로 넣는다.
+  const shadowLayer = document.createElement('div');
+  shadowLayer.className = 'portrait-flip-shadow-layer';
+  shadowLayer.style.position = 'absolute';
+  shadowLayer.style.top = '0';
+  shadowLayer.style.left = '0';
+  shadowLayer.style.width = width + 'px';
+  shadowLayer.style.height = height + 'px';
+  shadowLayer.style.zIndex = '2';
+  shadowLayer.style.pointerEvents = 'none';
+  shadowLayer.style.background = sign < 0
+    ? 'linear-gradient(to right, rgba(0,0,0,0.45), rgba(0,0,0,0) 140px)'
+    : 'linear-gradient(to left, rgba(0,0,0,0.45), rgba(0,0,0,0) 140px)';
+  shadowLayer.style.animation = `portrait-flip-shadow-fade ${duration}ms linear`;
+
   // 위층 — "뒤집히는 카드" 하나. 회전(rotateY 0→180)은 이 래퍼(leafCard) 혼자 담당하고,
   // 그 안에 앞면(front, 지금 보이던/넘어가는 페이지 내용)과 뒷면(back, 종이 뒷면처럼
   // 보이는 빈 패널) 두 장을 자식으로 겹쳐 넣는다 — 흔히 쓰는 "플립 카드" 기법이다.
@@ -243,7 +288,7 @@ function buildPanelAnimation({
   leafCard.style.left = '0';
   leafCard.style.width = leavingWidth + 'px';
   leafCard.style.height = leavingHeight + 'px';
-  leafCard.style.zIndex = '2';
+  leafCard.style.zIndex = '3'; // shadowLayer(z-index 2)보다 위 — 카드가 안 덮은 구간에만 그림자가 비쳐 보인다.
   leafCard.style.transformStyle = 'preserve-3d';
   leafCard.style.willChange = 'transform';
   // next(다음 페이지): 왼쪽 가장자리를 축으로 왼쪽으로 접히듯 회전.
@@ -301,6 +346,7 @@ function buildPanelAnimation({
   leafCard.appendChild(back);
 
   perspectiveStage.appendChild(base);
+  perspectiveStage.appendChild(shadowLayer);
   perspectiveStage.appendChild(leafCard);
   stage.appendChild(perspectiveStage);
 

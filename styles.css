@@ -694,16 +694,39 @@
        `translateZ`가 이미 회전이 다 끝난 *뒤*(화면 기준 z축)에 적용되므로 축 자신은
        전혀 안 밀리고 순수하게 카메라 쪽으로만 들어올려진다(오히려 "화면 쪽으로
        들어올려짐"이라는 원래 의도에도 이 순서가 더 정확하다 — 회전된 로컬 z축이
-       아니라 항상 화면을 보는 진짜 z축으로 들어올려야 자연스럽다). */
+       아니라 항상 화면을 보는 진짜 z축으로 들어올려야 자연스럽다).
+       ⚠️ 2026-08-26, 6차 — 그림자를 회전체에서 분리. 사용자가 "축 기준으로 그림자가
+       생기는 부분이 어색해 보인다"고 지적 — 원인은 이 `box-shadow`가 **회전하는
+       `leafCard` 자신에게 붙어있어서, 카드와 똑같이 `rotateY`+`scaleX`의 영향을 그대로
+       받는다는 것**이었다. 실제 종이 그림자는 "밑에 깔린 고정된 페이지 위에 드리워지는
+       것"이라 카드가 회전하든 말든 그 표면에서 자연스럽게 자라났다 옅어져야 하는데,
+       지금 구현은 그림자가 카드에 얹혀서 같이 도는 탓에 — 90도 근처(카드 폭이
+       `scaleX(0.06)`로 짜부라지는 지점, 정확히 그림자가 가장 짙어야 할 그 순간)에
+       그림자도 같이 눌려버려 부자연스러웠다. **수정**: 이 키프레임에서 `box-shadow`를
+       완전히 뗐다 — 그림자는 이제 회전 안 하는 별도 레이어(`portrait-flip-shadow-fade`
+       키프레임, `js/portrait-flip.js`의 `shadowLayer` 참고)가 맡는다. */
     @keyframes portrait-flip-leaf-next {
-      0%   { transform: translateZ(0) rotateY(0deg) scaleX(1); box-shadow: -14px 0 30px rgba(0,0,0,0.3); animation-timing-function: ease-in; }
-      50%  { transform: translateZ(28px) rotateY(-90deg) scaleX(0.06); box-shadow: -55px 0 70px rgba(0,0,0,0.55); animation-timing-function: ease-out; }
-      100% { transform: translateZ(0) rotateY(-180deg) scaleX(1); box-shadow: -14px 0 30px rgba(0,0,0,0.3); }
+      0%   { transform: translateZ(0) rotateY(0deg) scaleX(1); animation-timing-function: ease-in; }
+      50%  { transform: translateZ(28px) rotateY(-90deg) scaleX(0.06); animation-timing-function: ease-out; }
+      100% { transform: translateZ(0) rotateY(-180deg) scaleX(1); }
     }
     @keyframes portrait-flip-leaf-prev {
-      0%   { transform: translateZ(0) rotateY(0deg) scaleX(1); box-shadow: 14px 0 30px rgba(0,0,0,0.3); animation-timing-function: ease-in; }
-      50%  { transform: translateZ(28px) rotateY(90deg) scaleX(0.06); box-shadow: 55px 0 70px rgba(0,0,0,0.55); animation-timing-function: ease-out; }
-      100% { transform: translateZ(0) rotateY(180deg) scaleX(1); box-shadow: 14px 0 30px rgba(0,0,0,0.3); }
+      0%   { transform: translateZ(0) rotateY(0deg) scaleX(1); animation-timing-function: ease-in; }
+      50%  { transform: translateZ(28px) rotateY(90deg) scaleX(0.06); animation-timing-function: ease-out; }
+      100% { transform: translateZ(0) rotateY(180deg) scaleX(1); }
+    }
+
+    /* 페이지 넘김 그림자 — 위 leaf 카드와 완전히 분리된, 회전 안 하는 평평한 레이어
+       (js/portrait-flip.js의 shadowLayer). 카드가 뭘 하든(90도에서 아무리 짜부라져도)
+       이 그림자는 항상 평평한 표면 위에 얹힌 것처럼 opacity만 0→1→0으로 자연스럽게
+       자라났다 옅어진다 — leaf 키프레임과 같은 방식(0%: ease-in, 50%: ease-out)으로
+       50% 지점에서 속도가 끊기지 않게 맞췄다. 그라디언트 방향(스파인 쪽에서 짙게)은
+       JS에서 방향별로 인라인 background로 직접 넣는다(next/prev가 서로 반대쪽이라
+       공유 키프레임에 넣을 수 없음) — 여기선 순수 opacity 페이드만 담당한다. */
+    @keyframes portrait-flip-shadow-fade {
+      0%   { opacity: 0; animation-timing-function: ease-in; }
+      50%  { opacity: 1; animation-timing-function: ease-out; }
+      100% { opacity: 0; }
     }
 
     /* 밝기 오버레이 — 브라우저는 실제 기기 화면 밝기를 제어할 수 없어서, 읽기
