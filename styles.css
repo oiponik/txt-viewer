@@ -273,6 +273,18 @@
       display: flex; align-items: center; gap: 4px;
     }
 
+    /* 캐시 버전 배지 — #sidebar(position:fixed)를 기준으로 절대배치해서 sidebar-header의
+       flex 레이아웃(뒤로가기/제목/책갈피 3분할, 좌우 대칭이라 제목이 가운데로 보임)을
+       전혀 건드리지 않는다. 아주 작고 흐릿하게 구석에만 있어서 평소엔 거의 안 보이고,
+       읽기 자체(book-stage 영역)와는 무관하다 — 몰입모드에서 #sidebar가 위로 슬라이드돼
+       숨을 때 이것도 같이 숨는다. */
+    #app-version-badge {
+      position: absolute; top: 0; right: 6px;
+      font-size: 9px; line-height: 1; color: var(--text-color); opacity: 0.3;
+      pointer-events: none; user-select: none;
+      z-index: 51;
+    }
+
     .icon-btn {
       flex-shrink: 0;
       width: 38px; height: 38px; border-radius: 50%;

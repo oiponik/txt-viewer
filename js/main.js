@@ -21,3 +21,24 @@ if ('serviceWorker' in navigator) {
     });
   });
 }
+
+// 뷰어 화면 상단(#sidebar 구석)의 아주 작은 캐시 버전 배지 채우기 — 실사용 중에도
+// "지금 이 기기가 실제로 어떤 sw.js 캐시를 받았는지"를 사용자가 스크린샷 한 장으로
+// 바로 알려줄 수 있게 한다(배포는 했는데 옛날 버전이 계속 뜨는 캐싱 문제 진단용).
+// sw.js의 CACHE_VERSION 상수를 여기 따로 복붙해두지 않는다 — Cache Storage API는
+// 페이지 쪽에서도 캐시 이름을 그대로 읽을 수 있고(js/storage-stats.js가 이미 쓰는
+// 방법과 동일), 이 앱은 캐시 네임스페이스를 하나만 쓰므로(sw.js 참고) caches.keys()의
+// 첫 항목이 곧 CACHE_VERSION이다 — 값이 두 곳에 따로 있으면 하나만 고치고 잊어버릴
+// 위험이 생기므로 항상 원본(sw.js)에서 읽어오게 한 것.
+async function showAppVersionBadge() {
+  const badge = document.getElementById('app-version-badge');
+  if (!badge || !('caches' in window)) return;
+  try {
+    const names = await caches.keys();
+    if (names.length === 0) return; // 첫 방문 등 아직 설치 전 — 표시할 값 없음, 조용히 넘어감
+    badge.textContent = names[0].replace(/^bookify-shell-/, '');
+  } catch (err) {
+    // 배지는 순전히 진단용이라 실패해도 조용히 무시(읽기 자체엔 영향 없음)
+  }
+}
+showAppVersionBadge();

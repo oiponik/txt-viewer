@@ -139,6 +139,11 @@
   <!-- 화면 2: 뷰어 (책 읽기) -->
   <div id="viewer-screen" class="screen-hidden">
     <aside id="sidebar">
+      <!-- sw.js의 CACHE_VERSION을 아주 작게 표시 — 실사용 중에도 지금 이 기기가 어떤
+           캐시 버전을 받았는지 한눈에 확인할 수 있게 해서 캐싱 문제 진단에 쓴다.
+           읽는 데 방해되지 않도록 순전히 장식용(js/main.js가 채움, 클릭 불가) —
+           #sidebar가 몰입모드에서 위로 슬라이드되어 숨듯 이것도 같이 숨는다. -->
+      <span id="app-version-badge" aria-hidden="true"></span>
       <div class="sidebar-header">
         <button id="back-to-library" class="icon-btn" title="목록으로">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
