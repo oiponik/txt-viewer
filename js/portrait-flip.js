@@ -207,6 +207,24 @@ function buildPanelAnimation({
   // 오도록 했다 — 실제 눈이 책의 가운데를 보고 있는 상태를 흉내낸다.
   perspectiveStage.style.perspectiveOrigin = sign < 0 ? '0% 50%' : '100% 50%';
 
+  // ⚠️ 임시 디버그 로깅 (2026-08-26) — 사용자가 "축이 정가운데(=스파인)와 안 맞는다"고
+  // 재신고 — perspective-origin 수정 이후에도 여전히 그렇다는 뜻이라, 이번엔 추측 대신
+  // 실기기 콘솔 로그로 직접 좌표를 재서 비교한다. 원인 확인되면 이 블록은 제거할 것.
+  try {
+    const stageRect = stage.getBoundingClientRect();
+    const hingeAbsX = stageRect.left + offsetLeft + (sign < 0 ? 0 : width);
+    const spineEl = document.getElementById('book-spine');
+    const spineRect = spineEl && getComputedStyle(spineEl).display !== 'none' ? spineEl.getBoundingClientRect() : null;
+    const spineCenterX = spineRect ? (spineRect.left + spineRect.right) / 2 : null;
+    console.log('[AXISDEBUG]', debugLabel || '', direction, JSON.stringify({
+      hingeAbsX: Math.round(hingeAbsX),
+      spineCenterX: spineCenterX == null ? null : Math.round(spineCenterX),
+      deltaFromSpine: spineCenterX == null ? null : Math.round(hingeAbsX - spineCenterX),
+      panelOffsetLeft: Math.round(offsetLeft), panelWidth: Math.round(width),
+      stageLeft: Math.round(stageRect.left), stageWidth: Math.round(stageRect.width),
+    }));
+  } catch (err) { /* 진단용, 실패해도 애니메이션엔 영향 없음 */ }
+
   // 아래층 — 새로 드러날 페이지. 처음부터 제자리에 고정, 애니메이션 내내 움직이지 않는다.
   const base = buildPageElement(revealingText, revealingFooter, width, height);
   base.style.zIndex = '1';
