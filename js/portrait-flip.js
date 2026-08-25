@@ -82,6 +82,41 @@
 // ⚠️ 가로 모드는 지금까지 이 사가 내내 한 번도 버그가 없었던 코드라 — 이 확장은 순수하게
 // 사용자가 요청한 "통일성"을 위한 것이지, 가로 모드에 어떤 문제가 있어서가 아니다.
 // 실기기 검증 전까지는 회귀 위험을 안고 있는 새 코드로 취급할 것.
+//
+// ⚠️ 2026-08-26 — 사용자가 보내준 실기기 화면 녹화(가로/2페이지 스프레드 모드)를
+// ffmpeg로 프레임 단위 분석해서 남아있던 두 가지 문제를 재조사했다:
+//   1) "90도에서 잠깐 멈췄다 넘어가는 느낌" — 실측(30fps 프레임별 픽셀 diff)으로 확정:
+//      실제 화면에 보이는 회전은 duration(1000ms)의 30~40%만에 다 끝나고 나머지
+//      60~70%는 완전히 정지 상태(연속 프레임 diff=0)로 남아있었다. 원인은
+//      `leafCard.style.animation`에 걸었던 단일 `ease-in-out`이 CSS 스펙상 키프레임
+//      구간(0→50%, 50→100%)마다 독립적으로 재적용되어, 50%(=90도) 지점에서
+//      감속→재가속이 겹쳐버렸기 때문 — 이건 2026-08-25 세션에서 이미 진단만 해두고
+//      못 고쳤던 것(CLAUDE.md 참고)인데, 이번에 실측 근거까지 확보하고 마저 고쳤다.
+//      styles.css의 키프레임에 `animation-timing-function`을 스톱별로(0%: ease-in,
+//      50%: ease-out) 직접 지정해서, 50% 지점에서 속도가 끊기지 않고 이어지는 하나의
+//      연속된 ease-in-out 곡선이 되도록 했다 — `leafCard.style.animation`은 이제
+//      전역 타이밍 함수 없이(사실상 무의미해져서 `linear`만 명시) duration만 건다.
+//      부수 효과로, "보이는 회전"이 duration 전체에 훨씬 고르게 퍼지면서 애니메이션이
+//      시각적으로 다 끝난 뒤에도 한참 조작이 막혀있던 "먹통" 체감(같은 세션에서 별도로
+//      확인한, 완료 판정이 시각적 완료보다 한참 늦게 나는 문제)도 상당 부분 완화된다.
+//   2) "회전축이 화면 가운데가 아니라 틀어져 보인다" — rotateY/scaleX/translateZ는
+//      전부 세로 위치(Y)에 의존하지 않는 변환이라, 회전축 자체가 대각선으로 굽는 건
+//      수학적으로 불가능하다는 걸 좌표 계산으로 재확인했다(실측 영상에서도 "대각선
+//      기울어짐"으로 확정할 근거는 못 찾음). 대신 진짜 원인으로 지목한 것: 이 패널의
+//      `perspective`에 `perspective-origin`을 따로 안 정해주면 기본값 50% 50% —
+//      즉 **이 패널 자기 자신의 한가운데**가 소실점이 되는데, 이건 회전축(스파인
+//      쪽 가장자리)에서 패널 폭의 절반만큼 떨어진, 화면 전체 기준으로는 책의 진짜
+//      가운데(스파인)와 거리가 먼 지점이다(예: 오른쪽 패널의 자기중심은 화면 전체의
+//      대략 75% 지점). 실제 책을 볼 때 눈은 펼쳐진 책 전체의 가운데(스파인)를 향하지
+//      낱장 페이지 하나의 한가운데를 향하지 않는다 — 소실점이 회전축과 멀리 떨어져
+//      있으면 "화면 중앙이 아니라 패널 옆 어딘가를 중심으로 도는" 인상을 준다.
+//      **수정**: `perspective-origin`을 패널 자기중심이 아니라 `transform-origin`과
+//      정확히 같은 가장자리(=스파인 쪽)로 맞춰서, 소실점 자체가 항상 책의 진짜
+//      중앙(=회전축)에 오도록 했다 — 자세한 계산은 아래 buildPanelAnimation() 안
+//      perspective-origin 설정부 주석 참고.
+//   ⚠️ 검증 한계는 여전히 같다 — 이 환경은 실기기 렌더링을 직접 볼 방법이 없어서,
+//   1)은 프레임별 diff 실측으로 강하게 뒷받침되지만 2)는 "소실점 위치가 원인일
+//   가능성이 가장 크다"는 추론에 기반한 수정이다. 사용자가 실기기에서 다시 확인 필요.
 
 let activeAnimation = null; // 겹쳐 눌림 방지 — 진행 중인 패널 핸들 배열(1개=세로, 1~2개=가로). null이면 idle.
 
@@ -139,6 +174,12 @@ function buildPanelAnimation({
   leavingText, leavingFooter, revealingText, revealingFooter,
   duration, onPanelDone, debugLabel,
 }) {
+  // next(다음 페이지): 왼쪽 가장자리(=책의 중앙, 스파인)를 축으로 회전.
+  // prev(이전 페이지): 오른쪽 가장자리(=역시 스파인)를 축으로 회전.
+  // sign을 leafCard 생성부보다 앞으로 끌어와서 perspective-origin 계산에도 쓴다 —
+  // 아래 perspective-origin 주석 참고.
+  const sign = direction === 'next' ? -1 : 1;
+
   const perspectiveStage = document.createElement('div');
   perspectiveStage.className = 'portrait-flip-stage';
   perspectiveStage.style.position = 'absolute';
@@ -149,6 +190,22 @@ function buildPanelAnimation({
   perspectiveStage.style.zIndex = '20';
   perspectiveStage.style.pointerEvents = 'none';
   perspectiveStage.style.perspective = '1600px';
+  // ⚠️ 2026-08-26 — "회전축이 화면 가운데가 아니라 틀어져 보인다" 재조사 후 수정.
+  // rotateY/scaleX/translateZ는 전부 Y좌표(세로 위치)에 의존하지 않는 변환이라, 축
+  // 자체(transform-origin 위치, 위 sign에 따라 카드의 왼쪽 또는 오른쪽 가장자리)는
+  // 수학적으로 항상 완벽한 수직선으로 투영된다 — 즉 "대각선으로 삐뚤어진 선"이 되는
+  // 건 아니다(실측 영상을 프레임 단위로 다시 확인해도 재현 안 됨). 다만
+  // `perspective-origin`(소실점)을 지정 안 하면 기본값 50% 50% — 즉 **이 패널 자기
+  // 자신의 한가운데**가 되는데, 패널 폭의 절반이 책 전체 폭 기준으로는 스파인에서
+  // 한참 떨어진 지점이다(예: 오른쪽 패널의 자기중심은 화면 전체의 대략 75% 지점).
+  // 실제 책을 볼 때 눈(카메라)은 펼쳐진 책 전체의 가운데(=스파인)를 향하지, 낱장
+  // 페이지 하나의 한가운데를 향하지 않는다 — 소실점이 스파인이 아니라 패널 자기
+  // 중심에 있으면, 회전이 "화면 중앙이 아니라 패널 옆쪽 어딘가를 중심으로 도는"
+  // 인상을 준다(사용자가 "가운데 축이 틀어져 보인다"고 표현한 것과 정확히 들어맞는
+  // 원인). **수정**: perspective-origin을 패널 자기중심이 아니라 transform-origin과
+  // 같은 가장자리(=스파인 쪽)로 맞춰서, 소실점 자체가 항상 책의 진짜 중앙(회전축)에
+  // 오도록 했다 — 실제 눈이 책의 가운데를 보고 있는 상태를 흉내낸다.
+  perspectiveStage.style.perspectiveOrigin = sign < 0 ? '0% 50%' : '100% 50%';
 
   // 아래층 — 새로 드러날 페이지. 처음부터 제자리에 고정, 애니메이션 내내 움직이지 않는다.
   const base = buildPageElement(revealingText, revealingFooter, width, height);
@@ -183,15 +240,22 @@ function buildPanelAnimation({
   leafCard.style.willChange = 'transform';
   // next(다음 페이지): 왼쪽 가장자리를 축으로 왼쪽으로 접히듯 회전.
   // prev(이전 페이지): 오른쪽 가장자리를 축으로 오른쪽으로 접히듯 회전.
-  // 부호(sign) 하나만 다르고 나머지 로직은 완전히 동일해서, 두 방향이 항상 대칭이다 —
+  // sign(부호) 하나만 다르고 나머지 로직은 완전히 동일해서, 두 방향이 항상 대칭이다 —
   // 가로 모드에서도 좌/우 패널 둘 다 이 부호를 그대로 따른다(패널별로 다른 축을 쓰지
   // 않는다 — "통일성" 요청에 맞춰 세로 모드와 완전히 같은 규칙을 그대로 재사용).
-  const sign = direction === 'next' ? -1 : 1;
+  // sign 자체는 위 perspectiveStage 생성부로 옮겨졌다(perspective-origin 계산에도
+  // 필요해서) — 여기선 그 값을 그대로 재사용만 한다.
   leafCard.style.transformOrigin = sign < 0 ? 'left center' : 'right center';
   // 회전(rotateY 0→180, 중간(90도)에서 scaleX로 얇게 눌렸다 펴지는 압축 + translateZ로
   // 들어올렸다 내려놓는 입체감 + 그 타이밍에 짙어졌다 옅어지는 그림자)을 styles.css의
   // @keyframes 하나로 묶어뒀다 — 여전히 clip-path 없음, JS 매 프레임 갱신 없음.
-  leafCard.style.animation = `portrait-flip-leaf-${direction} ${duration}ms ease-in-out`;
+  // ⚠️ 2026-08-26 — 예전엔 여기서 전역 `ease-in-out`을 지정했는데, CSS 스펙상 그러면
+  // 0→50%, 50→100% 두 구간에 각각 독립적으로 다시 적용되어 50%(90도) 지점에서
+  // 감속→재가속이 겹쳐 "잠깐 멈췄다 넘어가는" 스터터가 생겼다(실기기 영상을 프레임
+  // 단위로 분석해서 확인 — CLAUDE.md 참고). 이제 각 키프레임 스톱(0%/50%)이 자기
+  // 타이밍 함수(ease-in/ease-out)를 직접 갖고 있으므로, 여기 전역 값은 사실상 안 쓰인다
+  // — `linear`를 넣어 의미 없는 기본값임을 명시.
+  leafCard.style.animation = `portrait-flip-leaf-${direction} ${duration}ms linear`;
 
   // 앞면 — 기존 leaf가 하던 역할 그대로(넘어가는 페이지 내용). 카드 안에서 회전을
   // 더 얹지 않으므로(로컬 rotateY 0) 카드 각도가 곧 이 면의 유효 각도다.

@@ -649,15 +649,38 @@
        채워서(js/portrait-flip.js 참고) 고쳤다 — 뒷면을 미리 180도 돌려둔 채로 두
        번(카드+뒷면) 뒤집히면 180+180=360(=0)이 되어 거울처럼 뒤집히지 않고 정상
        방향 그대로 보인다는 카드 뒤집기 기법의 성질 덕분에, 그냥 real content를 얹기만
-       해도 안전하다. */
+       해도 안전하다.
+       ⚠️ 2026-08-26, 4차 시도(90도 지점 멈춤 버그 수정) — 사용자가 화면 녹화로 확인한
+       실기기 영상을 프레임 단위(ffmpeg+픽셀 diff)로 분석해서 두 가지를 확정했다:
+       (1) 실제로 화면에 보이는 회전 움직임은 duration(1000ms)의 30~40%만에 다 끝나고
+       나머지 60~70%는 완전히 정지 상태로 남는다(diff=0 프레임이 500ms 넘게 연속), (2)
+       이건 `js/portrait-flip.js`가 `leafCard.style.animation`에 단일 `ease-in-out`을
+       걸었기 때문이었다 — CSS 스펙상 `animation-timing-function`은 키프레임 전체
+       구간(0→100%)에 한 번 적용되는 게 아니라 **키프레임 구간(0→50%, 50→100%)마다
+       독립적으로 다시 적용**된다. `ease-in-out`은 "느리게 시작 → 빠르게 → 느리게 끝"
+       인데, 이 모양이 두 구간에서 각각 반복되면 50% 지점(=90도)에서 첫 구간이 감속을
+       마치자마자 둘째 구간이 다시 저속으로 시작해서, 정확히 "90도에서 잠깐 멈췄다
+       다시 움직이는" 느낌을 만든다 — 이 문제 자체는 2026-08-25 세션에서 이미 진단만
+       해두고 수정을 못 했던 것(CLAUDE.md 참고)인데, 이번에 실측으로 재확인하고 마저
+       고쳤다. **수정**: 전역 `ease-in-out` 대신, 아래처럼 0% 키프레임엔 `ease-in`
+       (0→50% 구간에 적용 — 느리게 시작해서 50%에 최고 속도로 도착), 50% 키프레임엔
+       `ease-out`(50→100% 구간에 적용 — 최고 속도로 시작해서 100%에 느리게 도착)을
+       각각 지정했다. 두 구간을 이으면 50% 지점에서 속도가 끊기지 않고 그대로 이어져서
+       — 결과적으로 표준 `ease-in-out` 곡선을 0→100% 전체에 걸쳐 정확히 재현하면서도
+       50% 지점의 인위적인 감속-재가속(=멈춤 느낌)이 사라진다. `js/portrait-flip.js`의
+       `leafCard.style.animation`은 이제 전역 타이밍 함수를 안 쓰고(각 키프레임이 자기
+       것을 가지므로 무의미), duration만 지정한다. 부수 효과: 이러면서 "보이는 회전"이
+       duration 전체에 훨씬 고르게 퍼지게 되어, 애니메이션이 시각적으로 다 끝난 뒤에도
+       한참(수백 ms) 조작이 막혀있던 "먹통" 체감(2026-08-26 세션에서 별도로 확인한
+       완료 판정 지연 문제)도 상당 부분 같이 완화된다. */
     @keyframes portrait-flip-leaf-next {
-      0%   { transform: rotateY(0deg) translateZ(0) scaleX(1); box-shadow: -14px 0 30px rgba(0,0,0,0.3); }
-      50%  { transform: rotateY(-90deg) translateZ(28px) scaleX(0.06); box-shadow: -55px 0 70px rgba(0,0,0,0.55); }
+      0%   { transform: rotateY(0deg) translateZ(0) scaleX(1); box-shadow: -14px 0 30px rgba(0,0,0,0.3); animation-timing-function: ease-in; }
+      50%  { transform: rotateY(-90deg) translateZ(28px) scaleX(0.06); box-shadow: -55px 0 70px rgba(0,0,0,0.55); animation-timing-function: ease-out; }
       100% { transform: rotateY(-180deg) translateZ(0) scaleX(1); box-shadow: -14px 0 30px rgba(0,0,0,0.3); }
     }
     @keyframes portrait-flip-leaf-prev {
-      0%   { transform: rotateY(0deg) translateZ(0) scaleX(1); box-shadow: 14px 0 30px rgba(0,0,0,0.3); }
-      50%  { transform: rotateY(90deg) translateZ(28px) scaleX(0.06); box-shadow: 55px 0 70px rgba(0,0,0,0.55); }
+      0%   { transform: rotateY(0deg) translateZ(0) scaleX(1); box-shadow: 14px 0 30px rgba(0,0,0,0.3); animation-timing-function: ease-in; }
+      50%  { transform: rotateY(90deg) translateZ(28px) scaleX(0.06); box-shadow: 55px 0 70px rgba(0,0,0,0.55); animation-timing-function: ease-out; }
       100% { transform: rotateY(180deg) translateZ(0) scaleX(1); box-shadow: 14px 0 30px rgba(0,0,0,0.3); }
     }
 
