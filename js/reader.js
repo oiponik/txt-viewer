@@ -804,6 +804,56 @@ function updateBookmarkToggleButton() {
   btn.classList.toggle('active', bookmarked);
 }
 
+// ⚠️ 임시 디버그 로깅 (2026-08-25) — "페이지를 넘기고 나서 한 박자 뒤에 footer(페이지
+// 표시) 위치가 한 번 더 튄다"는 사용자 신고를 실기기에서 정확히 잡기 위해 추가했다.
+// 화면 녹화 분석으로 이미 확인된 것: 넘긴 직후엔 footer가 y≈1086에 있다가, 약
+// 300~350ms 뒤 y≈1047로 39px 튀어 올라가서 고정된다(3번의 페이지 넘김 전부 동일하게
+// 재현) — 그런데 정적 코드 분석만으로는 그 300~350ms 지연의 정확한 트리거를 못 찾았다
+// (CSS transition/몰입모드 타이머/진행상황 저장 디바운스/창 재정렬 전부 배제됨).
+// 유력 후보: 임시 애니메이션 카드(portrait-flip.js)는 한 번 측정해 고정한 정확한
+// 픽셀 높이(currentRenderHeight)를 쓰는데, 실제 PageFlip 페이지는 `height:100%`와
+// 라이브러리 내부의 퍼센트 기반 종횡비(`.stf__wrapper`의 `padding-bottom: N%`)로
+// 높이를 계산한다 — 이 둘이 순간적으로 어긋났다가 무언가(ResizeObserver의 비동기
+// 알림 등)가 뒤늦게 교정하는 것으로 추정하지만 확인은 안 됐다.
+// **원인이 확인되면 이 로깅 전부(이 두 함수, 아래 호출부 4곳, ResizeObserver 콜백의
+// 로그 한 줄)를 제거할 것** — CLAUDE.md 진행상황 메모에 이 조사의 배경이 남아있다.
+function logFooterDiagnostics(label) {
+  try {
+    const stageRect = stageContainer.getBoundingClientRect();
+    const wrapper = document.querySelector('.stf__wrapper');
+    const wrapperRect = wrapper ? wrapper.getBoundingClientRect() : null;
+    const wrapperPaddingBottom = wrapper ? getComputedStyle(wrapper).paddingBottom : null;
+    const activePage = [...document.querySelectorAll('#my-book .page')]
+      .find((el) => getComputedStyle(el).display !== 'none');
+    const pageRect = activePage ? activePage.getBoundingClientRect() : null;
+    const footerEl = activePage ? activePage.querySelector('.page-footer') : null;
+    const footerRect = footerEl ? footerEl.getBoundingClientRect() : null;
+    console.log('[FOOTERDEBUG]', label, JSON.stringify({
+      t: Math.round(performance.now()),
+      stageW: Math.round(stageRect.width), stageH: Math.round(stageRect.height),
+      wrapperW: wrapperRect ? Math.round(wrapperRect.width) : null,
+      wrapperH: wrapperRect ? Math.round(wrapperRect.height) : null,
+      wrapperPaddingBottom,
+      pageH: pageRect ? Math.round(pageRect.height) : null,
+      footerY: footerRect ? Math.round(footerRect.top) : null,
+      footerText: footerEl ? footerEl.textContent : null,
+      renderW: currentRenderWidth, renderH: currentRenderHeight,
+    }));
+  } catch (err) {
+    console.log('[FOOTERDEBUG] error', label, err);
+  }
+}
+
+// 페이지가 넘어간 뒤 일정 시간 동안(기본 2초, 50ms 간격) 위 스냅샷을 반복 기록해서,
+// "언제(트리거로부터 몇 ms 뒤) 무엇이 변하는지"를 놓치지 않고 잡는다.
+function pollFooterDiagnostics(durationMs = 2000, intervalMs = 50) {
+  const startedAt = performance.now();
+  const timer = setInterval(() => {
+    logFooterDiagnostics('poll+' + Math.round(performance.now() - startedAt) + 'ms');
+    if (performance.now() - startedAt >= durationMs) clearInterval(timer);
+  }, intervalMs);
+}
+
 // 세로(한 페이지) 모드에서 portrait-flip.js 애니메이션이 끝난 뒤 호출 — pageFlip.on('flip', ...)
 // 핸들러가 가로 모드의 라이브러리 애니메이션 뒤에 하는 일(진행 상황 저장/페이지 인디케이터
 // 갱신/창 재정렬/화면 항상 켜짐 타이머 리셋)을 그대로 재현한다. isShiftingWindow로 감싸서
@@ -829,6 +879,9 @@ function finishManualPageTurn(targetGlobal) {
 
   maybeShiftPageWindow(targetGlobal);
   resetWakeLockIdleTimer();
+
+  logFooterDiagnostics('finishManualPageTurn-end');
+  pollFooterDiagnostics();
 }
 
 // ⚠️ 세로(한 페이지) 모드와 가로(2페이지 스프레드) 모드가 완전히 다른 경로를 탄다:
@@ -850,6 +903,7 @@ function jumpToPrevPage() {
   if (isSinglePageMode) {
     if (isPortraitFlipAnimating()) return; // 애니메이션 도중 겹쳐 눌림 방지
     const targetGlobal = globalIndex - 1;
+    logFooterDiagnostics('trigger-prev'); // ⚠️ 임시 디버그 로깅, finishManualPageTurn 위 주석 참고
     playPortraitPageTurn({
       stage: stageContainer,
       width: currentRenderWidth,
@@ -885,6 +939,7 @@ function goToNextPage() {
     // 진짜 책 끝(더 넘길 페이지가 없음) — flipNext()가 라이브러리 안에서 조용히
     // 무시하던 것과 똑같이, 여기서도 그냥 아무 일도 안 하고 끝낸다.
     if (targetGlobal >= totalPages) return;
+    logFooterDiagnostics('trigger-next'); // ⚠️ 임시 디버그 로깅, finishManualPageTurn 위 주석 참고
     playPortraitPageTurn({
       stage: stageContainer,
       width: currentRenderWidth,
@@ -1749,6 +1804,17 @@ function scheduleFlipbookRebuild() {
   const widthDelta = Math.abs(stageRect.width - lastBuiltStageWidth);
   const heightDelta = Math.abs(stageRect.height - lastBuiltStageHeight);
   const crossedSinglePageBoundary = (stageRect.width < 900) !== (lastBuiltStageWidth < 900);
+
+  // ⚠️ 임시 디버그 로깅 (2026-08-25) — footer 위치가 늦게 튀는 문제 조사용, finishManualPageTurn
+  // 위 주석 참고. ResizeObserver/window resize가 이 시점에 실제로 발동하는지, 발동한다면
+  // widthDelta/heightDelta가 재빌드 문턱값을 넘는지(=진짜 재빌드가 걸리는지) 확인한다.
+  console.log('[FOOTERDEBUG] scheduleFlipbookRebuild', JSON.stringify({
+    t: Math.round(performance.now()),
+    stageW: Math.round(stageRect.width), stageH: Math.round(stageRect.height),
+    lastBuiltW: lastBuiltStageWidth, lastBuiltH: lastBuiltStageHeight,
+    widthDelta: Math.round(widthDelta), heightDelta: Math.round(heightDelta),
+    willRebuild: crossedSinglePageBoundary || widthDelta >= WIDTH_JITTER_THRESHOLD || heightDelta >= HEIGHT_JITTER_THRESHOLD,
+  }));
 
   if (!crossedSinglePageBoundary && widthDelta < WIDTH_JITTER_THRESHOLD && heightDelta < HEIGHT_JITTER_THRESHOLD) {
     return;
