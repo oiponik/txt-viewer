@@ -817,6 +817,28 @@ function updateBookmarkToggleButton() {
 // 알림 등)가 뒤늦게 교정하는 것으로 추정하지만 확인은 안 됐다.
 // **원인이 확인되면 이 로깅 전부(이 두 함수, 아래 호출부 4곳, ResizeObserver 콜백의
 // 로그 한 줄)를 제거할 것** — CLAUDE.md 진행상황 메모에 이 조사의 배경이 남아있다.
+// ⚠️ 2026-08-25 — 실기기 로그로 확인된 진짜 원인에 대한 수정: portrait-flip.js의
+// 임시 애니메이션 카드(leaf/base)는 `currentRenderWidth`/`currentRenderHeight`(buildFlipBook
+// 시점에 한 번 측정해 그 뒤로 절대 안 바뀌는 값)로 크기를 잡는데, 실제 PageFlip이 그리는
+// 진짜 페이지는 라이브러리 자체의 내부 래퍼 체인(.stf__wrapper의 퍼센트 기반 종횡비 등)을
+// 거쳐서 크기가 정해진다 — 이 둘이 정확히 같은 값으로 안 맞아떨어지면(실측 결과 최대
+// 39px 정도 차이), 애니메이션 도중(임시 카드가 보이는 동안)엔 footer가 한 위치에 있다가
+// 애니메이션이 끝나고 진짜 페이지가 드러나는 순간 그 차이만큼 footer가 툭 튀는 것처럼
+// 보인다 — 사용자가 "페이지 표시 위치가 바뀐다"고 신고한 게 바로 이것.
+// 고정된 값을 더 정교하게 다시 계산하는 대신, **매번 애니메이션을 시작하기 직전 실제로
+// 지금 화면에 보이고 있는 진짜 페이지의 실측 크기를 그대로 재는 쪽**을 택했다 — 이러면
+// 라이브러리 내부 래퍼가 정확히 몇 px를 차지하든 상관없이(그리고 나중에 라이브러리
+// 버전이 바뀌어 그 값이 달라져도) 임시 카드가 항상 "지금 실제로 보이는 페이지"와
+// 픽셀 단위로 똑같은 크기가 된다.
+function getActiveRealPageSize() {
+  const activePage = [...document.querySelectorAll('#my-book .page')]
+    .find((el) => getComputedStyle(el).display !== 'none');
+  if (!activePage) return { width: currentRenderWidth, height: currentRenderHeight };
+  const rect = activePage.getBoundingClientRect();
+  if (!rect.width || !rect.height) return { width: currentRenderWidth, height: currentRenderHeight };
+  return { width: rect.width, height: rect.height };
+}
+
 function logFooterDiagnostics(label) {
   try {
     const stageRect = stageContainer.getBoundingClientRect();
@@ -904,10 +926,17 @@ function jumpToPrevPage() {
     if (isPortraitFlipAnimating()) return; // 애니메이션 도중 겹쳐 눌림 방지
     const targetGlobal = globalIndex - 1;
     logFooterDiagnostics('trigger-prev'); // ⚠️ 임시 디버그 로깅, finishManualPageTurn 위 주석 참고
+    const activeSize = getActiveRealPageSize(); // ⚠️ getActiveRealPageSize 위 주석 참고
+    console.log('[FOOTERDEBUG] activeSize vs frozen render size', JSON.stringify({
+      activeW: Math.round(activeSize.width), activeH: Math.round(activeSize.height),
+      renderW: currentRenderWidth, renderH: currentRenderHeight,
+      deltaW: Math.round(activeSize.width - currentRenderWidth),
+      deltaH: Math.round(activeSize.height - currentRenderHeight),
+    }));
     playPortraitPageTurn({
       stage: stageContainer,
-      width: currentRenderWidth,
-      height: currentRenderHeight,
+      width: activeSize.width,
+      height: activeSize.height,
       direction: 'prev',
       leavingText: allTextPages[globalIndex],
       leavingFooter: `- ${globalIndex + 1} / ${totalPages} -`,
@@ -940,10 +969,17 @@ function goToNextPage() {
     // 무시하던 것과 똑같이, 여기서도 그냥 아무 일도 안 하고 끝낸다.
     if (targetGlobal >= totalPages) return;
     logFooterDiagnostics('trigger-next'); // ⚠️ 임시 디버그 로깅, finishManualPageTurn 위 주석 참고
+    const activeSize = getActiveRealPageSize(); // ⚠️ getActiveRealPageSize 위 주석 참고
+    console.log('[FOOTERDEBUG] activeSize vs frozen render size', JSON.stringify({
+      activeW: Math.round(activeSize.width), activeH: Math.round(activeSize.height),
+      renderW: currentRenderWidth, renderH: currentRenderHeight,
+      deltaW: Math.round(activeSize.width - currentRenderWidth),
+      deltaH: Math.round(activeSize.height - currentRenderHeight),
+    }));
     playPortraitPageTurn({
       stage: stageContainer,
-      width: currentRenderWidth,
-      height: currentRenderHeight,
+      width: activeSize.width,
+      height: activeSize.height,
       direction: 'next',
       leavingText: allTextPages[globalIndex],
       leavingFooter: `- ${globalIndex + 1} / ${totalPages} -`,
