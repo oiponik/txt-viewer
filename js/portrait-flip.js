@@ -27,6 +27,13 @@
 //   - 2026-08-25 수정(1차~2차): 키프레임/이징을 여러 번 조정해 "안 보이는 구간에 감속이
 //     낭비되는" 문제와 "완료 판정이 시각적 완료보다 늦는" 문제를 좁혔다 — 자세한 수치는
 //     styles.css의 키프레임 위 주석 참고.
+//   - 2026-08-25 후속(목표각 91deg→180deg): 가로 모드 통일 후 사용자가 "90도에서
+//     없애지 말고 180도까지 돌아야 한다"고 요청 — backface-visibility 때문에 화면상
+//     결과는 동일하다고 설명했지만 그래도 180deg로 가져가기로 결정. 단순히 목표각만
+//     바꾸면 "사라지는 지점"이 앞당겨지면서 번호 갱신 지연 버그가 재발하므로, 키프레임에
+//     94% 지점을 91deg(기존 "사라지는 지점")로 직접 못박고 94%→100%(180deg)는 안 보이는
+//     채로 마저 돌게 해서 완료 타이밍(=duration 100%)을 조금도 안 바꿨다 — 자세한 설계는
+//     styles.css의 키프레임 위 주석 참고.
 //   - 2026-08-25 (footer 위치 점프 사가, 6~10차): 이 파일과는 별개로, 진짜 PageFlip
 //     페이지의 footer가 애니메이션 카드와 다른 위치에 그려지는 버그를 여러 라운드에
 //     걸쳐 쫓았다 — 최종 원인과 수정은 js/reader.js의 getActiveRealPageRect()/
@@ -152,10 +159,14 @@ function buildPanelAnimation({
   // 회전(rotateY) + 압축(scaleX, 접히는 쪽으로 살짝 눌려 종이가 휘어지는 느낌) + 들어올림
   // (translateZ, 입체감) + 동적 그림자를 전부 styles.css의 @keyframes 하나로 묶어뒀다.
   // 그래도 여전히 clip-path 없음, JS 매 프레임 갱신 없음 — 브라우저가 알아서 보간하는
-  // 선언적 애니메이션인 건 그대로다. 키프레임의 100%가 rotateY 91deg(=화면에서 사라지는
-  // 지점 바로 너머)에서 끝나서 duration 전체가 "보이는 구간"이다 — 자세한 튜닝 경위는
-  // styles.css의 키프레임 위 주석 참고.
-  leaf.style.animation = `portrait-flip-leaf-${direction} ${duration}ms ease-out`;
+  // 선언적 애니메이션인 건 그대로다. 키프레임이 0%→94%(rotateY 91deg, 화면에서 사라지는
+  // 지점)→100%(rotateY 180deg, 안 보이는 채로 마저 돎)의 3단이고, 감속 곡선(ease-out/
+  // linear)도 이제 JS가 아니라 각 키프레임 자신에 박혀있다 — 그래서 여기선 duration만
+  // 지정한다(타이밍 함수는 지정 안 해도 무방, 모든 구간에 키프레임 자체 함수가 있음).
+  // 2026-08-25 후속: 목표각을 91deg→180deg로 바꾸면서도 "사라지는 지점"이 여전히
+  // duration의 94%에 정확히 고정되도록(=번호 갱신 타이밍 불변) 설계한 경위는 styles.css의
+  // 키프레임 위 주석 참고.
+  leaf.style.animation = `portrait-flip-leaf-${direction} ${duration}ms linear`;
 
   perspectiveStage.appendChild(base);
   perspectiveStage.appendChild(leaf);
