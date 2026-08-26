@@ -697,24 +697,15 @@ function finalizePaginationComplete(containerWidth, containerHeight, fontKey, ca
   refreshMountedPageFooters(); // 아래 함수 주석 참고 — 이미 마운트된 페이지들의 "- N / 총 -" 텍스트를 최종 총 페이지수로 맞춘다
 }
 
-// ⚠️ 2026-08-26 — 사용자 신고: "페이지 하단에 페이지 위치 표기가 이전에 작업한 일부만
-// 나누기해서 바로 보여주고 그 이후에 백그라운드에서 작업하는데, 일부만 나누기한
-// 페이지수를 총 페이지로 보여주는 문제가 있다." 원인 확인: `.page` 안의 `.page-footer`
-// 텍스트("- N / 총 -")는 `createPageElements()`가 그 페이지를 만드는 그 순간의
-// `total`(당시 `totalPages`)로 딱 한 번 구워져서, 이후 `continuePaginationInBackground`가
-// (초기 창 분량만 우선 나눈 뒤 나머지를) `appendForwardPage()`/`prependBackwardPage()`로
-// `totalPages`를 계속 키워가도 — 이미 마운트된 `.page` 요소의 footer 텍스트는 절대
-// 다시 안 그려진다(마운트된 창(window)이 실제로 바뀌지 않는 한, 즉 그 페이지들 근처로
-// 다시 이동해서 `mountWindow()`가 그 자리를 새로 그리기 전까지). 게다가
-// `prependBackwardPage()`는 `windowStartIndex`를 밀어서 이미 마운트된 각 페이지의
-// *전역 번호*(분자) 자체도 사실은 바뀌는데, 그 보정도 이미 그려진 footer 텍스트에는
-// 반영되지 않는다 — 그래서 배경 계산이 끝나도(또는 진행 중에도) 화면에 보이는 페이지
-// 하단 번호/총계가 예전(더 작은) 값에 그대로 멈춰 있는 것처럼 보였다.
-// 수정: 지금 실제로 마운트된 `.page` 요소들의 footer를 현재 `windowStartIndex`/`totalPages`
-// 기준으로 다시 그리는 이 함수를 신설해서, 배경 계산이 진행되는 동안(진행률 갱신 시점)과
-// 완전히 끝난 시점(finalizePaginationComplete) 두 곳에서 호출한다 — 매 페이지 하나
-// 찾을 때마다 부르지 않는 이유는 마운트된 창이 최대 ~31개뿐이라 비용은 미미하지만,
-// 어차피 그 사이 유저 눈에 크게 티 나지 않을 잦은 빈도로 부를 필요까진 없어서다.
+// `.page-footer` 텍스트("- N / 총 -")는 createPageElements()가 그 DOM을 만드는 순간의
+// totalPages로 딱 한 번 구워진다 — 콜드 캐시일 때는 이어보기 위치 근처 창(window)만
+// 먼저 나누고 나머지는 continuePaginationInBackground()가 화면을 안 막고 이어서
+// 채우는데(appendForwardPage/prependBackwardPage가 totalPages를 계속 키움), 이미
+// 마운트된 .page 요소는 창이 실제로 재구성되기 전까지 footer가 다시 안 그려진다(게다가
+// prependBackwardPage는 windowStartIndex도 밀어서 전역 번호=분자도 사실 바뀐다). 이
+// 함수가 지금 마운트된 .page들의 footer를 현재 windowStartIndex/totalPages 기준으로
+// 다시 그려서 그 간극을 메운다 — 배경 계산 진행 중(진행률 갱신 시점)과 완료 시점
+// (finalizePaginationComplete) 두 곳에서 호출한다.
 function refreshMountedPageFooters() {
   document.querySelectorAll('#my-book .page').forEach((pageEl, i) => {
     const footerEl = pageEl.querySelector('.page-footer');
@@ -730,22 +721,8 @@ function refreshMountedPageFooters() {
 // 버그가 있었다. 그래서 요소만 만들어 넘기고, 어디에 붙일지는 호출부(초기 로드 vs
 // updateFromHtml)에 맡긴다.
 // 쪽 번호(footer)는 전역 번호/전역 총 페이지 수를 그대로 쓰기 때문에,
-// 일부만 그려져 있어도 사용자에게는 "- 1234 / 5000 -" 처럼 항상 정확하게 보인다.
-// ⚠️ 2026-08-25 — 8차 라운드에서 여기 `.page`에 명시적 `position:absolute`+픽셀
-// width/height를 인라인으로 박아봤지만 **효과가 없었다** — 이유를 실기기 콘솔로
-// 직접 확인: `document.querySelector('#my-book .page')?.getAttribute('style')`가
-// `"display: none;"`만 보여줬다. 즉 우리가 설정한 인라인 스타일이 라이브러리 자신의
-// 렌더 사이클에 의해 통째로 지워지고 있었다 — `js/vendor/page-flip.browser.js`의
-// `HTMLPage`/`HTMLRender` 코드가 `element.style.cssText = "display: none"`처럼
-// **`cssText` 전체 대입**으로 페이지를 그리고 있어서(개별 프로퍼티 설정이 아니라
-// style 속성 자체를 통째로 교체), 우리가 미리 설정해둔 값은 살아남을 수가 없었다.
-// 진짜 원인은 더 위쪽에 있었다 — `Render.getBlockWidth()`/`getBlockHeight()`가
-// `#my-book`의 `offsetWidth`/`offsetHeight`를 **렌더링할 때마다 실시간으로 다시
-// 측정**해서 페이지 위치 계산(`calculateBoundsRect`)에 넣고 있었고, 이 실시간 측정값이
-// 세션 도중 미묘하게 흔들리는 게 진짜 원인이었다. 그래서 여기(DOM 쪽)를 고치는 대신
-// `js/vendor/page-flip.browser.js`의 `getBlockWidth()`/`getBlockHeight()` 자체를
-// 패치해서 PageFlip 인스턴스당 한 번만 측정하고 캐싱하도록 고쳤다(그 파일 상단
-// 주석 참고) — 진짜 근본 수정은 거기 있다, 여기는 손댈 필요가 없었다.
+// 일부만 그려져 있어도 사용자에게는 "- 1234 / 5000 -" 처럼 항상 정확하게 보인다
+// (다만 배경 계산이 totalPages를 키우는 동안엔 refreshMountedPageFooters() 참고).
 function createPageElements(start, end, total) {
   const elements = [];
   for (let i = start; i < end; i++) {
@@ -767,15 +744,9 @@ function createPageElements(start, end, total) {
   return elements;
 }
 
-// 특정 전역 페이지를 중심으로 앞뒤 PAGE_WINDOW_RADIUS만큼의 구간을 계산
-//
-// ⚠️ 2026-08-26 — 예전엔 여기서 start를 항상 짝수로 내림했다: PageFlip 라이브러리가
-// 두 쪽 스프레드를 "이 창에 로드된 요소들의 로컬 인덱스"(0,1)/(2,3)/... 기준으로
-// 고정 짝짓기해서, 창이 홀수로 시작하면 로컬 짝짓기가 실제 전역 페이지 짝(홀수,짝수
-// 대신 짝수,홀수)과 어긋나 스프레드 좌우가 한 칸씩 밀렸기 때문이다. 라이브러리를
-// 걷어내고(js/page-window.js) 스프레드를 항상 **전역 인덱스**로 직접 짝지으므로
-// (showSpread(leftGlobalIndex, ...)), 이 창 경계의 홀짝은 더 이상 스프레드 정렬과
-// 무관하다 — 그 제약 자체가 사라졌다.
+// 특정 전역 페이지를 중심으로 앞뒤 PAGE_WINDOW_RADIUS만큼의 구간을 계산.
+// 스프레드 좌/우는 showSpread(leftGlobalIndex, ...)가 항상 전역 인덱스로 직접
+// 짝짓기 때문에, 여기서 start의 홀짝을 맞출 필요는 없다.
 function computeWindowRange(centerIndex, total) {
   const start = Math.max(0, centerIndex - PAGE_WINDOW_RADIUS);
   const end = Math.min(total, centerIndex + PAGE_WINDOW_RADIUS + 1);
@@ -859,62 +830,15 @@ function updateBookmarkToggleButton() {
   btn.classList.toggle('active', bookmarked);
 }
 
-// ⚠️ 2026-08-25 — "페이지를 넘기고 나서 한 박자 뒤에 footer(페이지 표시) 위치가 한 번
-// 더 튄다"는 사용자 신고 조사 기록 (진단용 임시 로깅은 원인 확인 후 전부 제거했다 —
-// CLAUDE.md 진행상황 메모에 조사 경위가 남아있다). 화면 녹화 분석으로 확인된 증상:
-// 넘긴 직후엔 footer가 y≈1086에 있다가, 약 300~350ms 뒤 y≈1047로 39px 튀어 올라가서
-// 고정된다(3번의 페이지 넘김 전부 동일하게 재현).
-// 실기기 로그로 확인된 진짜 원인에 대한 수정.
-// 1차 시도(폐기): 임시 애니메이션 카드(leaf/base)의 크기를 `currentRenderWidth`/
-// `currentRenderHeight`(buildFlipBook 시점에 한 번 측정해 그 뒤로 절대 안 바뀌는 값)
-// 대신 애니메이션 시작 직전 실측한 진짜 페이지 크기로 바꿔봤지만, 실기기 재검증에서
-// `deltaW`/`deltaH`가 둘 다 0으로 나왔다 — 즉 크기 자체는 처음부터 완전히 같았다.
-// 그런데도 footer는 여전히 튀었다.
-// 2차 확인(진짜 원인): 임시 카드의 footer와 진짜 페이지의 footer를 각각 직접
-// `getBoundingClientRect()`로 재보니 — 크기(width/height)와 위치(#my-book의
-// #book-stage 대비 오프셋)가 전부 동일한데도 **footer의 화면 Y좌표 자체가 39px
-// 차이났다.** 원인을 더 파보니 `js/vendor/page-flip.browser.js`가 자체 주입하는
-// CSS에 실제 오타 버그가 있었다 — `.stf__wrapper`를 `.sft__wrapper`로 잘못 써서
-// (철자 순서 오타) 그 규칙이 실제 `.stf__wrapper` 요소에 전혀 적용이 안 되고,
-// 의도했던 `position: relative`를 못 받는다. 그 결과 자식 `.stf__block`
-// (`position: absolute`)의 containing block이 의도한 `.stf__wrapper`가 아니라
-// 그 위의 다른 조상으로 튀면서, 실제 페이지의 위치 계산이 우리가 단순하게 재현한
-// 것과 미묘하게 어긋난다 — 정확히 이만큼이 39px로 나타난 것으로 보인다.
-// **수정 방향(2026-08-25)**: 이 업스트림 CSS 오타 자체를 고치는 건 라이브러리 내부에 더
-// 깊이 손대는 위험한 선택이라(다른 부작용 가능성), 대신 *원인을 몰라도 되는* 방식을
-// 택했다 — 임시 카드의 크기뿐 아니라 **화면상 정확한 위치(top/left)까지** 진짜
-// 페이지에서 그대로 재서 맞춘다.
-//
-// ⚠️ 2026-08-26 재발견 — "다음 클릭 시 왼쪽이 애니메이션 끝날 무렵 오른쪽 내용으로
-// 다시 잘못 바뀐다"는 신고를 다시 조사하며, 이 함수(들)이 여전히 `--left`/`--right`
-// 클래스 + `display!=='none'`로 "지금 보이는 페이지"를 찾던 방식 자체에 구조적
-// 결함이 있다는 걸 라이브러리 소스(js/vendor/page-flip.browser.js)를 다시 읽으며
-// 확인했다:
-//   1. `HTMLPage.setOrientation()`은 **새로 배정되는** 페이지에만 `--left`/`--right`
-//      클래스를 붙인다 — **교체되어 밀려나는 이전 페이지의 클래스는 절대 지우지
-//      않는다.** 그 이전 페이지가 다시 `display:none`으로 가려지는 것도 라이브러리
-//      자신의 렌더 루프(`Render.start()`가 구성 시 한 번 걸어두는, 영원히 도는
-//      `requestAnimationFrame` 루프 — `render(t)`가 매 프레임 `drawFrame()`을 불러
-//      `clear()`로 현재 left/right/flipping/bottom이 아닌 페이지를 전부 숨긴다)가
-//      **다음 프레임에** 처리하는 일이다.
-//   2. `pageFlip.turnToPage()`(우리 `swapRealPageForFlip()`가 애니메이션 시작 *전*에
-//      동기 호출하는 바로 그 함수)는 `render.leftPage`/`rightPage`의 내부 참조와
-//      방향 클래스만 동기적으로 바꾼다 — 실제 `display:block`/좌표 스타일은 여전히
-//      `simpleDraw()`가 맡고, 그건 위 1번의 rAF 루프에서만 불린다.
-//   결론: `swapRealPageForFlip()` 직후(다음 rAF 프레임이 오기 전) 이 함수를 호출하면,
-//   "지금 보이는(`display!=='none'`) `--left`/`--right` 요소"는 방금 교체된
-//   **옛 페이지**를 계속 가리킬 수 있다 — 새 페이지는 클래스는 이미 붙었어도 아직
-//   `display:none`이라 필터에서 걸러진다. 여러 번 페이지를 넘기면 이런 식으로 스친
-//   옛 페이지들에 `--left`/`--right` 잔여 클래스가 계속 쌓일 수도 있다.
-//
-// **수정**: 클래스/보임여부로 "지금 보이는 페이지가 누구인지 추측"하는 대신, 우리가
-// 이미 정확히 알고 있는 값 — 그 페이지의 전역 인덱스와 `windowStartIndex` — 로 DOM
-// 순서상 정확한 위치를 바로 찾는다. `#my-book .page`의 DOM 순서는 항상
-// `createPageElements(start, end, ...)`가 만든 순서(= `windowStartIndex`부터 연속)와
-// 정확히 같다(라이브러리가 그 순서 그대로 `pages` 배열에 담아 스프레드를 만든다) —
-// 그러니 `windowStartIndex`를 알면 클래스나 `display` 값과 무관하게 항상 정확한
-// 요소를 집을 수 있다. 이러면 위에서 확인한 클래스/타이밍 문제 전체가 원인과 무관하게
-// 사라진다.
+// "지금 이 전역 페이지가 실제로 어느 .page DOM 요소인가"를 찾는다. 클래스나
+// display 값으로 "지금 보이는 페이지가 누구인지 추측"하는 대신, 이미 정확히 알고
+// 있는 값 — windowStartIndex — 로 DOM 순서상 정확한 위치를 바로 찾는다: `#my-book
+// .page`의 DOM 순서는 항상 createPageElements(start, end, ...)가 만든 순서
+// (= windowStartIndex부터 연속)와 같다. 과거 StPageFlip 라이브러리 시절엔 `--left`/
+// `--right` 클래스와 `display!=='none'`으로 "보이는 페이지"를 추측하다가, 라이브러리의
+// 렌더 타이밍(클래스 배정과 실제 표시가 다른 프레임에 갈림) 때문에 방금 넘긴 페이지가
+// 아니라 옛 페이지를 잘못 짚는 버그가 있었다 — 인덱스 기반 조회로 바꾸면서 그
+// 문제 자체가 원인과 무관하게 사라졌다(자세한 조사 경위는 CLAUDE.md 참고).
 function getRealPageElementByGlobalIndex(globalIndex) {
   const idx = globalIndex - windowStartIndex;
   if (idx < 0) return null;
@@ -955,30 +879,21 @@ function getActiveRealSpreadRects(leftGlobalIndex) {
 }
 
 
-// ⚠️ 2026-08-25 — 실기기 로그로 드러난 진짜 진짜 원인에 대한 수정(이전 offsetTop/offsetLeft
-// 보정 시도는 무효과였다 — 실측해보니 offsetTop/offsetLeft가 매번 0이라 애초에 고칠 게
-// 없었다). 페이지를 연달아 넘기며 진짜 PageFlip 페이지의 footer 위치를 실측해보니
-// **같은 책 안에서도 서로 다른 진짜 `.page` 요소끼리 footer 위치가 다르게 나온다**
-// (예: 472페이지는 999, 473페이지는 973 — 26px 차이). 임시 카드는 항상 고정된 값
-// 하나(1038)로 그려지니 어느 쪽에 맞춰도 절반은 어긋날 수밖에 없는 구조였다.
-// **수정**: "애니메이션이 끝난 뒤 진짜 페이지로 바꾸고, 그 전에는 미리 잰 크기로
-// 임시 카드를 그린다"는 순서 자체를 뒤집었다 — 진짜 페이지 전환(`pageFlip.turnToPage()`
-// + `maybeShiftPageWindow()`)을 **애니메이션을 시작하기도 전에, 오버레이 뒤에 숨겨진
-// 채로 먼저** 끝내버린다(오버레이가 화면 전체를 곧바로 덮을 것이므로 사용자 눈엔 아무
-// 변화도 안 보인다 — 전부 같은 동기 실행 안이라 중간 프레임이 그려질 틈도 없다). 그
-// 직후 `getActiveRealPageRect()`로 "지금 막 진짜로 보여주게 된 바로 그 페이지"의
-// 실측 크기/위치를 재서 임시 카드에 넘긴다 — 어떤 페이지가 어떤 높이로 렌더링되든
-// 상관없이 항상 100% 일치한다(같은 페이지를 재는 것이므로).
-// 아래 함수가 이제 두 단계로 나뉜다: `swapRealPageForFlip`(애니메이션 시작 *전*, 진짜
-// DOM 전환만 — 화면엔 안 보임)과 `finishManualPageTurn`(애니메이션이 끝난 *뒤*, 사용자
-// 눈에 보이는 하단 인디케이터/진행상황 저장 등만 — 이건 여전히 시각적 완료 시점에 맞춰야
-// 해서 그대로 둔다, 예전에 여러 라운드에 걸쳐 튜닝했던 부분).
+// 애니메이션 카드(portrait-flip.js의 base/leaf)가 진짜 페이지와 정확히 같은 크기/
+// 위치로 그려져야 이음매 없이 보인다 — 그런데 실측 결과 같은 책 안에서도 서로 다른
+// .page 요소끼리 실제 렌더링 크기/footer 위치가 미묘하게 다를 수 있는 것으로 확인돼서
+// (과거 StPageFlip 시절 CSS 버그 — 자세한 경위는 CLAUDE.md 참고), "고정값으로 카드를
+// 그리고 나중에 진짜 페이지로 바꿔치기"하는 순서 대신 반대로 한다: 진짜 페이지 전환
+// (showPage/showSpread + maybeShiftPageWindow)을 애니메이션을 시작하기도 전에, 오버레이
+// 뒤에 숨겨진 채로 먼저 끝내버린다(오버레이가 화면 전체를 곧바로 덮으므로 사용자 눈엔
+// 아무 변화도 안 보인다 — 전부 같은 동기 실행 안이라 중간 프레임이 그려질 틈도 없다).
+// 그 직후 getActiveRealPageRect()로 "지금 막 실제로 보여주게 된 바로 그 페이지"의
+// 실측 크기/위치를 재서 애니메이션 카드에 넘긴다 — 어떤 페이지가 어떻게 렌더링되든
+// 항상 100% 일치한다(같은 페이지를 재는 것이므로).
+// 아래 함수가 두 단계로 나뉜다: swapRealPageForFlip(애니메이션 시작 *전*, 진짜 DOM
+// 전환만 — 화면엔 안 보임)과 finishManualPageTurn(애니메이션이 끝난 *뒤*, 사용자 눈에
+// 보이는 하단 인디케이터/진행상황 저장 등만).
 function swapRealPageForFlip(targetGlobal) {
-  // ⚠️ 2026-08-26 — 예전엔 이 안의 turnToPage() 호출을 isShiftingWindow=true로
-  // 감쌌다 — 라이브러리의 'flip' 이벤트가 우리 자신의 호출로 발동한 합성 이벤트인지
-  // 구분하기 위한 가드였다. 라이브러리를 걷어내면서(js/page-window.js) 이벤트
-  // 시스템 자체가 없어졌으므로 이 가드도 필요 없다 — showPage()/showSpread()는
-  // 그냥 동기적으로 DOM을 바꿀 뿐 아무것도 발동시키지 않는다.
   if (isSinglePageMode) showPage(targetGlobal, windowStartIndex, currentRenderWidth, currentRenderHeight);
   else showSpread(targetGlobal, windowStartIndex, currentRenderWidth, currentRenderHeight);
   maybeShiftPageWindow(targetGlobal);
@@ -1003,44 +918,21 @@ function finishManualPageTurn(targetGlobal) {
   resetWakeLockIdleTimer();
 }
 
-// ⚠️ 2026-08-25 — 가로(2페이지 스프레드) 모드도 세로 모드와 같은 rotateY 카드 뒤집기로
-// 통일했다(사용자 요청: "통일성 있게"). 원래 가로 모드는 StPageFlip 자체 flipNext()/
-// flipPrev()를 그대로 썼고 한 번도 버그가 없었다 — 이 확장은 순수히 "통일성"을 위한
-// 것이지 가로 모드에 문제가 있어서가 아니다(js/portrait-flip.js 상단 "가로 모드 확장"
-// 절 참고). 좌/우 페이지의 진짜 페이지 실측(getActiveRealSpreadRects) + 스왑
-// (swapRealPageForFlip을 왼쪽 로컬 인덱스로 호출 — StPageFlip은 스프레드를 항상
-// 왼쪽=짝수 로컬 인덱스로 정렬하므로 왼쪽 페이지만 지정하면 오른쪽은 자동으로 딸려온다)
-// 조합만 다르고, 나머지 흐름은 세로 모드와 동일하다.
-// ⚠️ 처음엔 좌/우 패널을 둘 다 동시에 돌렸는데(양쪽이 대칭으로 회전) — 실기기에서
-// 확인한 사용자 피드백: "양쪽 페이지가 같이 넘어가는데 이게 무슨 책 넘기는 효과야,
-// 한쪽만 넘어가야지." 그래서 이 함수는 여전히 좌/우 패널 데이터를 둘 다 만들지만,
-// 호출자(jumpToPrevPage/goToNextPage)가 실제 책처럼 **방향에 맞는 한쪽만**
-// (다음=오른쪽, 이전=왼쪽) 걸러서 애니메이션에 넘긴다 — 반대쪽은 애니메이션 없이,
-// swapRealPageForFlip()에서 이미 끝난 진짜 페이지 전환 결과를 그 자리에서 바로
-// 보여준다. `--left`/`--right` 클래스가 붙은 real .page가 없으면(마지막 스프레드가
-// 홀수 페이지라 한쪽이 없는 경우 등) 그 side는 애초에 데이터가 안 만들어진다 —
-// 필터링 후 panels가 비면(애니메이션 대상 쪽 페이지가 아예 없는 경우) 애니메이션
-// 없이 즉시 전환한다(진짜 페이지 전환 자체는 이미 끝나 있으므로 기능적으로는
-// 문제없다, 시각 효과만 생략).
-// ⚠️ 2026-08-26 — 사용자가 직접 짚어준 콘텐츠 버그 수정. 카드는 자기 자신의 왼쪽(또는
-// 오른쪽) 가장자리를 축으로 180도 회전한다 — 이건 실제 경첩 달린 문이 180도 열리면
-// 반대편에 가 있는 것과 같은 3D 회전 수학이라(transform-origin이 있는 그 가장자리는
-// 고정된 채, 반대쪽 먼 가장자리가 180도를 돌면 원래 있던 자리가 아니라 축 반대편으로
-// 넘어가서 자리잡는다), 오른쪽 패널(side:'right', "다음"에 씀)의 leafCard 뒷면(back)은
-// 회전이 90도를 넘는 순간부터 화면상 **왼쪽 자리** 쪽으로 넘어가 있고, 왼쪽 패널의
-// 뒷면은 **오른쪽 자리** 쪽으로 넘어가 있다 — 이 자체는 정상적인 3D 회전 결과다(반면
-// `base`는 leafCard와 별개로 항상 자기 패널 자리에 고정돼 있다 — buildPanelAnimation
-// 주석 참고). 그런데 leafCard의 뒷면(revealingText/revealingFooter, back 생성에 씀)에는
-// 여태 **자기 자신과 같은 쪽**의 목표 페이지를 넣고 있었다 — 오른쪽 패널의 뒷면이
-// 왼쪽 자리 쪽으로 넘어가는데 그 뒷면엔 "오른쪽에 있어야 할" 새 페이지를 담고 있었던 것.
-// 그래서 회전 후반부에 왼쪽 자리 쪽엔 오른쪽용 번호가 잘못 나타났다가, 애니메이션이
-// 끝나 오버레이가 사라지면 그 아래 깔려 있던 진짜 왼쪽 페이지(swapRealPageForFlip이
-// 이미 조용히 바꿔둔 진짜 목표 페이지)가 드러나며 다시 정정되는 것처럼 보였다.
-// **수정**: `base`(자기 패널 자리에 고정, 같은 쪽 목표를 계속 보여줘야 함)와 leafCard의
-// `back`(회전으로 반대쪽 자리에 가 있게 됨, 반대쪽 목표를 보여줘야 함)의 목표 콘텐츠를
-// 분리했다 — `revealingText`/`revealingFooter`는 그대로 자기 자신과 같은 쪽(=base용)을
-// 유지하고, 반대쪽 목표를 담는 `landingText`/`landingFooter`를 새로 추가해서 back에만
-// 넘긴다(buildPanelAnimation/playSpreadPageTurn 쪽 변경 참고).
+// 가로(2페이지 스프레드) 모드도 세로 모드와 같은 rotateY 카드 뒤집기 엔진을 쓴다("통일성"
+// 요청) — 좌/우 페이지 실측(getActiveRealSpreadRects) + 스왑(swapRealPageForFlip을 왼쪽
+// 로컬 인덱스로 호출하면 오른쪽은 자동으로 딸려온다) 조합만 다르고 나머지 흐름은 세로
+// 모드와 동일하다. 이 함수는 좌/우 패널 데이터를 둘 다 만들지만, 호출자
+// (jumpToPrevPage/goToNextPage)가 실제 책처럼 **방향에 맞는 한쪽만**(다음=오른쪽,
+// 이전=왼쪽) 걸러서 애니메이션에 넘긴다 — 반대쪽은 애니메이션 없이 swapRealPageForFlip()
+// 에서 이미 끝난 결과를 그 자리에서 바로 보여준다. 좌/우 중 한쪽 페이지가 없으면(마지막
+// 스프레드가 홀수 페이지인 경우 등) 그 side는 애초에 데이터가 안 만들어진다.
+//
+// landingText/landingFooter가 revealingText/revealingFooter와 갈라지는 이유: leafCard는
+// 자기 자신의 가장자리를 축으로 180도 회전하므로(경첩 달린 문이 180도 열리면 반대편에
+// 가 있는 것과 같은 3D 회전 수학), 뒷면(back)은 화면상 **반대쪽 패널의 자리**로 넘어가
+// 앉는다 — 그래서 왼쪽 패널의 뒷면엔 오른쪽 목표(targetRightGlobal)를, 오른쪽 패널의
+// 뒷면엔 왼쪽 목표(targetLeftGlobal)를 담아야 한다. base(제자리 고정)는 항상 자기 쪽
+// 목표(revealingText)를 그대로 유지한다.
 function buildSpreadPanels({ currentLeftGlobal, currentRightGlobal, targetLeftGlobal, targetRightGlobal, fromRects, toRects }) {
   const panels = [];
   if (fromRects.left && toRects.left) {
@@ -1247,19 +1139,13 @@ function goToNextPage() {
 
 // 슬라이더로 임의의 페이지로 바로 이동 — maybeShiftPageWindow와 달리 "가장자리 근처"인지
 // 따지지 않고 항상 목표 페이지를 중심으로 창을 새로 구성한다.
-// ⚠️ 2026-08-26 — 방어적으로 isPortraitFlipAnimating() 가드 추가. 아래
-// syncProgressFromServer() 위 주석 참고 — 실사용자 계정으로 실제 크롬에서 직접
-// 재현해서 찾은 진짜 원인이 바로 이 함수였다: 이 함수는 pageFlip.updateFromHtml()로
-// 창 전체를 즉시(애니메이션 없이) 다시 그리는데, jumpToNextPage/jumpToPrevPage의
-// 수동 rotateY 애니메이션이 아직 화면에 떠 있는 동안 이 함수가 끼어들면(주 호출자는
-// syncProgressFromServer, 1분마다 도는 타이머라 사용자 클릭과 전혀 무관한 임의의
-// 시점에 발동) 애니메이션 오버레이가 덮고 있는 진짜 페이지 DOM을 오버레이 모르게
-// 완전히 다른 페이지로 바꿔치기해버린다 — 오버레이 자신의 텍스트(클릭 시점에 미리
-// 캡처해둔 값)는 안 바뀌니 화면엔 "회전은 원래 대상으로 끝나는데, 오버레이가 안
-// 덮고 있던 왼쪽 페이지만 느닷없이 다른(동기화로 넘어온) 페이지로 바뀐다"로
-// 보인다 — 실기기에서 신고된 "다음 페이지 클릭 후 한참 뒤 왼쪽이 다시 바뀐다"
-// 증상과 정확히 일치. 이 함수 자체에도 방어적으로 가드를 걸어둔다(주 수정은
-// syncProgressFromServer 쪽).
+// isPortraitFlipAnimating() 가드가 필요한 이유: 이 함수는 창 전체를 즉시(애니메이션
+// 없이) 다시 그리는데, jumpToPrevPage/goToNextPage의 수동 rotateY 애니메이션이 아직
+// 화면에 떠 있는 동안(주 호출자인 syncProgressFromServer는 1분마다 도는 타이머라
+// 사용자 클릭과 무관한 임의 시점에 발동) 이 함수가 끼어들면 애니메이션 오버레이가
+// 덮고 있는 진짜 페이지 DOM을 오버레이 모르게 바꿔치기해버려서, 애니메이션이 끝난
+// 뒤 한 박자 늦게 페이지가 또 바뀌는 것처럼 보인다 — 아래 syncProgressFromServer()
+// 위 주석 참고(주 수정은 그쪽에 있고, 여기는 방어적 가드).
 function jumpToGlobalPage(targetPage) {
   if (!bookMounted || isShiftingWindow || isPortraitFlipAnimating() || totalPages === 0) return;
   targetPage = Math.max(0, Math.min(targetPage, totalPages - 1));
@@ -1325,19 +1211,10 @@ export async function loadReaderPrefs() {
   applyReaderPrefs();
 }
 
-// ⚠️ 2026-08-26 — saveReaderPrefsDebounced()의 500ms 디바운스를 실제로 쓰는 곳이
-// 없었다는 게 드러났다. 호출부는 딱 둘뿐이었다: "적용" 버튼 클릭(1회성 이벤트)과
-// 브라우저 밝기 드래그가 끝나는 순간(endBrightnessDrag, 이것도 드래그 "도중"이
-// 아니라 손을 뗀 뒤 1회성으로만 불림 — 드래그 중엔 applyReaderPrefs()만 실시간으로
-// 돌고 저장은 안 건드림). 즉 여러 번 연달아 불려서 마지막 것만 반영하면 되는
-// "디바운스가 실제로 쓰이는" 상황 자체가 코드에 없었다 — 매번 딱 한 번만 불리는데도
-// 저장을 500ms 늦추기만 해서, 그 사이(탭을 닫거나 브라우저를 강제 종료하는 등)
-// flushReaderPrefsSave()의 pagehide/visibilitychange 안전망이 못 따라잡는 경로로
-// 나가면 저장이 그대로 유실됐다 — 사용자가 "PC에서 글자 크기를 몇 번이나 키워도
-// 다시 열면 보통으로 나온다"고 신고한 것과 정확히 들어맞는 실패 모드. 그래서
-// saveReaderPrefsDebounced() 자체를 없애고, 두 호출부 모두 flushReaderPrefsSave()
-// (디바운스 없이 즉시 저장)로 바꿨다 — 코드가 이미 "이 이벤트당 한 번만 부른다"는
-// 전제였으므로 잃는 이점이 없다.
+// 저장 호출부(적용 버튼 클릭, 밝기 드래그 종료)는 둘 다 1회성 이벤트라 디바운스로
+// 묶어 처리할 대상 자체가 없다 — flushReaderPrefsSave()가 항상 즉시 저장한다(과거엔
+// 500ms 디바운스가 있었는데, 아무 이득 없이 저장만 늦춰서 그 사이 탭을 닫으면 저장이
+// 유실될 수 있었다 — CLAUDE.md 참고).
 async function persistReaderPrefsNow() {
   const category = getDeviceCategory();
   const snapshot = { ...readerPrefs };
@@ -2007,32 +1884,19 @@ async function buildFlipBook() {
   windowEndIndex = initialWindow.end;
   mountWindow(createPageElements(windowStartIndex, windowEndIndex, totalPages));
 
-  // ⚠️ 2026-08-26 — 예전엔 여기서 StPageFlip 인스턴스를 만들고(minWidth/maxWidth
-  // 클램핑, disableFlipByClick 관련 라이브러리 버그 회피 등 여러 설정이 필요했다)
-  // loadFromHTML()+turnToPage()로 첫 페이지를 그렸다. 라이브러리를 걷어내면서
-  // (js/page-window.js) 그 모든 설정과 버그 회피가 통째로 필요 없어졌다 — 그냥
-  // 보여줄 페이지(들)를 직접 켜면 끝이다.
   if (isSinglePage) showPage(targetGlobalPage, windowStartIndex, renderWidth, renderHeight);
   else showSpread(targetGlobalPage, windowStartIndex, renderWidth, renderHeight);
   bookMounted = true;
   updatePageIndicator(targetGlobalPage);
   updateSearchAvailability();
 
-  // 두 페이지 스프레드일 때만 가운데 책등 그림자를 보여준다.
-  // ⚠️ showSpread() 이후에 붙인다 — #my-book의 크기(showSpread가 인라인으로 설정)가
-  // 확정된 뒤에 실측해야 정확하다.
-  // ⚠️ 2026-08-26 — bookElement(#my-book)가 아니라 stageContainer(#book-stage)에
-  // 붙인다. 예전엔 StPageFlip이 bookElement에 항등행렬이라도 `transform`을 인라인으로
-  // 걸어둬서(CSS 스펙상 `transform:none`이 아니면 새 스태킹 컨텍스트가 생김) 그 안의
-  // #book-spine이 z-index를 아무리 올려도 형제 오버레이를 못 이겼던 문제가 있었다 —
-  // 라이브러리를 걷어낸 지금은 bookElement에 그런 인라인 transform이 안 걸리므로
-  // 이 문제 자체가 이제 없지만, 이미 검증된 배치(오버레이와 같은 부모, z-index 직접
-  // 경쟁)를 굳이 되돌릴 이유가 없어 그대로 둔다. 가로 위치(`left:50%`)는 그대로 둬도
-  // 된다 — bookElement가 stageContainer 안에서 flex로 가운데 정렬되므로 둘의 가로
-  // 중심은 항상 일치한다(대칭 오프셋이 상쇄됨). 다만 세로는 bookElement가
-  // stageContainer보다 짧게 레터박스될 수 있어(`top:0;bottom:0`을 그대로 stageContainer
-  // 기준으로 쓰면 책보다 위아래로 삐져나올 수 있음) bookElement의 실측 top/height를
-  // 인라인으로 못박는다.
+  // 두 페이지 스프레드일 때만 가운데 책등 그림자를 보여준다. showSpread() 이후에
+  // 붙인다 — #my-book의 크기(showSpread가 인라인으로 설정)가 확정된 뒤에 실측해야
+  // 정확하다. bookElement(#my-book)가 아니라 stageContainer(#book-stage)에 붙이는
+  // 이유: 애니메이션 오버레이(z-index 20/21)와 같은 부모라 z-index로 직접 경쟁할 수
+  // 있어야 하기 때문 — 가로 위치는 bookElement가 stageContainer 안에서 flex로 가운데
+  // 정렬되므로 그대로 둬도 중심이 일치하지만, 세로는 bookElement가 stageContainer보다
+  // 짧게 레터박스될 수 있어 bookElement의 실측 top/height를 인라인으로 못박는다.
   const spineElement = document.createElement('div');
   spineElement.id = 'book-spine';
   spineElement.style.display = isSinglePage ? 'none' : 'block';
@@ -2045,14 +1909,9 @@ async function buildFlipBook() {
   }
   stageContainer.appendChild(spineElement);
 
-  // ⚠️ 2026-08-26 — 예전엔 여기서 라이브러리의 'flip' 이벤트를 구독해서 페이지가
-  // 바뀔 때마다 진행상황 저장/인디케이터 갱신/창 재정렬을 했다. 그런데 이 앱의
-  // turnToPage() 호출은 전부(swapRealPageForFlip/maybeShiftPageWindow/jumpToGlobalPage)
-  // isShiftingWindow=true로 감싸져 있었거나 리스너 등록 *전*에 실행돼서, 이 핸들러의
-  // 실제 로직(아래로 옮겨졌던 것과 같은 내용)은 이미 오래전부터 한 번도 실행된 적이
-  // 없었다(=죽은 코드) — 실제 페이지 전환은 전부 finishManualPageTurn()(수동 애니메이션의
-  // onDone)이 담당하고 있었다. 라이브러리를 걷어내며 이벤트 시스템 자체가 없어졌으니
-  // 이 핸들러도 그냥 삭제했다 — 잃는 동작이 없다.
+  // 페이지 전환 시 진행상황 저장/인디케이터 갱신/창 재정렬은 전부 finishManualPageTurn()
+  // (수동 애니메이션의 onDone)이 담당한다 — page-window.js는 이벤트를 발생시키지
+  // 않으므로 별도 리스너가 필요 없다.
 
   // 창 밖의 나머지는 화면을 막지 않고 백그라운드로 이어서 채운다 (await 안 함).
   if (isPaginationPending()) {
@@ -2435,24 +2294,16 @@ function findPageForCharIndex(charIndex) {
 // → 탭이 다시 화면에 보일 때마다 서버 기록을 재확인해서, 우리가 알던 것보다
 // 최신이면(=다른 기기에서 더 나중에 저장했으면) 그 위치로 자동으로 이동한다.
 //
-// ⚠️ 2026-08-26 — 📌 "next로 넘길 때 왼쪽 페이지가 오른쪽 내용으로 다시 바뀐다"
-// 버그의 진짜 원인을 여기서 찾았다. 사용자 승인을 받아 Claude in Chrome으로 실제
-// 프로덕션 계정에 직접 접속해서 재현+콘솔을 직접 읽어보니, 내가 수동으로 클릭한
-// "다음" 애니메이션(예: 17→19페이지)이 아직 화면에 떠 있는 도중, 이 함수가 60초
-// 주기 타이머(아래 setInterval)로 완전히 무관하게 발동해서 `jumpToGlobalPage(436)`
-// 같은 엉뚱한 페이지로 점프한 로그가 동시에 찍혔다 — 실제로 다른 세션/기기(오늘 이
-// 세션 자체를 포함해 하루 종일 이 책으로 여러 번 테스트했으므로)가 Firestore에
-// 남긴 "더 최신" 진행상황과 맞아떨어진 것. `jumpToGlobalPage()`는
-// `mountWindow()`(js/page-window.js)로 창 전체를 애니메이션 없이 즉시 재구성하는데,
-// 이게 수동 rotateY 애니메이션의 오버레이가 떠 있는 동안 실행되면 — 오버레이가 안
-// 덮고 있는 왼쪽 페이지(실제 DOM)만 느닷없이 동기화된 페이지로 바뀌어 보이고,
-// 오른쪽은 오버레이 자신이 미리 캡처해둔 텍스트로 계속 애니메이션하다 끝난다 —
-// 정확히 신고된 증상과 일치한다. **수정**: 애니메이션이 진행 중이면 동기화 자체를
-// 건너뛴다 — 이때 `lastKnownProgressUpdatedAt`는 갱신하지 않아서(=아직 "따라잡지
-// 못한" 상태로 남겨둠), 60초 뒤 다음 주기 체크가(그때는 보통 애니메이션이 끝나
-// 있을 것이므로) 같은 서버 값을 다시 보고 정상적으로 재시도한다 — 동기화 자체가
-// 유실되지 않는다. `jumpToGlobalPage()` 자체에도 방어적으로 같은 가드를 추가해뒀다
-// (다른 호출부가 실수로 겹치는 경우까지 대비).
+// isPortraitFlipAnimating() 가드가 필요한 이유: 이 함수는 60초 주기 타이머로 사용자
+// 클릭과 무관하게 발동한다 — 수동 rotateY 애니메이션의 오버레이가 아직 떠 있는 도중에
+// jumpToGlobalPage()가 mountWindow()로 창 전체를 애니메이션 없이 즉시 재구성해버리면,
+// 오버레이가 안 덮고 있는 쪽 페이지(실제 DOM)만 느닷없이 동기화된 페이지로 바뀌어
+// 보이고 나머지는 오버레이가 미리 캡처해둔 텍스트로 계속 애니메이션하다 끝난다 —
+// "다음 페이지 클릭 후 한참 뒤 반대쪽이 또 바뀐다"는 증상으로 나타났었다. 애니메이션
+// 진행 중이면 동기화를 건너뛰고 `lastKnownProgressUpdatedAt`도 갱신하지 않아서(=아직
+// "따라잡지 못한" 상태로 남김), 다음 60초 주기에(그땐 보통 애니메이션이 끝나 있음)
+// 같은 서버 값을 다시 보고 정상적으로 재시도한다 — 동기화 자체는 유실되지 않는다.
+// jumpToGlobalPage() 자체에도 방어적으로 같은 가드가 있다.
 async function syncProgressFromServer() {
   if (!currentUser || isDevUser() || !currentFileName || !bookMounted || viewerScreen.classList.contains('screen-hidden')) return;
   if (isPortraitFlipAnimating()) return; // 수동 페이지 넘김 애니메이션과 충돌 방지 — 다음 60초 주기에 재시도됨
