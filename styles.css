@@ -819,7 +819,15 @@
        ⚠️ --bg-color/--text-color(전역 테마)가 아니라 --reading-bg/--reading-text
        (고정색)를 쓴다 — 사용자가 명시적으로 요청하기 전까진 절대 바꾸지 않는다. */
     .page {
-      position: relative; /* page-content/page-footer 절대배치 기준(우측 상단 책갈피 아이콘도 이걸 기준으로 쓸 예정) */
+      /* ⚠️ 2026-08-26 — StPageFlip 라이브러리 제거(js/page-window.js로 대체)에 맞춰
+         position/display를 우리가 직접 관리한다. 예전엔 라이브러리가 렌더링 시점에
+         `element.style.cssText`를 통째로 덮어써서(simpleDraw()) display:block을
+         강제하고 위치를 잡아줬는데, 이제 그 역할을 js/page-window.js의 showPage()/
+         showSpread()가 인라인 스타일로 직접 한다 — 기본값은 항상 안 보이는 상태(옆
+         페이지들이 겹쳐 보이지 않도록)이고, page-window.js가 지금 보여줄 1~2개만
+         명시적으로 display:block + top/left/width/height를 채운다. */
+      position: absolute; top: 0; left: 0;
+      display: none; /* page-window.js가 보여줄 페이지만 켠다 */
       background-color: var(--reading-bg);
       color: var(--reading-text);
       font-family: var(--reading-font-family);

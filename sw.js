@@ -9,7 +9,7 @@
 // ⚠️ 정적 파일 목록을 바꿨으면(js/ 새 파일 추가 등) 아래 CACHE_VERSION을 올려야
 // 새 캐시가 만들어지고 옛 캐시가 정리된다 — 안 올리면 사용자는 계속 옛날 파일을
 // 오프라인 캐시에서 받게 된다.
-const CACHE_VERSION = 'bookify-shell-v83';
+const CACHE_VERSION = 'bookify-shell-v84';
 
 // 같은 출처(오리진) 정적 파일 — 설치 시점에 전부 미리 받아둔다.
 const PRECACHE_URLS = [
@@ -30,10 +30,10 @@ const PRECACHE_URLS = [
   './js/offline-cache.js',
   './js/reader.js',
   './js/portrait-flip.js',
+  './js/page-window.js',
   './js/library.js',
   './js/auth.js',
   './js/storage-stats.js',
-  './js/vendor/page-flip.browser.js',
   './fonts/gowun-dodum.woff2',
   './fonts/noto-sans-kr-400.woff2',
   './fonts/noto-sans-kr-700.woff2',
@@ -42,8 +42,9 @@ const PRECACHE_URLS = [
 ];
 
 // Firebase SDK도 같이 미리 받아둔다 — CDN(교차 출처)이지만 없으면 앱이 아예 안 뜬다.
-// PageFlip 라이브러리는 더 이상 여기 해당 안 됨 — js/vendor/page-flip.browser.js로 자체
-// 호스팅해서 PRECACHE_URLS(같은 출처)에 들어가 있다(index.html 주석 참고).
+// ⚠️ 2026-08-26 — PageFlip 라이브러리(js/vendor/page-flip.browser.js)는 완전히
+// 걷어냈다(js/page-window.js로 대체 — index.html 주석 참고) — 더 이상 여기서 다룰
+// 파일 자체가 없다. 남은 교차 출처(CDN) 의존은 Firebase SDK뿐이다.
 // ⚠️ 실제로 있었던 버그: Firebase SDK(firebase-app/firestore/storage/auth.js)를 여기
 // 빠뜨렸었다 — firebase-init.js가 모듈 그래프 맨 앞쪽에서 이 파일들을 import하는데,
 // 캐싱이 안 돼있으니 오프라인일 때 이 fetch가 끝없이 멈춰버리고(에러도 안 남) 그 뒤
