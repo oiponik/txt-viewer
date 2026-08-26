@@ -193,7 +193,7 @@ function buildPanelAnimation({
   stage, width, height, direction, offsetTop, offsetLeft,
   leavingWidth, leavingHeight,
   leavingText, leavingFooter, revealingText, revealingFooter,
-  duration, onPanelDone, debugLabel,
+  duration, onPanelDone,
 }) {
   // next(다음 페이지): 왼쪽 가장자리(=책의 중앙, 스파인)를 축으로 회전.
   // prev(이전 페이지): 오른쪽 가장자리(=역시 스파인)를 축으로 회전.
@@ -350,43 +350,12 @@ function buildPanelAnimation({
   perspectiveStage.appendChild(leafCard);
   stage.appendChild(perspectiveStage);
 
-  // ⚠️ 임시 디버그 로깅 (2026-08-25) — 임시 카드(base/front)의 footer가 실제로 어느 화면
-  // 좌표에 그려지는지 직접 측정. js/reader.js의 [FOOTERDEBUG] 로깅과 짝을 이룬다.
-  // debugLabel로 세로 모드("portrait")/가로 모드 좌우 패널("spread-left"/"spread-right")을
-  // 구분한다. 원인 확인되면 이 로깅 전부 제거할 것.
-  try {
-    const baseFooter = base.querySelector('.page-footer');
-    const frontFooter = front.querySelector('.page-footer');
-    const stageRect = stage.getBoundingClientRect();
-    const baseFooterRect = baseFooter ? baseFooter.getBoundingClientRect() : null;
-    const frontFooterRect = frontFooter ? frontFooter.getBoundingClientRect() : null;
-    console.log('[FOOTERDEBUG] overlay base+leaf footer @ start', debugLabel || '', JSON.stringify({
-      t: Math.round(performance.now()),
-      stageTop: Math.round(stageRect.top), stageBottom: Math.round(stageRect.bottom),
-      baseFooterY: baseFooterRect ? Math.round(baseFooterRect.top) : null,
-      baseFooterText: baseFooter ? baseFooter.textContent : null,
-      leafFooterY: frontFooterRect ? Math.round(frontFooterRect.top) : null,
-      leafFooterText: frontFooter ? frontFooter.textContent : null,
-    }));
-  } catch (err) { /* 진단용, 실패해도 애니메이션엔 영향 없음 */ }
-
   let finished = false;
   const handle = { leaf: leafCard, onAnimationEnd: null, safetyTimer: null };
 
   function finish() {
     if (finished) return;
     finished = true;
-    try {
-      const baseFooter = base.querySelector('.page-footer');
-      const stageRect = stage.getBoundingClientRect();
-      const baseFooterRect = baseFooter ? baseFooter.getBoundingClientRect() : null;
-      console.log('[FOOTERDEBUG] overlay base footer @ removal', debugLabel || '', JSON.stringify({
-        t: Math.round(performance.now()),
-        stageTop: Math.round(stageRect.top), stageBottom: Math.round(stageRect.bottom),
-        baseFooterY: baseFooterRect ? Math.round(baseFooterRect.top) : null,
-        baseFooterText: baseFooter ? baseFooter.textContent : null,
-      }));
-    } catch (err) { /* 진단용, 실패해도 정리엔 영향 없음 */ }
     clearTimeout(handle.safetyTimer);
     leafCard.removeEventListener('animationend', handle.onAnimationEnd);
     perspectiveStage.remove();
@@ -432,7 +401,7 @@ export function playPortraitPageTurn({
     stage, width, height, direction, offsetTop, offsetLeft,
     leavingWidth, leavingHeight,
     leavingText, leavingFooter, revealingText, revealingFooter,
-    duration, debugLabel: 'portrait',
+    duration,
     onPanelDone: () => {
       activeAnimation = null;
       onDone();
@@ -475,7 +444,7 @@ export function playSpreadPageTurn({ stage, direction, duration = 1000, onDone, 
       direction,
       leavingText: panel.leavingText, leavingFooter: panel.leavingFooter,
       revealingText: panel.revealingText, revealingFooter: panel.revealingFooter,
-      duration, debugLabel: 'spread-' + (panel.side || '?'),
+      duration,
       onPanelDone,
     }));
   }

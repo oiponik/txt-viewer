@@ -840,18 +840,52 @@ function updateBookmarkToggleButton() {
 // (`position: absolute`)의 containing block이 의도한 `.stf__wrapper`가 아니라
 // 그 위의 다른 조상으로 튀면서, 실제 페이지의 위치 계산이 우리가 단순하게 재현한
 // 것과 미묘하게 어긋난다 — 정확히 이만큼이 39px로 나타난 것으로 보인다.
-// **수정 방향**: 이 업스트림 CSS 오타 자체를 고치는 건 라이브러리 내부에 더 깊이
-// 손대는 위험한 선택이라(다른 부작용 가능성), 대신 *원인을 몰라도 되는* 방식을
+// **수정 방향(2026-08-25)**: 이 업스트림 CSS 오타 자체를 고치는 건 라이브러리 내부에 더
+// 깊이 손대는 위험한 선택이라(다른 부작용 가능성), 대신 *원인을 몰라도 되는* 방식을
 // 택했다 — 임시 카드의 크기뿐 아니라 **화면상 정확한 위치(top/left)까지** 진짜
-// 페이지에서 그대로 재서 맞춘다. 라이브러리 내부 CSS가 왜 그런 값을 내는지 몰라도,
-// "지금 실제로 보이는 페이지가 정확히 어디 있는지"만 알면 임시 카드를 그 자리에
-// 그대로 겹쳐 그릴 수 있다.
-function getActiveRealPageRect() {
-  const fallback = { width: currentRenderWidth, height: currentRenderHeight, offsetTop: 0, offsetLeft: 0 };
-  const activePage = [...document.querySelectorAll('#my-book .page')]
-    .find((el) => getComputedStyle(el).display !== 'none');
-  if (!activePage) return fallback;
-  const rect = activePage.getBoundingClientRect();
+// 페이지에서 그대로 재서 맞춘다.
+//
+// ⚠️ 2026-08-26 재발견 — "다음 클릭 시 왼쪽이 애니메이션 끝날 무렵 오른쪽 내용으로
+// 다시 잘못 바뀐다"는 신고를 다시 조사하며, 이 함수(들)이 여전히 `--left`/`--right`
+// 클래스 + `display!=='none'`로 "지금 보이는 페이지"를 찾던 방식 자체에 구조적
+// 결함이 있다는 걸 라이브러리 소스(js/vendor/page-flip.browser.js)를 다시 읽으며
+// 확인했다:
+//   1. `HTMLPage.setOrientation()`은 **새로 배정되는** 페이지에만 `--left`/`--right`
+//      클래스를 붙인다 — **교체되어 밀려나는 이전 페이지의 클래스는 절대 지우지
+//      않는다.** 그 이전 페이지가 다시 `display:none`으로 가려지는 것도 라이브러리
+//      자신의 렌더 루프(`Render.start()`가 구성 시 한 번 걸어두는, 영원히 도는
+//      `requestAnimationFrame` 루프 — `render(t)`가 매 프레임 `drawFrame()`을 불러
+//      `clear()`로 현재 left/right/flipping/bottom이 아닌 페이지를 전부 숨긴다)가
+//      **다음 프레임에** 처리하는 일이다.
+//   2. `pageFlip.turnToPage()`(우리 `swapRealPageForFlip()`가 애니메이션 시작 *전*에
+//      동기 호출하는 바로 그 함수)는 `render.leftPage`/`rightPage`의 내부 참조와
+//      방향 클래스만 동기적으로 바꾼다 — 실제 `display:block`/좌표 스타일은 여전히
+//      `simpleDraw()`가 맡고, 그건 위 1번의 rAF 루프에서만 불린다.
+//   결론: `swapRealPageForFlip()` 직후(다음 rAF 프레임이 오기 전) 이 함수를 호출하면,
+//   "지금 보이는(`display!=='none'`) `--left`/`--right` 요소"는 방금 교체된
+//   **옛 페이지**를 계속 가리킬 수 있다 — 새 페이지는 클래스는 이미 붙었어도 아직
+//   `display:none`이라 필터에서 걸러진다. 여러 번 페이지를 넘기면 이런 식으로 스친
+//   옛 페이지들에 `--left`/`--right` 잔여 클래스가 계속 쌓일 수도 있다.
+//
+// **수정**: 클래스/보임여부로 "지금 보이는 페이지가 누구인지 추측"하는 대신, 우리가
+// 이미 정확히 알고 있는 값 — 그 페이지의 전역 인덱스와 `windowStartIndex` — 로 DOM
+// 순서상 정확한 위치를 바로 찾는다. `#my-book .page`의 DOM 순서는 항상
+// `createPageElements(start, end, ...)`가 만든 순서(= `windowStartIndex`부터 연속)와
+// 정확히 같다(라이브러리가 그 순서 그대로 `pages` 배열에 담아 스프레드를 만든다) —
+// 그러니 `windowStartIndex`를 알면 클래스나 `display` 값과 무관하게 항상 정확한
+// 요소를 집을 수 있다. 이러면 위에서 확인한 클래스/타이밍 문제 전체가 원인과 무관하게
+// 사라진다.
+function getRealPageElementByGlobalIndex(globalIndex) {
+  const idx = globalIndex - windowStartIndex;
+  if (idx < 0) return null;
+  const pages = document.querySelectorAll('#my-book .page');
+  return idx < pages.length ? pages[idx] : null;
+}
+
+function measureRealPageElement(el, fallbackOffsetLeft) {
+  const fallback = { width: currentRenderWidth, height: currentRenderHeight, offsetTop: 0, offsetLeft: fallbackOffsetLeft };
+  if (!el) return fallback;
+  const rect = el.getBoundingClientRect();
   if (!rect.width || !rect.height) return fallback;
   const stageRect = stageContainer.getBoundingClientRect();
   return {
@@ -862,37 +896,21 @@ function getActiveRealPageRect() {
   };
 }
 
-// ⚠️ 2026-08-25 — 가로(2페이지 스프레드) 모드 확장. getActiveRealPageRect()의 2패널
-// 버전 — 왼쪽/오른쪽 실측을 각각 따로 반환한다. StPageFlip이 각 real .page.stf__item에
-// 스프레드 쪽을 나타내는 `--left`/`--right` 클래스를 붙여주므로(setOrientation()), 그걸
-// 그대로 구분자로 쓴다 — display:none이 아닌(=지금 실제로 보이는) 요소만 대상으로 한다.
-// 마지막 스프레드가 홀수 페이지라 한쪽이 아예 없을 수 있다(orphan) — 그 경우 해당 side는
-// null을 반환한다(측정 실패로 인한 폴백과 구분하기 위해 폴백은 "요소는 있는데 아직 크기가
-// 0"일 때만 쓴다).
-function getActiveRealSpreadRects() {
-  const stageRect = stageContainer.getBoundingClientRect();
-  const pages = [...document.querySelectorAll('#my-book .page')]
-    .filter((el) => getComputedStyle(el).display !== 'none');
-  const leftEl = pages.find((el) => el.classList.contains('--left'));
-  const rightEl = pages.find((el) => el.classList.contains('--right'));
+// 세로(한 페이지) 모드 — `globalIndex`가 가리키는 그 페이지를 정확히 실측한다.
+function getActiveRealPageRect(globalIndex) {
+  return measureRealPageElement(getRealPageElementByGlobalIndex(globalIndex), 0);
+}
 
-  function toRect(el, fallbackOffsetLeft) {
-    if (!el) return null;
-    const rect = el.getBoundingClientRect();
-    if (!rect.width || !rect.height) {
-      return { width: currentRenderWidth, height: currentRenderHeight, offsetTop: 0, offsetLeft: fallbackOffsetLeft };
-    }
-    return {
-      width: rect.width,
-      height: rect.height,
-      offsetTop: rect.top - stageRect.top,
-      offsetLeft: rect.left - stageRect.left,
-    };
-  }
-
+// 가로(2페이지 스프레드) 모드 — `leftGlobalIndex`(짝수, 스프레드의 왼쪽 전역 인덱스)와
+// 그 다음 페이지(오른쪽)를 각각 정확히 실측한다. 마지막 스프레드가 홀수 페이지라
+// 오른쪽이 아예 없을 수 있다(orphan) — 그 경우 `getRealPageElementByGlobalIndex`가
+// null을 반환하고, `measureRealPageElement`는 그 null에 대해 폴백값을 준다(요소 자체가
+// 없는 것과 "요소는 있는데 아직 크기가 0"인 경우를 예전엔 구분했지만, 이제는 인덱스로
+// 직접 찾으므로 그 구분이 더 이상 의미가 없다 — 항상 정확한 자리를 폴백값으로도 채운다).
+function getActiveRealSpreadRects(leftGlobalIndex) {
   return {
-    left: toRect(leftEl, 0),
-    right: toRect(rightEl, currentRenderWidth),
+    left: measureRealPageElement(getRealPageElementByGlobalIndex(leftGlobalIndex), 0),
+    right: measureRealPageElement(getRealPageElementByGlobalIndex(leftGlobalIndex + 1), currentRenderWidth),
   };
 }
 
@@ -1011,9 +1029,9 @@ function jumpToPrevPage() {
   if (isSinglePageMode) {
     if (isPortraitFlipAnimating()) return; // 애니메이션 도중 겹쳐 눌림 방지
     const targetGlobal = globalIndex - 1;
-    const fromRect = getActiveRealPageRect(); // ⚠️ 스왑 *전* — 지금 넘어가는(leaving) 페이지 자체를 실측
+    const fromRect = getActiveRealPageRect(globalIndex); // ⚠️ 스왑 *전* — 지금 넘어가는(leaving) 페이지 자체를 실측
     swapRealPageForFlip(targetGlobal); // ⚠️ swapRealPageForFlip 위 주석 참고 — 진짜 페이지 전환을 여기서 먼저(숨겨진 채로) 끝낸다
-    const toRect = getActiveRealPageRect(); // ⚠️ 스왑 *후* — 새로 드러날(revealing) 페이지 자체를 실측
+    const toRect = getActiveRealPageRect(targetGlobal); // ⚠️ 스왑 *후* — 새로 드러날(revealing) 페이지 자체를 실측
     playPortraitPageTurn({
       stage: stageContainer,
       width: toRect.width,
@@ -1036,9 +1054,9 @@ function jumpToPrevPage() {
   if (isPortraitFlipAnimating()) return;
   const targetLeftGlobal = globalIndex - 2;
   if (targetLeftGlobal < 0) return; // 첫 스프레드보다 더 앞으로 못 감 — flipPrev()도 조용히 무시하던 것과 동일
-  const fromSpreadRects = getActiveRealSpreadRects();
+  const fromSpreadRects = getActiveRealSpreadRects(globalIndex);
   swapRealPageForFlip(targetLeftGlobal);
-  const toSpreadRects = getActiveRealSpreadRects();
+  const toSpreadRects = getActiveRealSpreadRects(targetLeftGlobal);
   // ⚠️ 2026-08-25: 처음엔 좌/우 패널을 둘 다 동시에 돌렸는데, 실기기에서 확인한 사용자
   // 피드백 — "양쪽 페이지가 같이 넘어가는데 이게 무슨 책 넘기는 효과야, 한쪽만
   // 넘어가야지." 실제 책처럼 "이전"은 왼쪽 페이지만 오른쪽으로 접히듯 넘어가고(오른쪽
@@ -1080,9 +1098,9 @@ function goToNextPage() {
     // 진짜 책 끝(더 넘길 페이지가 없음) — flipNext()가 라이브러리 안에서 조용히
     // 무시하던 것과 똑같이, 여기서도 그냥 아무 일도 안 하고 끝낸다.
     if (targetGlobal >= totalPages) return;
-    const fromRect = getActiveRealPageRect(); // ⚠️ 스왑 *전* — 지금 넘어가는(leaving) 페이지 자체를 실측
+    const fromRect = getActiveRealPageRect(globalIndex); // ⚠️ 스왑 *전* — 지금 넘어가는(leaving) 페이지 자체를 실측
     swapRealPageForFlip(targetGlobal); // ⚠️ swapRealPageForFlip 위 주석 참고 — 진짜 페이지 전환을 여기서 먼저(숨겨진 채로) 끝낸다
-    const toRect = getActiveRealPageRect(); // ⚠️ 스왑 *후* — 새로 드러날(revealing) 페이지 자체를 실측
+    const toRect = getActiveRealPageRect(targetGlobal); // ⚠️ 스왑 *후* — 새로 드러날(revealing) 페이지 자체를 실측
     playPortraitPageTurn({
       stage: stageContainer,
       width: toRect.width,
@@ -1107,9 +1125,9 @@ function goToNextPage() {
   // 진짜 책 끝(더 넘길 스프레드가 없음) — flipNext()가 라이브러리 안에서 조용히
   // 무시하던 것과 똑같이, 여기서도 그냥 아무 일도 안 하고 끝낸다.
   if (targetLeftGlobal >= totalPages) return;
-  const fromSpreadRects = getActiveRealSpreadRects();
+  const fromSpreadRects = getActiveRealSpreadRects(globalIndex);
   swapRealPageForFlip(targetLeftGlobal);
-  const toSpreadRects = getActiveRealSpreadRects();
+  const toSpreadRects = getActiveRealSpreadRects(targetLeftGlobal);
   // ⚠️ jumpToPrevPage 위 주석 참고 — "다음"은 오른쪽 페이지만 왼쪽으로 접히듯 넘어가고,
   // 왼쪽 페이지는 애니메이션 없이 그 자리에서 바로 새 내용을 보여준다(실제 책처럼).
   const spreadPanels = buildSpreadPanels({
