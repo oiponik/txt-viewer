@@ -751,6 +751,15 @@ function maybeShiftPageWindow(globalIndex) {
   const nearEnd = windowEndIndex < totalPages && (windowEndIndex - 1 - globalIndex) <= PAGE_WINDOW_EDGE_MARGIN;
   if (!nearStart && !nearEnd) return;
 
+  // ⚠️ 임시 디버그 로깅 (2026-08-26) — "next로 넘길 때 왼쪽 페이지가 오른쪽 페이지
+  // 내용으로 다시 한번 바뀌어 보인다"는 신고 조사용. 창 재정렬(rebuild)이 실제로
+  // 이 타이밍에 걸리는지, 그리고 pageFlip.updateFromHtml() 내부의 stale current-index
+  // 재사용(this.pages.show(e), e는 옛 창 기준 로컬 인덱스)이 관련 있는지 확인한다.
+  const oldWindowStart = windowStartIndex;
+  console.log('[WINDOWDEBUG] maybeShiftPageWindow triggered', JSON.stringify({
+    t: Math.round(performance.now()), globalIndex, oldWindowStart, oldWindowEnd: windowEndIndex,
+  }));
+
   isShiftingWindow = true;
   try {
     const { start, end } = computeWindowRange(globalIndex, totalPages);
@@ -761,6 +770,11 @@ function maybeShiftPageWindow(globalIndex) {
     pageFlip.updateFromHtml(newElements);
     // 창이 바뀌어도 지금 보고 있던 전역 페이지는 그대로 유지 (애니메이션 없이 재정렬)
     pageFlip.turnToPage(globalIndex - windowStartIndex);
+    console.log('[WINDOWDEBUG] maybeShiftPageWindow done', JSON.stringify({
+      t: Math.round(performance.now()), newWindowStart: start, newWindowEnd: end,
+      finalLocalIndex: globalIndex - windowStartIndex,
+      finalCurrentPageIndex: pageFlip.getCurrentPageIndex(),
+    }));
   } finally {
     isShiftingWindow = false;
   }
@@ -951,6 +965,28 @@ function pollFooterDiagnostics(durationMs = 2000, intervalMs = 50) {
   }, intervalMs);
 }
 
+// ⚠️ 임시 디버그 로깅 (2026-08-26) — "next로 넘어갈 때 애니메이션 없이 즉시 바뀌어야
+// 할 왼쪽 페이지가, 오른쪽 애니메이션이 끝날 무렵 오른쪽과 같은 내용으로 다시 한번
+// 바뀌어 보인다"는 신고 조사용. logFooterDiagnostics()는 "지금 보이는(display!=='none')
+// 페이지 하나"만 잡는데, 가로 스프레드에서는 그게 왼쪽인지 오른쪽인지 알 수 없어서
+// 이 함수는 --left/--right 클래스로 양쪽을 각각 따로, 트리거 시점부터 애니메이션이
+// 끝나고도 한참 뒤까지 반복 기록한다 — 왼쪽 footer가 실제로 몇 ms 지점에 바뀌는지
+// 놓치지 않기 위함.
+function pollSpreadFooterDiagnostics(label, durationMs = 1500, intervalMs = 50) {
+  const startedAt = performance.now();
+  const timer = setInterval(() => {
+    const pages = [...document.querySelectorAll('#my-book .page')];
+    const leftEl = pages.find((el) => el.classList.contains('--left'));
+    const rightEl = pages.find((el) => el.classList.contains('--right'));
+    console.log('[WINDOWDEBUG] spread footer poll', label, JSON.stringify({
+      elapsedMs: Math.round(performance.now() - startedAt),
+      leftFooter: leftEl ? leftEl.querySelector('.page-footer')?.textContent : null,
+      rightFooter: rightEl ? rightEl.querySelector('.page-footer')?.textContent : null,
+    }));
+    if (performance.now() - startedAt >= durationMs) clearInterval(timer);
+  }, intervalMs);
+}
+
 // ⚠️ 2026-08-25 — 실기기 로그로 드러난 진짜 진짜 원인에 대한 수정(이전 offsetTop/offsetLeft
 // 보정 시도는 무효과였다 — 실측해보니 offsetTop/offsetLeft가 매번 0이라 애초에 고칠 게
 // 없었다). 페이지를 연달아 넘기며 진짜 PageFlip 페이지의 footer 위치를 실측해보니
@@ -1102,6 +1138,7 @@ function jumpToPrevPage() {
   const fromSpreadRects = getActiveRealSpreadRects();
   swapRealPageForFlip(targetLeftGlobal);
   const toSpreadRects = getActiveRealSpreadRects();
+  pollSpreadFooterDiagnostics('jumpToPrevPage'); // ⚠️ 임시 디버그 로깅, pollSpreadFooterDiagnostics 위 주석 참고
   // ⚠️ 2026-08-25: 처음엔 좌/우 패널을 둘 다 동시에 돌렸는데, 실기기에서 확인한 사용자
   // 피드백 — "양쪽 페이지가 같이 넘어가는데 이게 무슨 책 넘기는 효과야, 한쪽만
   // 넘어가야지." 실제 책처럼 "이전"은 왼쪽 페이지만 오른쪽으로 접히듯 넘어가고(오른쪽
@@ -1179,6 +1216,7 @@ function goToNextPage() {
   const fromSpreadRects = getActiveRealSpreadRects();
   swapRealPageForFlip(targetLeftGlobal);
   const toSpreadRects = getActiveRealSpreadRects();
+  pollSpreadFooterDiagnostics('goToNextPage'); // ⚠️ 임시 디버그 로깅, pollSpreadFooterDiagnostics 위 주석 참고
   // ⚠️ jumpToPrevPage 위 주석 참고 — "다음"은 오른쪽 페이지만 왼쪽으로 접히듯 넘어가고,
   // 왼쪽 페이지는 애니메이션 없이 그 자리에서 바로 새 내용을 보여준다(실제 책처럼).
   const spreadPanels = buildSpreadPanels({
@@ -2026,6 +2064,13 @@ async function buildFlipBook() {
 
   // 페이지 넘길 때 글자 인덱스 저장 + 창 가장자리 근처면 다음 구간 미리 당겨오기
   pageFlip.on('flip', (e) => {
+    // ⚠️ 임시 디버그 로깅 (2026-08-26) — 위 [WINDOWDEBUG]와 짝. 이 핸들러가 실제로
+    // 언제(isShiftingWindow=true라 무시되는지 아닌지) 발동하는지 전부 기록한다 —
+    // "next 클릭 후 한참 뒤에 왼쪽 페이지가 오른쪽 내용으로 다시 바뀐다"는 신고의
+    // 진짜 트리거가 이 핸들러의 예상 밖 실행인지 확인하기 위함.
+    console.log('[WINDOWDEBUG] flip event fired', JSON.stringify({
+      t: Math.round(performance.now()), eData: e.data, isShiftingWindow, windowStartIndex,
+    }));
     if (isShiftingWindow) return; // 창 재정렬 중 발생하는 합성 이벤트는 무시
 
     const globalIndex = windowStartIndex + e.data;
