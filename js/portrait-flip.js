@@ -170,6 +170,15 @@ function buildPageElement(text, footer, width, height) {
   el.style.left = '0';
   el.style.width = width + 'px';
   el.style.height = height + 'px';
+  // ⚠️ 2026-08-26 — StPageFlip 라이브러리 제거(js/page-window.js로 대체) 이후 styles.css의
+  // `.page` 기본값이 `display:none`으로 바뀌었다(page-window.js가 실제 책 페이지 중 보여줄
+  // 것만 켜는 방식이라서) — 그런데 이 함수가 만드는 base/front/back/덮개 카드는 그 관리
+  // 대상이 아니라 애니메이션 전용 임시 요소라, 아무도 display를 켜주지 않으면 새 기본값을
+  // 그대로 물려받아 처음부터 안 보이는 상태가 된다(실기기에서 실제로 재현됨: 그림자만
+  // 페이드 인/아웃되고 페이지 자체는 안 보이다가, 애니메이션이 끝나 오버레이가 사라지면
+  // 그제야 진짜 페이지가 "순간이동"한 것처럼 드러났다). 여기서 명시적으로 켜서 새 CSS
+  // 기본값과 무관하게 항상 보이도록 한다.
+  el.style.display = 'block';
 
   const content = document.createElement('div');
   content.className = 'page-content';
