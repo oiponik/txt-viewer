@@ -976,12 +976,23 @@ function pollSpreadFooterDiagnostics(label, durationMs = 1500, intervalMs = 50) 
   const startedAt = performance.now();
   const timer = setInterval(() => {
     const pages = [...document.querySelectorAll('#my-book .page')];
-    const leftEl = pages.find((el) => el.classList.contains('--left'));
-    const rightEl = pages.find((el) => el.classList.contains('--right'));
+    // ⚠️ 2026-08-26 — 1차 버전은 display:none 필터를 빼먹어서, 화면에 실제로 안 보이는
+    // *낡은* --left/--right 요소를 잘못 잡아 내내 똑같은(엉뚱한) footer를 찍었다
+    // (실기기 로그로 확인 — "365/366"이 애니메이션 내내 전혀 안 바뀜, 실제 페이지는
+    // 385 근방이었음). 이제 (1) 보이는 요소만으로 좌/우를 찾고, (2) 혹시 정말로
+    // --left/--right가 붙은 "낡은" 요소가 DOM에 남아있는지(안 지워지고 display:none으로만
+    // 숨어있는 중복 요소 자체가 원인일 가능성) 총 개수도 같이 찍는다.
+    const visiblePages = pages.filter((el) => getComputedStyle(el).display !== 'none');
+    const leftEl = visiblePages.find((el) => el.classList.contains('--left'));
+    const rightEl = visiblePages.find((el) => el.classList.contains('--right'));
+    const allLeftCount = pages.filter((el) => el.classList.contains('--left')).length;
+    const allRightCount = pages.filter((el) => el.classList.contains('--right')).length;
     console.log('[WINDOWDEBUG] spread footer poll', label, JSON.stringify({
       elapsedMs: Math.round(performance.now() - startedAt),
       leftFooter: leftEl ? leftEl.querySelector('.page-footer')?.textContent : null,
       rightFooter: rightEl ? rightEl.querySelector('.page-footer')?.textContent : null,
+      totalPageEls: pages.length, visiblePageEls: visiblePages.length,
+      allLeftCount, allRightCount, // 1보다 크면 낡은 --left/--right 요소가 안 지워지고 남아있다는 뜻
     }));
     if (performance.now() - startedAt >= durationMs) clearInterval(timer);
   }, intervalMs);
