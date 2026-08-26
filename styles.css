@@ -733,20 +733,33 @@
        영역(book-stage) 위에 반투명 검은 막을 씌워 어둡게 보이도록 흉내낸다.
        #main-content가 position:relative라 여기 기준으로 book-stage 영역만 덮는다.
        ⚠️ book-stage 밖(사이드바/하단바)에 두면 안 된다 — buildFlipBook이
-       #book-stage.innerHTML을 통째로 갈아끼우므로 book-stage "안"에 두면 사라진다. */
+       #book-stage.innerHTML을 통째로 갈아끼우므로 book-stage "안"에 두면 사라진다.
+       ⚠️ 2026-08-26 — z-index를 6→22로 올림. 사용자가 "밝기를 내리고 페이지를 넘기면
+       애니메이션 도중엔 밝기가 적용 안 되다가 끝나야 다시 어두워진다"고 지적 — #book-spine
+       (위 803번째 줄 주석과 같은 원인)과 정확히 같은 부류의 버그였다. #book-stage 자신은
+       z-index/transform/opacity 등 스태킹 컨텍스트를 만드는 속성이 하나도 없어서(position:
+       relative뿐), 그 안에 있는 페이지 넘김 오버레이(js/portrait-flip.js의 perspectiveStage,
+       z-index:20)가 #book-stage 바깥의 이 형제 요소(z-index:6)보다 상위 스태킹 레벨로
+       "새어나가"(flatten) 버렸다 — 애니메이션 카드가 불투명한 실제 페이지 내용을 담고
+       있어서, 그 밑에 깔린 이 어두운 반투명 막을 완전히 가려버린 것. z-index를 페이지
+       넘김 오버레이(20)와 book-spine(21)보다 높은 22로 올려서, 애니메이션 도중에도
+       계속 그 위에서 어둡게 덮도록 했다. */
     #brightness-overlay {
       position: absolute; inset: 0;
       background: #000;
       opacity: 0;
       pointer-events: none;
-      z-index: 6;
+      z-index: 22;
       transition: opacity 0.15s ease;
     }
 
-    /* 밝기 드래그 중에만 잠깐 뜨는 "☀️ 밝기 NN%" 안내 — 손을 떼면 바로 사라진다 */
+    /* 밝기 드래그 중에만 잠깐 뜨는 "☀️ 밝기 NN%" 안내 — 손을 떼면 바로 사라진다.
+       ⚠️ 2026-08-26 — z-index를 8→23으로 올림(위 #brightness-overlay 인상과 같이 조정) —
+       안 그러면 방금 22로 올라간 어두운 막에 이 안내 문구 자체가 가려져서, 정작 밝기를
+       조절하는 그 순간에 안내가 안 보이는 새 문제가 생긴다. */
     #brightness-drag-indicator {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      z-index: 8; pointer-events: none;
+      z-index: 23; pointer-events: none;
       background-color: rgba(0,0,0,0.65); color: #fff;
       padding: 10px 20px; border-radius: 999px;
       font-size: 14px; font-weight: 600;
