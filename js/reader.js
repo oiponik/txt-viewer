@@ -90,7 +90,7 @@ let readerPrefs = {
   // 더 이상 슬라이더가 없다 — 읽기 화면에서 위/아래로 스와이프해서 바로 조절한다.
 };
 let readerPrefsLoaded = false; // Firestore/localStorage에서 아직 못 불러온 동안은
-// 기본값으로 잘못 저장해버리지 않도록 저장을 잠깐 막아둔다 (아래 saveReaderPrefsDebounced 참고)
+// 기본값으로 잘못 저장해버리지 않도록 저장을 잠깐 막아둔다 (아래 flushReaderPrefsSave 참고)
 
 // 💡 설정 시트 안의 "초안(draft)" — 테마/글꼴/글자크기/문단너비를 바꿔도 이 사본에만
 // 반영되고, 미리보기 카드만 즉시 갱신된다. 실제 책(.page)과 readerPrefs는 "적용" 버튼을
@@ -1285,7 +1285,19 @@ export async function loadReaderPrefs() {
   applyReaderPrefs();
 }
 
-let saveReaderPrefsTimer = null;
+// ⚠️ 2026-08-26 — saveReaderPrefsDebounced()의 500ms 디바운스를 실제로 쓰는 곳이
+// 없었다는 게 드러났다. 호출부는 딱 둘뿐이었다: "적용" 버튼 클릭(1회성 이벤트)과
+// 브라우저 밝기 드래그가 끝나는 순간(endBrightnessDrag, 이것도 드래그 "도중"이
+// 아니라 손을 뗀 뒤 1회성으로만 불림 — 드래그 중엔 applyReaderPrefs()만 실시간으로
+// 돌고 저장은 안 건드림). 즉 여러 번 연달아 불려서 마지막 것만 반영하면 되는
+// "디바운스가 실제로 쓰이는" 상황 자체가 코드에 없었다 — 매번 딱 한 번만 불리는데도
+// 저장을 500ms 늦추기만 해서, 그 사이(탭을 닫거나 브라우저를 강제 종료하는 등)
+// flushReaderPrefsSave()의 pagehide/visibilitychange 안전망이 못 따라잡는 경로로
+// 나가면 저장이 그대로 유실됐다 — 사용자가 "PC에서 글자 크기를 몇 번이나 키워도
+// 다시 열면 보통으로 나온다"고 신고한 것과 정확히 들어맞는 실패 모드. 그래서
+// saveReaderPrefsDebounced() 자체를 없애고, 두 호출부 모두 flushReaderPrefsSave()
+// (디바운스 없이 즉시 저장)로 바꿨다 — 코드가 이미 "이 이벤트당 한 번만 부른다"는
+// 전제였으므로 잃는 이점이 없다.
 async function persistReaderPrefsNow() {
   const category = getDeviceCategory();
   const snapshot = { ...readerPrefs };
@@ -1309,17 +1321,12 @@ async function persistReaderPrefsNow() {
     setStatus('뷰어 설정을 저장하지 못했어요 (' + (err.code || err.message) + ')');
   }
 }
-function saveReaderPrefsDebounced() {
-  if (!readerPrefsLoaded) return; // 아직 원래 값도 못 읽어온 상태에서 기본값으로 덮어쓰지 않는다
-  clearTimeout(saveReaderPrefsTimer);
-  saveReaderPrefsTimer = setTimeout(persistReaderPrefsNow, 500);
-}
-// 글꼴/글자크기 등을 바꾸자마자(500ms debounce가 끝나기 전에) 새로고침하거나 탭을 벗어나면
-// 저장이 통째로 씹힌다 — flushProgressSave와 같은 이유로, 탭이 숨겨지는/닫히는 순간엔
-// debounce 없이 즉시 저장한다.
+// 이름은 flushReaderPrefsSave로 남겨뒀다(visibilitychange/pagehide 핸들러가 이 이름으로
+// 부르고, "탭이 숨겨지기 전에 밀어넣는다"는 의미가 여전히 맞다) — 다만 이제 디바운스할
+// 타이머 자체가 없으므로 그냥 즉시 저장하는 함수다. 호출부(적용 버튼/밝기 드래그 종료)
+// 모두 이 함수 하나로 통일했다.
 function flushReaderPrefsSave() {
-  if (!readerPrefsLoaded) return;
-  clearTimeout(saveReaderPrefsTimer);
+  if (!readerPrefsLoaded) return; // 아직 원래 값도 못 읽어온 상태에서 기본값으로 덮어쓰지 않는다
   persistReaderPrefsNow();
 }
 
@@ -1494,7 +1501,7 @@ document.getElementById('apply-reader-prefs-btn').addEventListener('click', () =
   readerPrefs.paragraphWidthStep = draftReaderPrefs.paragraphWidthStep;
 
   applyReaderPrefs();
-  saveReaderPrefsDebounced();
+  flushReaderPrefsSave(); // "적용"은 1회성 클릭이라 디바운스가 필요 없다 — 바로 저장
   if (layoutChanged) requestRepaginationForReaderPrefsChange();
 
   closeSheet('viewer-settings-panel');
@@ -2193,7 +2200,7 @@ function endBrightnessDrag() {
   if (!isDraggingBrightness) return;
   isDraggingBrightness = false;
   document.getElementById('brightness-drag-indicator').classList.remove('visible');
-  saveReaderPrefsDebounced();
+  flushReaderPrefsSave(); // 드래그가 끝난 뒤 1회성 호출이라 디바운스가 필요 없다 — 바로 저장
 }
 
 // 💡 터치가 정상적인 pointerup 없이 도중에 끊기는 경우(OS 제스처가 가로채거나,
