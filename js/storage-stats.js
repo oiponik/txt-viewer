@@ -425,18 +425,24 @@ async function clearWholeCategory(cat) {
   renderStorageOverview();
 }
 
-// ── 설정 시트 안에서의 화면 전환(메뉴 ↔ 기기 저장공간 현황) ──────────────────
-// 새 시트를 또 띄우는 대신, #settings-panel 하나 안에서 두 화면을 토글한다 —
+// ── 설정 시트 안에서의 화면 전환(메뉴 ↔ 하위 화면들) ──────────────────
+// 새 시트를 또 띄우는 대신, #settings-panel 하나 안에서 화면을 토글한다 —
 // "기기 저장공간 현황"을 누르면 메뉴 대신 이 화면이 나타나고 왼쪽에 뒤로가기 아이콘이
-// 생긴다(사용자 피드백: 새 창보다 같은 창 안에서 뒤로가기가 낫다).
+// 생긴다(사용자 피드백: 새 창보다 같은 창 안에서 뒤로가기가 낫다). 이 모듈이 설정
+// 시트에 처음 추가된 하위 화면이라 이 전환 로직 자체도 여기서 관리한다 — 다른 모듈
+// (예: js/shortcuts-help.js)이 하위 화면을 추가할 땐 그 화면에 `settings-subview`
+// 클래스만 붙이면 되고, 여기로 다시 돌아오는 건 아래 export된 showSettingsMenuView()를
+// 그대로 재사용하면 된다(뒤로가기 버튼도 이미 여기서 한 번만 연결해둔다).
 const settingsBackBtn = document.getElementById('settings-back-btn');
 const settingsPanelTitle = document.getElementById('settings-panel-title');
 const settingsMenuView = document.getElementById('settings-menu-view');
 const storageStatsView = document.getElementById('storage-stats-view');
 
-function showSettingsMenuView() {
+export function showSettingsMenuView() {
   settingsMenuView.classList.remove('screen-hidden');
-  storageStatsView.classList.add('screen-hidden');
+  document.querySelectorAll('#settings-panel .settings-subview').forEach((view) => {
+    view.classList.add('screen-hidden');
+  });
   settingsBackBtn.classList.add('screen-hidden');
   settingsPanelTitle.textContent = '설정';
 }

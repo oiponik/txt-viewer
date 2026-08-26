@@ -529,6 +529,17 @@
     .storage-stats-item-btn.danger { color: #c0392b; border-color: #c0392b; }
     .storage-stats-item-btn:disabled { opacity: 0.35; cursor: default; }
 
+    /* "도움말" 단축키 안내 — .storage-stats-item 행을 그대로 재사용하고, 값 자리엔
+       버튼 대신 키 배지를 늘어놓는다. 실제 키캡처럼 보이도록 살짝 입체적인 테두리
+       (아래쪽 border를 두껍게)를 준다. */
+    .shortcut-keys { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+    .shortcut-key {
+      flex-shrink: 0; padding: 3px 8px; border-radius: 6px;
+      border: 1px solid var(--border-color); border-bottom-width: 2px;
+      background: transparent; color: var(--text-color);
+      font-family: inherit; font-size: 12px; font-weight: 600;
+    }
+
     /* 카테고리 비율 막대 — 각 조각의 너비는 js가 바이트 수를 flex-grow 비율로 그대로
        써서 채운다(퍼센트를 직접 계산하면 조각 사이 gap만큼 합이 100%를 넘어 마지막
        조각이 잘리는데, flex-grow는 gap을 뺀 나머지 공간을 알아서 나눠준다). 조각

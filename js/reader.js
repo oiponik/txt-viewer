@@ -2385,15 +2385,24 @@ window.addEventListener('pagehide', () => {
 });
 
 // 방향키 제어 (서재 화면에서는 무시 — 뷰어가 보일 때만 동작)
+// 단축키 안내(index.html의 #shortcuts-help-view)와 반드시 같이 맞춰서 고칠 것.
 window.addEventListener('keydown', (e) => {
   if (!bookMounted || viewerScreen.classList.contains('screen-hidden')) return;
   if (e.key === "ArrowRight") goToNextPage();
+  if (e.key === "ArrowDown" || e.key === "PageDown") {
+    e.preventDefault(); // 기본 스크롤 동작 방지(Space와 동일한 이유)
+    goToNextPage();
+  }
   if (e.key === " " || e.code === "Space") {
     e.preventDefault(); // 스페이스바 클릭 시 기본 스크롤 동작 방지
     goToNextPage();
   }
   if (e.code === "NumpadEnter" || e.key === "Enter") goToNextPage();
   if (e.key === "ArrowLeft") jumpToPrevPage();
+  if (e.key === "ArrowUp" || e.key === "PageUp") {
+    e.preventDefault();
+    jumpToPrevPage();
+  }
 });
 
 // 뷰어 → 서재로 돌아가기. 화면 전환과 별개로 이어보기도 같이 새로고침한다 — 안 그러면

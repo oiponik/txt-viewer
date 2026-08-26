@@ -334,20 +334,57 @@
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -3px; margin-right: 6px;"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
             기기 저장공간 현황
           </button>
+          <button type="button" id="open-shortcuts-help-btn" class="item-action-btn">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -3px; margin-right: 6px;"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+            도움말
+          </button>
         </div>
       </div>
       <!-- 기기 저장공간 현황 상세 — 이 기기에 로컬로 쌓인 캐시 5종류(오프라인 책 원문/
            진행상황·책갈피/페이지 나누기/서재 구조·환경설정/앱 실행 파일)의 용량과
            정리 버튼. 용량 계산이 가벼운 작업이 아니라서(특히 Cache Storage) 이
            화면으로 전환될 때만 js/storage-stats.js가 채워 넣는다 — 아래 목록은
-           처음엔 빈 채로 시작한다. -->
-      <div id="storage-stats-view" class="screen-hidden">
+           처음엔 빈 채로 시작한다.
+           ⚠️ class="settings-subview"는 js/storage-stats.js의 showSettingsMenuView()가
+           "메뉴로 돌아가기"를 구현할 때 이 클래스가 붙은 요소를 전부 숨기는 데 쓴다 —
+           설정 시트 안에 새 하위 화면을 추가할 때마다 이 클래스를 꼭 같이 붙일 것
+           (안 붙이면 다른 하위 화면에서 돌아왔을 때도 이 화면이 계속 보이게 된다). -->
+      <div id="storage-stats-view" class="settings-subview screen-hidden">
         <!-- 카테고리별 비율 막대 — 색은 각 카테고리 행 맨 앞의 작은 점과 1:1로
              대응해서, 이 막대 자체가 범례를 따로 안 둬도 아래 목록이 곧 범례
              역할을 한다(정확한 수치는 각 행에 이미 있다). -->
         <div id="storage-usage-summary" class="storage-usage-summary"></div>
         <div id="storage-usage-bar" class="storage-usage-bar" role="img"></div>
         <div id="storage-stats-list" class="storage-stats-list"></div>
+      </div>
+      <!-- 도움말 — 지금은 키보드 단축키 안내뿐. js/shortcuts-help.js가 화면 전환만
+           담당하고(storage-stats.js의 showSettingsMenuView를 재사용), 내용은 정적으로
+           여기 그대로 적어둔다(js/reader.js의 keydown 리스너와 반드시 같이 맞춰서 고칠 것). -->
+      <div id="shortcuts-help-view" class="settings-subview screen-hidden">
+        <div class="storage-stats-list">
+          <div class="storage-stats-item">
+            <div class="storage-stats-item-info">
+              <div class="storage-stats-item-label">다음 페이지</div>
+            </div>
+            <div class="shortcut-keys">
+              <kbd class="shortcut-key">→</kbd>
+              <kbd class="shortcut-key">↓</kbd>
+              <kbd class="shortcut-key">Page Down</kbd>
+              <kbd class="shortcut-key">Space</kbd>
+              <kbd class="shortcut-key">Enter</kbd>
+            </div>
+          </div>
+          <div class="storage-stats-item">
+            <div class="storage-stats-item-info">
+              <div class="storage-stats-item-label">이전 페이지</div>
+            </div>
+            <div class="shortcut-keys">
+              <kbd class="shortcut-key">←</kbd>
+              <kbd class="shortcut-key">↑</kbd>
+              <kbd class="shortcut-key">Page Up</kbd>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
