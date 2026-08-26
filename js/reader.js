@@ -452,6 +452,19 @@ export async function loadFileFromStorage(fileName) {
 function createMeasurementDom(containerWidth, containerHeight) {
   const dummy = document.createElement('div');
   dummy.className = 'page';
+  // ⚠️ 2026-08-26 — StPageFlip 라이브러리 제거 이후 `.page`의 CSS 기본값이
+  // `display:none`으로 바뀌었다(진짜 책 페이지는 page-window.js가 보여줄 것만 명시적으로
+  // 켜는 구조라서 — CLAUDE.md "라이브러리 제거" 항목 참고). 이 측정용 더미도 스타일을
+  // 그대로 물려받으려고 같은 클래스를 쓰는데, `display`를 명시적으로 안 켜서 이 새
+  // 기본값을 그대로 물려받아 `display:none`이 됐었다 — `display:none` 요소는
+  // `clientHeight`/`scrollHeight`가 전부 0으로 나오므로, 아래 `maxHeight`가 0이 되고
+  // `findForwardPageEnd`의 "들어가나?" 판정(`scrollHeight <= maxHeight`)이 텍스트 양과
+  // 무관하게 항상 참이 되어(0<=0) 책 전체가 페이지 1장에 다 들어간 것처럼 계산됐다 —
+  // 정확히 js/portrait-flip.js의 buildPageElement()에서 먼저 잡았던 것과 같은 종류의
+  // 회귀였는데, 그때는 이 측정용 더미까지는 확인을 못 했었다. `visibility:hidden`(레이아웃은
+  // 그대로 유지한 채 픽셀만 안 그림)만으로 충분히 안 보이므로, `display`는 명시적으로
+  // `block`으로 켜서 새 CSS 기본값과 무관하게 항상 실측 가능하게 한다.
+  dummy.style.display = 'block';
   dummy.style.visibility = 'hidden';
   dummy.style.position = 'absolute';
   dummy.style.left = '-9999px';
