@@ -1994,10 +1994,35 @@ async function buildFlipBook() {
   // ⚠️ loadFromHTML 이후에 붙인다 — PageFlip이 초기화하면서 bookElement 안에
   // 자기만의 래퍼로 페이지들을 옮기는데, 그 전에 넣으면 이 요소까지 페이지로
   // 취급되거나 위치가 꼬일 수 있어서, 이미 자리 잡은 다음 위에 겹쳐 올린다.
+  // ⚠️ 2026-08-26 — bookElement(#my-book)가 아니라 stageContainer(#book-stage)에
+  // 붙이도록 바꿨다. 사용자가 "페이지 넘김 애니메이션이 끝나는 순간 가운데 축
+  // 그림자가 뿅하고 나타난다"고 지적해서 z-index를 21로 올려봤는데도(styles.css의
+  // #book-spine 위 주석 참고) 효과가 없었다 — 원인을 더 파보니 StPageFlip이
+  // bookElement에 항등행렬이라도 `transform`을 인라인으로 걸어두는데, CSS
+  // 스펙상 `transform: none`이 아니면(설령 시각적으로 아무 효과가 없는 항등행렬이라도)
+  // 그 요소가 **새 스태킹 컨텍스트를 만든다** — 즉 bookElement 전체가 하나의
+  // 봉인된 상자가 되어, 그 안의 #book-spine이 z-index를 아무리 올려도 bookElement
+  // 자신의 스태킹 레벨(z-index:auto) 밖으로 못 나간다. bookElement의 형제인
+  // 우리 애니메이션 오버레이(perspectiveStage, z-index:20, 명시적 양수라 항상
+  // "z-index:auto 상자" 위에 그려짐)를 절대 못 이길 수밖에 없던 구조였다.
+  // **수정**: 스파인을 bookElement 밖(=오버레이와 같은 부모인 stageContainer)으로
+  // 옮겨서 오버레이와 z-index를 직접 겨루게 했다. 가로 위치(`left:50%`)는 그대로
+  // 둬도 된다 — bookElement가 stageContainer 안에서 flex로 가운데 정렬되므로 둘의
+  // 가로 중심은 항상 일치한다(대칭 오프셋이 상쇄됨). 다만 세로는 bookElement가
+  // stageContainer보다 짧게 레터박스될 수 있어(`top:0;bottom:0`을 그대로 stageContainer
+  // 기준으로 쓰면 책보다 위아래로 삐져나올 수 있음) bookElement의 실측 top/height를
+  // 인라인으로 못박는다.
   const spineElement = document.createElement('div');
   spineElement.id = 'book-spine';
   spineElement.style.display = isSinglePage ? 'none' : 'block';
-  bookElement.appendChild(spineElement);
+  if (!isSinglePage) {
+    const bookRect = bookElement.getBoundingClientRect();
+    const stageRect = stageContainer.getBoundingClientRect();
+    spineElement.style.top = (bookRect.top - stageRect.top) + 'px';
+    spineElement.style.height = bookRect.height + 'px';
+    spineElement.style.bottom = 'auto'; // CSS의 top:0;bottom:0 기본값을 인라인 top/height로 덮어쓴다
+  }
+  stageContainer.appendChild(spineElement);
 
   // 페이지 넘길 때 글자 인덱스 저장 + 창 가장자리 근처면 다음 구간 미리 당겨오기
   pageFlip.on('flip', (e) => {
