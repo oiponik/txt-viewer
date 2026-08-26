@@ -184,6 +184,27 @@ function buildPageElement(text, footer, width, height) {
   return el;
 }
 
+// ⚠️ 2026-08-26 — 사용자가 짚어준 문제 1번: 가로 스프레드에서 "다음"을 클릭하면
+// 애니메이션이 시작되기도 전에, 애니메이션이 안 걸리는 반대쪽 패널(예: 왼쪽)이 클릭
+// 즉시 새 내용으로 툭 튀어 바뀐다 — 이 자체가 정상이 아니다. 원인: `swapRealPageForFlip`
+// (js/reader.js)가 스프레드 전체(좌+우)를 애니메이션 시작 전에 한 번에 조용히 스왑해두는데,
+// 반대쪽 패널 위에는 아무 것도 안 덮여 있어서 그 스왑이 곧바로 노출된다. 실제 책이라면
+// 반대쪽 페이지는 넘어가는 페이지가 완전히 다 넘어와 그 자리를 대신할 때까지는 그대로여야
+// 한다. 수정: 애니메이션이 없는 반대쪽 패널 위에 "예전 내용"을 담은 정적인(회전도
+// 페이드도 없는) 페이지 하나를 얹어뒀다가, 애니메이션 전체가 끝나는 바로 그 순간(호출자가
+// onDone 안에서) 같이 치운다 — 그러면 그 아래 이미 조용히 새 내용으로 바뀌어 있는 진짜
+// DOM이 자연스럽게 드러난다(마침 그 시점엔 반대쪽 카드도 이미 같은 내용으로 안착해
+// 있으므로 — buildSpreadPanels의 landingText 참고 — 이음매 없이 이어진다).
+export function coverPanelWithLeavingContent({ stage, offsetTop, offsetLeft, width, height, text, footer }) {
+  const cover = buildPageElement(text, footer, width, height);
+  cover.style.top = offsetTop + 'px';
+  cover.style.left = offsetLeft + 'px';
+  cover.style.zIndex = '20'; // 반대쪽 패널의 perspectiveStage(z-index 20)와 같은 층
+  cover.style.pointerEvents = 'none'; // 애니메이션 중 이 자리로의 조작은 무시(다른 오버레이 조각들과 동일한 관례)
+  stage.appendChild(cover);
+  return cover;
+}
+
 // 패널 하나(세로 모드에서는 페이지 전체, 가로 모드에서는 좌/우 절반 중 하나)의 leaf/base
 // 카드를 만들고 애니메이션을 건다. `activeAnimation` 등록/해제는 호출자(playPortraitPageTurn/
 // playSpreadPageTurn)가 맡는다 — 이 함수는 패널 하나의 DOM/애니메이션 생명주기만 다룬다.

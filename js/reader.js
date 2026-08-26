@@ -16,7 +16,7 @@ import { currentUser, isDevUser, lastOpenedFileKey, fileDocId, DEV_BOOK_FILENAME
 import { setStatus, showLibraryScreen, openSheet, closeSheet, releaseWakeLock, resetWakeLockIdleTimer } from "./ui-shared.js";
 import { markActiveFileRow, refreshRecentFiles } from "./library.js";
 import { isBookCached, isBookStale, getCachedBookText, cacheBookText } from "./offline-cache.js";
-import { playPortraitPageTurn, playSpreadPageTurn, isPortraitFlipAnimating, cancelPortraitFlip } from "./portrait-flip.js";
+import { playPortraitPageTurn, playSpreadPageTurn, isPortraitFlipAnimating, cancelPortraitFlip, coverPanelWithLeavingContent } from "./portrait-flip.js";
 
 export let currentFileName = "";
 export function setCurrentFileName(name) {
@@ -1099,11 +1099,26 @@ function jumpToPrevPage() {
     finishManualPageTurn(targetLeftGlobal); // 진짜 페이지 전환은 이미 끝났다 — 시각 효과만 생략
     return;
   }
+  // ⚠️ coverPanelWithLeavingContent 위 주석(js/portrait-flip.js) 참고 — 애니메이션이
+  // 안 걸리는 반대쪽(오른쪽) 패널이 클릭 즉시 새 내용으로 튀어 보이지 않도록, 애니메이션이
+  // 끝날 때까지 예전 내용을 담은 정적 덮개를 얹어둔다.
+  const rightCover = toSpreadRects.right
+    ? coverPanelWithLeavingContent({
+        stage: stageContainer,
+        offsetTop: toSpreadRects.right.offsetTop, offsetLeft: toSpreadRects.right.offsetLeft,
+        width: toSpreadRects.right.width, height: toSpreadRects.right.height,
+        text: allTextPages[globalIndex + 1],
+        footer: `- ${globalIndex + 2} / ${totalPages} -`,
+      })
+    : null;
   playSpreadPageTurn({
     stage: stageContainer,
     direction: 'prev',
     panels: spreadPanels,
-    onDone: () => finishManualPageTurn(targetLeftGlobal),
+    onDone: () => {
+      if (rightCover) rightCover.remove();
+      finishManualPageTurn(targetLeftGlobal);
+    },
   });
 }
 
@@ -1166,11 +1181,26 @@ function goToNextPage() {
     finishManualPageTurn(targetLeftGlobal); // 진짜 페이지 전환은 이미 끝났다 — 시각 효과만 생략
     return;
   }
+  // ⚠️ coverPanelWithLeavingContent 위 주석(js/portrait-flip.js) 참고 — 애니메이션이
+  // 안 걸리는 반대쪽(왼쪽) 패널이 클릭 즉시 새 내용으로 튀어 보이지 않도록, 애니메이션이
+  // 끝날 때까지 예전 내용을 담은 정적 덮개를 얹어둔다.
+  const leftCover = toSpreadRects.left
+    ? coverPanelWithLeavingContent({
+        stage: stageContainer,
+        offsetTop: toSpreadRects.left.offsetTop, offsetLeft: toSpreadRects.left.offsetLeft,
+        width: toSpreadRects.left.width, height: toSpreadRects.left.height,
+        text: allTextPages[globalIndex],
+        footer: `- ${globalIndex + 1} / ${totalPages} -`,
+      })
+    : null;
   playSpreadPageTurn({
     stage: stageContainer,
     direction: 'next',
     panels: spreadPanels,
-    onDone: () => finishManualPageTurn(targetLeftGlobal),
+    onDone: () => {
+      if (leftCover) leftCover.remove();
+      finishManualPageTurn(targetLeftGlobal);
+    },
   });
 }
 
