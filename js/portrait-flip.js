@@ -193,6 +193,13 @@ function buildPanelAnimation({
   stage, width, height, direction, offsetTop, offsetLeft,
   leavingWidth, leavingHeight,
   leavingText, leavingFooter, revealingText, revealingFooter,
+  // ⚠️ 2026-08-26 — landingText/landingFooter: leafCard의 "뒷면"(180도 돌았을 때 보이는
+  // 면) 전용 콘텐츠. base(제자리에 고정, 항상 revealingText를 보여줌)와 달리, leafCard의
+  // 뒷면은 회전으로 인해 화면상 반대쪽 자리로 넘어가 있으므로 다른 콘텐츠가 필요할 수
+  // 있다 — 가로 스프레드 모드(js/reader.js의 buildSpreadPanels)가 반대쪽 패널의 목표
+  // 페이지를 넘겨준다. 세로(단일 페이지) 모드는 "반대쪽 패널" 자체가 없으므로 이 값을
+  // 안 넘기고, 기본값으로 revealingText/revealingFooter를 그대로 쓴다(기존 동작 그대로).
+  landingText = revealingText, landingFooter = revealingFooter,
   duration, onPanelDone,
 }) {
   // next(다음 페이지): 왼쪽 가장자리(=책의 중앙, 스파인)를 축으로 회전.
@@ -323,18 +330,23 @@ function buildPanelAnimation({
   // 사용자가 실기기에서 "안 보이던 면의 글자는 페이지에 자연스럽게 붙어있지 않고
   // 애니메이션이 끝난 뒤 뿅 하고 나타난다"고 지적 — 원인은 뒷면이 빈 패널이라 50%~100%
   // 구간 동안 화면엔 아무 내용 없는 판만 보이다가, 애니메이션이 끝나 오버레이가 걷히는
-  // 순간에야 진짜 새 페이지(base)가 갑자기 드러났기 때문이었다. 그래서 뒷면도 base와
-  // 똑같은 진짜 내용(revealingText/revealingFooter)으로 채웠다 — 로컬 rotateY(180deg)를
-  // 이미 걸어뒀으므로, 카드 자신이 180도까지 다 돌면 180+180=360(=0)이 되어 **거울에
-  // 비친 것처럼 뒤집히지 않고 정상 방향 그대로** 정면으로 보인다(카드 뒤집기 기법에서
-  // 뒷면을 미리 180도 돌려두는 이유가 바로 이 "두 번 뒤집으면 원래대로" 상쇄 효과다).
-  // 카드가 90도를 넘어서부터 180도에 다다르기까지, 뒷면의 유효 각도는 -90도(거의
-  // 옆에서 봄)에서 매끄럽게 0도(정면)로 좁혀지므로, 진짜 새 페이지 내용이 회전하며
-  // "펼쳐지듯" 자연스럽게 드러난다 — 끝나고 나서 갑자기 나타나는 게 아니라, 회전
-  // 자체가 이미 그 내용을 보여주며 진행된다. 최종 상태(180도, 완전히 정면)가 밑에
-  // 깔린 base와 내용·위치·크기 모두 동일해서, 애니메이션이 끝나고 오버레이가 걷혀도
-  // 아무 변화 없이 이어진다(=이음매 없음).
-  const back = buildPageElement(revealingText, revealingFooter, width, height);
+  // 순간에야 진짜 새 페이지(base)가 갑자기 드러났기 때문이었다. 그래서 뒷면도 실제
+  // 내용(landingText/landingFooter — 세로 모드는 revealingText와 같은 값, 가로 모드는
+  // 아래 별개 설명 참고)으로 채웠다 — 로컬 rotateY(180deg)를 이미 걸어뒀으므로, 카드
+  // 자신이 180도까지 다 돌면 180+180=360(=0)이 되어 **거울에 비친 것처럼 뒤집히지 않고
+  // 정상 방향 그대로** 정면으로 보인다(카드 뒤집기 기법에서 뒷면을 미리 180도 돌려두는
+  // 이유가 바로 이 "두 번 뒤집으면 원래대로" 상쇄 효과다). 카드가 90도를 넘어서부터
+  // 180도에 다다르기까지, 뒷면의 유효 각도는 -90도(거의 옆에서 봄)에서 매끄럽게 0도
+  // (정면)로 좁혀지므로, 진짜 새 페이지 내용이 회전하며 "펼쳐지듯" 자연스럽게 드러난다.
+  // ⚠️ 2026-08-26 — landingText가 revealingText와 갈라진 이유: leafCard 뒷면은 회전
+  // 축(자기 패널의 가장자리)을 중심으로 180도 돌므로, 화면상으로는 **반대쪽 패널의
+  // 자리에 가서 앉는다**(경첩 달린 문이 180도 열리면 반대편에 있는 것과 같은 3D 회전
+  // 수학) — 세로(단일 페이지) 모드는 "반대쪽 패널" 자체가 없어서 무관하지만, 가로
+  // 스프레드 모드에서는 이 뒷면이 실제로 반대쪽 패널의 화면 자리에 걸치므로, base(항상
+  // 자기 자리에 고정, 같은 쪽 목표를 보여줌)와 뒷면(반대쪽 목표를 보여줘야 함)의 콘텐츠가
+  // 서로 달라야 한다 — js/reader.js의 buildSpreadPanels 위 주석 참고. 세로 모드는
+  // landingText 기본값이 revealingText와 같으므로 이 구분과 무관하게 기존 동작 그대로다.
+  const back = buildPageElement(landingText, landingFooter, width, height);
   back.style.position = 'absolute';
   back.style.top = '0';
   back.style.left = '0';
@@ -444,6 +456,7 @@ export function playSpreadPageTurn({ stage, direction, duration = 1000, onDone, 
       direction,
       leavingText: panel.leavingText, leavingFooter: panel.leavingFooter,
       revealingText: panel.revealingText, revealingFooter: panel.revealingFooter,
+      landingText: panel.landingText, landingFooter: panel.landingFooter,
       duration,
       onPanelDone,
     }));

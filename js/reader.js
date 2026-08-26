@@ -981,6 +981,25 @@ function finishManualPageTurn(targetGlobal) {
 // 필터링 후 panels가 비면(애니메이션 대상 쪽 페이지가 아예 없는 경우) 애니메이션
 // 없이 즉시 전환한다(진짜 페이지 전환 자체는 이미 끝나 있으므로 기능적으로는
 // 문제없다, 시각 효과만 생략).
+// ⚠️ 2026-08-26 — 사용자가 직접 짚어준 콘텐츠 버그 수정. 카드는 자기 자신의 왼쪽(또는
+// 오른쪽) 가장자리를 축으로 180도 회전한다 — 이건 실제 경첩 달린 문이 180도 열리면
+// 반대편에 가 있는 것과 같은 3D 회전 수학이라(transform-origin이 있는 그 가장자리는
+// 고정된 채, 반대쪽 먼 가장자리가 180도를 돌면 원래 있던 자리가 아니라 축 반대편으로
+// 넘어가서 자리잡는다), 오른쪽 패널(side:'right', "다음"에 씀)의 leafCard 뒷면(back)은
+// 회전이 90도를 넘는 순간부터 화면상 **왼쪽 자리** 쪽으로 넘어가 있고, 왼쪽 패널의
+// 뒷면은 **오른쪽 자리** 쪽으로 넘어가 있다 — 이 자체는 정상적인 3D 회전 결과다(반면
+// `base`는 leafCard와 별개로 항상 자기 패널 자리에 고정돼 있다 — buildPanelAnimation
+// 주석 참고). 그런데 leafCard의 뒷면(revealingText/revealingFooter, back 생성에 씀)에는
+// 여태 **자기 자신과 같은 쪽**의 목표 페이지를 넣고 있었다 — 오른쪽 패널의 뒷면이
+// 왼쪽 자리 쪽으로 넘어가는데 그 뒷면엔 "오른쪽에 있어야 할" 새 페이지를 담고 있었던 것.
+// 그래서 회전 후반부에 왼쪽 자리 쪽엔 오른쪽용 번호가 잘못 나타났다가, 애니메이션이
+// 끝나 오버레이가 사라지면 그 아래 깔려 있던 진짜 왼쪽 페이지(swapRealPageForFlip이
+// 이미 조용히 바꿔둔 진짜 목표 페이지)가 드러나며 다시 정정되는 것처럼 보였다.
+// **수정**: `base`(자기 패널 자리에 고정, 같은 쪽 목표를 계속 보여줘야 함)와 leafCard의
+// `back`(회전으로 반대쪽 자리에 가 있게 됨, 반대쪽 목표를 보여줘야 함)의 목표 콘텐츠를
+// 분리했다 — `revealingText`/`revealingFooter`는 그대로 자기 자신과 같은 쪽(=base용)을
+// 유지하고, 반대쪽 목표를 담는 `landingText`/`landingFooter`를 새로 추가해서 back에만
+// 넘긴다(buildPanelAnimation/playSpreadPageTurn 쪽 변경 참고).
 function buildSpreadPanels({ currentLeftGlobal, currentRightGlobal, targetLeftGlobal, targetRightGlobal, fromRects, toRects }) {
   const panels = [];
   if (fromRects.left && toRects.left) {
@@ -993,6 +1012,10 @@ function buildSpreadPanels({ currentLeftGlobal, currentRightGlobal, targetLeftGl
       leavingFooter: `- ${currentLeftGlobal + 1} / ${totalPages} -`,
       revealingText: allTextPages[targetLeftGlobal],
       revealingFooter: `- ${targetLeftGlobal + 1} / ${totalPages} -`,
+      // ⚠️ 위 주석 참고 — leafCard 뒷면은 180도 돌면 오른쪽 자리 쪽으로 넘어가므로,
+      // targetLeftGlobal이 아니라 targetRightGlobal(반대쪽 목표)이어야 한다.
+      landingText: allTextPages[targetRightGlobal],
+      landingFooter: `- ${targetRightGlobal + 1} / ${totalPages} -`,
     });
   }
   if (fromRects.right && toRects.right) {
@@ -1005,6 +1028,10 @@ function buildSpreadPanels({ currentLeftGlobal, currentRightGlobal, targetLeftGl
       leavingFooter: `- ${currentRightGlobal + 1} / ${totalPages} -`,
       revealingText: allTextPages[targetRightGlobal],
       revealingFooter: `- ${targetRightGlobal + 1} / ${totalPages} -`,
+      // ⚠️ 위 주석 참고 — leafCard 뒷면은 180도 돌면 왼쪽 자리 쪽으로 넘어가므로,
+      // targetRightGlobal이 아니라 targetLeftGlobal(반대쪽 목표)이어야 한다.
+      landingText: allTextPages[targetLeftGlobal],
+      landingFooter: `- ${targetLeftGlobal + 1} / ${totalPages} -`,
     });
   }
   return panels;
