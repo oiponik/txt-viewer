@@ -1249,8 +1249,21 @@ function goToNextPage() {
 
 // 슬라이더로 임의의 페이지로 바로 이동 — maybeShiftPageWindow와 달리 "가장자리 근처"인지
 // 따지지 않고 항상 목표 페이지를 중심으로 창을 새로 구성한다.
+// ⚠️ 2026-08-26 — 방어적으로 isPortraitFlipAnimating() 가드 추가. 아래
+// syncProgressFromServer() 위 주석 참고 — 실사용자 계정으로 실제 크롬에서 직접
+// 재현해서 찾은 진짜 원인이 바로 이 함수였다: 이 함수는 pageFlip.updateFromHtml()로
+// 창 전체를 즉시(애니메이션 없이) 다시 그리는데, jumpToNextPage/jumpToPrevPage의
+// 수동 rotateY 애니메이션이 아직 화면에 떠 있는 동안 이 함수가 끼어들면(주 호출자는
+// syncProgressFromServer, 1분마다 도는 타이머라 사용자 클릭과 전혀 무관한 임의의
+// 시점에 발동) 애니메이션 오버레이가 덮고 있는 진짜 페이지 DOM을 오버레이 모르게
+// 완전히 다른 페이지로 바꿔치기해버린다 — 오버레이 자신의 텍스트(클릭 시점에 미리
+// 캡처해둔 값)는 안 바뀌니 화면엔 "회전은 원래 대상으로 끝나는데, 오버레이가 안
+// 덮고 있던 왼쪽 페이지만 느닷없이 다른(동기화로 넘어온) 페이지로 바뀐다"로
+// 보인다 — 실기기에서 신고된 "다음 페이지 클릭 후 한참 뒤 왼쪽이 다시 바뀐다"
+// 증상과 정확히 일치. 이 함수 자체에도 방어적으로 가드를 걸어둔다(주 수정은
+// syncProgressFromServer 쪽).
 function jumpToGlobalPage(targetPage) {
-  if (!pageFlip || isShiftingWindow || totalPages === 0) return;
+  if (!pageFlip || isShiftingWindow || isPortraitFlipAnimating() || totalPages === 0) return;
   targetPage = Math.max(0, Math.min(targetPage, totalPages - 1));
 
   isShiftingWindow = true;
@@ -2490,8 +2503,28 @@ function findPageForCharIndex(charIndex) {
 // 자기가 마지막으로 보던 옛날 페이지를 계속 보여주는 문제가 있었다.
 // → 탭이 다시 화면에 보일 때마다 서버 기록을 재확인해서, 우리가 알던 것보다
 // 최신이면(=다른 기기에서 더 나중에 저장했으면) 그 위치로 자동으로 이동한다.
+//
+// ⚠️ 2026-08-26 — 📌 "next로 넘길 때 왼쪽 페이지가 오른쪽 내용으로 다시 바뀐다"
+// 버그의 진짜 원인을 여기서 찾았다. 사용자 승인을 받아 Claude in Chrome으로 실제
+// 프로덕션 계정에 직접 접속해서 재현+콘솔을 직접 읽어보니, 내가 수동으로 클릭한
+// "다음" 애니메이션(예: 17→19페이지)이 아직 화면에 떠 있는 도중, 이 함수가 60초
+// 주기 타이머(아래 setInterval)로 완전히 무관하게 발동해서 `jumpToGlobalPage(436)`
+// 같은 엉뚱한 페이지로 점프한 로그가 동시에 찍혔다 — 실제로 다른 세션/기기(오늘 이
+// 세션 자체를 포함해 하루 종일 이 책으로 여러 번 테스트했으므로)가 Firestore에
+// 남긴 "더 최신" 진행상황과 맞아떨어진 것. `jumpToGlobalPage()`는
+// `pageFlip.updateFromHtml()`로 창 전체를 애니메이션 없이 즉시 재구성하는데, 이게
+// 수동 rotateY 애니메이션의 오버레이가 떠 있는 동안 실행되면 — 오버레이가 안
+// 덮고 있는 왼쪽 페이지(실제 DOM)만 느닷없이 동기화된 페이지로 바뀌어 보이고,
+// 오른쪽은 오버레이 자신이 미리 캡처해둔 텍스트로 계속 애니메이션하다 끝난다 —
+// 정확히 신고된 증상과 일치한다. **수정**: 애니메이션이 진행 중이면 동기화 자체를
+// 건너뛴다 — 이때 `lastKnownProgressUpdatedAt`는 갱신하지 않아서(=아직 "따라잡지
+// 못한" 상태로 남겨둠), 60초 뒤 다음 주기 체크가(그때는 보통 애니메이션이 끝나
+// 있을 것이므로) 같은 서버 값을 다시 보고 정상적으로 재시도한다 — 동기화 자체가
+// 유실되지 않는다. `jumpToGlobalPage()` 자체에도 방어적으로 같은 가드를 추가해뒀다
+// (다른 호출부가 실수로 겹치는 경우까지 대비).
 async function syncProgressFromServer() {
   if (!currentUser || isDevUser() || !currentFileName || !pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
+  if (isPortraitFlipAnimating()) return; // 수동 페이지 넘김 애니메이션과 충돌 방지 — 다음 60초 주기에 재시도됨
   try {
     const fileId = btoa(encodeURIComponent(currentFileName));
     const docSnap = await getDoc(doc(db, "users", currentUser.uid, "reading_progress", fileId));
@@ -2502,6 +2535,10 @@ async function syncProgressFromServer() {
 
     // 서버가 우리보다 최신 기록을 갖고 있으면 (다른 기기에서 더 나중에 읽었으면)
     if (serverUpdatedAt > lastKnownProgressUpdatedAt) {
+      // ⚠️ Firestore 요청(getDoc, 위)이 진행되는 동안 사용자가 수동으로 페이지를
+      // 넘기기 시작했을 수 있으니 여기서 한 번 더 확인한다 — await 이전 체크만으론
+      // 부족하다.
+      if (isPortraitFlipAnimating()) return;
       lastKnownProgressUpdatedAt = serverUpdatedAt;
       const targetPage = findPageForCharIndex(data.charIndex || 0);
       const currentPage = windowStartIndex + pageFlip.getCurrentPageIndex();
