@@ -645,6 +645,7 @@ async function continuePaginationInBackground(containerWidth, containerHeight, f
         const coveredChars = forwardCursor - backwardCursor;
         const progress = rawTextData.length > 0 ? coveredChars / rawTextData.length : 0;
         setStatus(`책 전체 계산 중... (${pageStartIndices.length}p)`, progress);
+        refreshMountedPageFooters(); // 계산 도중에도 화면에 보이는 footer의 총 페이지수를 최신값으로 맞춰둔다
         await new Promise((resolve) => setTimeout(resolve, 0));
         // 기다리는 사이 더 최신 빌드가 시작됐으면(리사이즈, 설정 변경, 다른 책 열기 등)
         // 이 결과는 어차피 버려질 게 뻔하다 — 계속 돌면 새 분할과 겹쳐서 DOM 실측을
@@ -693,6 +694,32 @@ function finalizePaginationComplete(containerWidth, containerHeight, fontKey, ca
   setStatus('책 전체 페이지 계산이 끝났어요');
   updatePageIndicator(currentDisplayedGlobalPage); // 슬라이더/카운터를 "계산 중" 상태에서 정상으로 되돌린다
   updateSearchAvailability();
+  refreshMountedPageFooters(); // 아래 함수 주석 참고 — 이미 마운트된 페이지들의 "- N / 총 -" 텍스트를 최종 총 페이지수로 맞춘다
+}
+
+// ⚠️ 2026-08-26 — 사용자 신고: "페이지 하단에 페이지 위치 표기가 이전에 작업한 일부만
+// 나누기해서 바로 보여주고 그 이후에 백그라운드에서 작업하는데, 일부만 나누기한
+// 페이지수를 총 페이지로 보여주는 문제가 있다." 원인 확인: `.page` 안의 `.page-footer`
+// 텍스트("- N / 총 -")는 `createPageElements()`가 그 페이지를 만드는 그 순간의
+// `total`(당시 `totalPages`)로 딱 한 번 구워져서, 이후 `continuePaginationInBackground`가
+// (초기 창 분량만 우선 나눈 뒤 나머지를) `appendForwardPage()`/`prependBackwardPage()`로
+// `totalPages`를 계속 키워가도 — 이미 마운트된 `.page` 요소의 footer 텍스트는 절대
+// 다시 안 그려진다(마운트된 창(window)이 실제로 바뀌지 않는 한, 즉 그 페이지들 근처로
+// 다시 이동해서 `mountWindow()`가 그 자리를 새로 그리기 전까지). 게다가
+// `prependBackwardPage()`는 `windowStartIndex`를 밀어서 이미 마운트된 각 페이지의
+// *전역 번호*(분자) 자체도 사실은 바뀌는데, 그 보정도 이미 그려진 footer 텍스트에는
+// 반영되지 않는다 — 그래서 배경 계산이 끝나도(또는 진행 중에도) 화면에 보이는 페이지
+// 하단 번호/총계가 예전(더 작은) 값에 그대로 멈춰 있는 것처럼 보였다.
+// 수정: 지금 실제로 마운트된 `.page` 요소들의 footer를 현재 `windowStartIndex`/`totalPages`
+// 기준으로 다시 그리는 이 함수를 신설해서, 배경 계산이 진행되는 동안(진행률 갱신 시점)과
+// 완전히 끝난 시점(finalizePaginationComplete) 두 곳에서 호출한다 — 매 페이지 하나
+// 찾을 때마다 부르지 않는 이유는 마운트된 창이 최대 ~31개뿐이라 비용은 미미하지만,
+// 어차피 그 사이 유저 눈에 크게 티 나지 않을 잦은 빈도로 부를 필요까진 없어서다.
+function refreshMountedPageFooters() {
+  document.querySelectorAll('#my-book .page').forEach((pageEl, i) => {
+    const footerEl = pageEl.querySelector('.page-footer');
+    if (footerEl) footerEl.textContent = `- ${windowStartIndex + i + 1} / ${totalPages} -`;
+  });
 }
 
 // 5. 페이지 창(window) 요소 생성 헬퍼
