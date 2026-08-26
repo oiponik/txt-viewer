@@ -26,11 +26,12 @@
        sw.js가 다른 정적 파일처럼 항상 미리 캐싱해서 이 문제가 없다. -->
   <link rel="stylesheet" href="styles.css">
 
-  <!-- PageFlip 라이브러리 — CDN 대신 자체 호스팅 + 패치된 버전(js/vendor/page-flip.browser.js 상단
-       주석 참고: portrait 모드 backward flip이 2겹 합성 안 되던 업스트림 버그를 고침). 위 구글
-       폰트 자체 호스팅과 같은 이유 하나 더 추가 — 버전 고정 없이 CDN 최신을 그대로 받아 쓰던 걸
-       고정된 우리 사본으로 바꿔서, 이 패치가 다음 CDN 업데이트에 조용히 사라질 위험도 없앴다. -->
-  <script src="js/vendor/page-flip.browser.js"></script>
+  <!-- ⚠️ 2026-08-26 — 예전엔 여기서 PageFlip 라이브러리(js/vendor/page-flip.browser.js,
+       자체 패치본)를 불러왔다. 이 앱은 라이브러리의 넘기기 애니메이션은 오래전에 버리고
+       js/portrait-flip.js로 완전히 대체했는데, "지금 몇 페이지가 보이는지" 관리 용도로만
+       계속 라이브러리 전체(항상 도는 렌더 루프 포함)를 짊어지고 있었다 — 그 역할까지
+       js/page-window.js로 옮기면서 라이브러리 자체를 걷어냈다(js/reader.js에서 import).
+       CLAUDE.md의 "라이브러리 제거" 항목 참고. -->
 
   <!-- 앱 로직 (js/ 아래 도메인별 모듈로 분리됨 — main.js가 진입점) -->
   <script type="module" src="js/main.js"></script>

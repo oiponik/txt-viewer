@@ -17,13 +17,18 @@ import { setStatus, showLibraryScreen, openSheet, closeSheet, releaseWakeLock, r
 import { markActiveFileRow, refreshRecentFiles } from "./library.js";
 import { isBookCached, isBookStale, getCachedBookText, cacheBookText } from "./offline-cache.js";
 import { playPortraitPageTurn, playSpreadPageTurn, isPortraitFlipAnimating, cancelPortraitFlip, coverPanelWithLeavingContent } from "./portrait-flip.js";
+import { mountWindow, clearWindow, showPage, showSpread } from "./page-window.js";
 
 export let currentFileName = "";
 export function setCurrentFileName(name) {
   currentFileName = name;
 }
 let rawTextData = "";
-let pageFlip = null;
+// ⚠️ 2026-08-26 — StPageFlip 라이브러리 제거(js/page-window.js로 대체) 이후, "지금 책이
+// 실제로 화면에 떠 있는지"를 나타내던 `pageFlip`(라이브러리 인스턴스, truthy/null) 대신
+// 이 플래그 하나로 같은 역할을 한다 — buildFlipBook()이 mountWindow()+showPage()/
+// showSpread()를 끝내면 true, resetReaderSession()/buildFlipBook() 재진입 시작 시 false.
+let bookMounted = false;
 // 세로(한 페이지) 모드인지 + PageFlip에 실제로 넘긴 렌더링 크기 — buildFlipBook에서만
 // 계산되던 로컬 값이었는데, jumpToPrevPage/goToNextPage가 세로 모드에서는
 // portrait-flip.js의 별도 애니메이션으로 갈아타야 해서 모듈 스코프로 끌어올렸다.
@@ -233,7 +238,8 @@ function hideBookLoadingOverlay() {
 // 직접 손댈 수 없어서 — 모듈 바깥에서 재할당 불가 — 대신 이 함수를 호출해서 정리한다)
 export function resetReaderSession() {
   cancelPortraitFlip();
-  if (pageFlip) { pageFlip.destroy(); pageFlip = null; }
+  clearWindow();
+  bookMounted = false;
   currentFileName = "";
   rawTextData = "";
 }
@@ -723,29 +729,23 @@ function createPageElements(start, end, total) {
 
 // 특정 전역 페이지를 중심으로 앞뒤 PAGE_WINDOW_RADIUS만큼의 구간을 계산
 //
-// ⚠️ start는 항상 짝수여야 한다 — PageFlip 라이브러리는 두 쪽 스프레드를 "이 창에
-// 로드된 요소들의 로컬 인덱스" (0,1)/(2,3)/(4,5)... 기준으로 고정 짝짓기 한다
-// (page-flip 소스의 createSpread: 로컬 e부터 2씩 증가하며 [e,e+1] 페어링, 전역
-// 페이지 번호는 전혀 모른다). 책 전체의 첫 창은 항상 0(짝수)부터 시작해서 전역
-// 짝수=왼쪽/홀수=오른쪽으로 스프레드가 정해지는데, PAGE_WINDOW_RADIUS(15)가 홀수라
-// start를 그대로 쓰면 센터 페이지 홀짝에 따라 창이 홀수로 시작해버리는 경우가 생기고,
-// 그러면 로컬 (0,1) 페어링이 실제로는 전역 (홀수,짝수)를 묶어버려서 스프레드 좌우가
-// 한 칸씩 밀린다 — 페이지를 넘기면 방금 봤던 오른쪽 페이지가 새 왼쪽 페이지 자리에
-// 다시 나타나는 버그로 보였던 게 이것. start를 항상 짝수로 내림해서 로컬↔전역 홀짝
-// 정렬을 창이 몇 번 바뀌어도 계속 유지시킨다.
+// ⚠️ 2026-08-26 — 예전엔 여기서 start를 항상 짝수로 내림했다: PageFlip 라이브러리가
+// 두 쪽 스프레드를 "이 창에 로드된 요소들의 로컬 인덱스"(0,1)/(2,3)/... 기준으로
+// 고정 짝짓기해서, 창이 홀수로 시작하면 로컬 짝짓기가 실제 전역 페이지 짝(홀수,짝수
+// 대신 짝수,홀수)과 어긋나 스프레드 좌우가 한 칸씩 밀렸기 때문이다. 라이브러리를
+// 걷어내고(js/page-window.js) 스프레드를 항상 **전역 인덱스**로 직접 짝지으므로
+// (showSpread(leftGlobalIndex, ...)), 이 창 경계의 홀짝은 더 이상 스프레드 정렬과
+// 무관하다 — 그 제약 자체가 사라졌다.
 function computeWindowRange(centerIndex, total) {
-  let start = Math.max(0, centerIndex - PAGE_WINDOW_RADIUS);
-  if (start % 2 !== 0) start -= 1;
-  start = Math.max(0, start);
+  const start = Math.max(0, centerIndex - PAGE_WINDOW_RADIUS);
   const end = Math.min(total, centerIndex + PAGE_WINDOW_RADIUS + 1);
   return { start, end };
 }
 
 // 사용자가 현재 로드된 창의 가장자리 근처까지 넘겼으면, 그 다음 구간을 중심으로
-// 새 페이지 요소들을 만들어서 pageFlip.updateFromHtml로 조용히 교체한다
-// (문서 전체를 다시 쓰지 않고, #my-book의 기존 내부 구조도 건드리지 않는다).
+// 새 페이지 요소들을 만들어서 mountWindow()로 조용히 교체한다(js/page-window.js).
 function maybeShiftPageWindow(globalIndex) {
-  if (isShiftingWindow || !pageFlip) return;
+  if (isShiftingWindow || !bookMounted) return;
 
   const nearStart = windowStartIndex > 0 && (globalIndex - windowStartIndex) <= PAGE_WINDOW_EDGE_MARGIN;
   const nearEnd = windowEndIndex < totalPages && (windowEndIndex - 1 - globalIndex) <= PAGE_WINDOW_EDGE_MARGIN;
@@ -757,10 +757,10 @@ function maybeShiftPageWindow(globalIndex) {
     windowStartIndex = start;
     windowEndIndex = end;
 
-    const newElements = createPageElements(start, end, totalPages);
-    pageFlip.updateFromHtml(newElements);
+    mountWindow(createPageElements(start, end, totalPages));
     // 창이 바뀌어도 지금 보고 있던 전역 페이지는 그대로 유지 (애니메이션 없이 재정렬)
-    pageFlip.turnToPage(globalIndex - windowStartIndex);
+    if (isSinglePageMode) showPage(globalIndex, windowStartIndex, currentRenderWidth, currentRenderHeight);
+    else showSpread(globalIndex, windowStartIndex, currentRenderWidth, currentRenderHeight);
   } finally {
     isShiftingWindow = false;
   }
@@ -934,12 +934,13 @@ function getActiveRealSpreadRects(leftGlobalIndex) {
 // 눈에 보이는 하단 인디케이터/진행상황 저장 등만 — 이건 여전히 시각적 완료 시점에 맞춰야
 // 해서 그대로 둔다, 예전에 여러 라운드에 걸쳐 튜닝했던 부분).
 function swapRealPageForFlip(targetGlobal) {
-  isShiftingWindow = true;
-  try {
-    pageFlip.turnToPage(targetGlobal - windowStartIndex);
-  } finally {
-    isShiftingWindow = false;
-  }
+  // ⚠️ 2026-08-26 — 예전엔 이 안의 turnToPage() 호출을 isShiftingWindow=true로
+  // 감쌌다 — 라이브러리의 'flip' 이벤트가 우리 자신의 호출로 발동한 합성 이벤트인지
+  // 구분하기 위한 가드였다. 라이브러리를 걷어내면서(js/page-window.js) 이벤트
+  // 시스템 자체가 없어졌으므로 이 가드도 필요 없다 — showPage()/showSpread()는
+  // 그냥 동기적으로 DOM을 바꿀 뿐 아무것도 발동시키지 않는다.
+  if (isSinglePageMode) showPage(targetGlobal, windowStartIndex, currentRenderWidth, currentRenderHeight);
+  else showSpread(targetGlobal, windowStartIndex, currentRenderWidth, currentRenderHeight);
   maybeShiftPageWindow(targetGlobal);
 }
 
@@ -1044,8 +1045,8 @@ function buildSpreadPanels({ currentLeftGlobal, currentRightGlobal, targetLeftGl
 //     clip-path 기법 자체를 버리고 CSS 3D rotateY 카드 뒤집기로 완전히 다시 만들었다.
 //   - 가로: 위 buildSpreadPanels 주석 참고 — 이제 세로 모드와 같은 엔진을 쓴다.
 function jumpToPrevPage() {
-  if (!pageFlip) return;
-  const globalIndex = windowStartIndex + pageFlip.getCurrentPageIndex();
+  if (!bookMounted) return;
+  const globalIndex = currentDisplayedGlobalPage;
   if (globalIndex <= 0) {
     // 지금까지 알려진 것 중 첫 페이지에 도달했다 — 진짜 책 시작이면 조용히 아무 일도
     // 안 하고, 아직 배경 계산이 그 앞부분에 닿지 못한 것뿐이면 안내한다.
@@ -1127,8 +1128,8 @@ function jumpToPrevPage() {
 // 책 끝이면 조용히 아무 일도 안 하고, 아직 배경 계산이 거기까지 못 미친 것뿐이면
 // 안내한다(jumpToPrevPage의 반대쪽과 대응).
 function goToNextPage() {
-  if (!pageFlip) return;
-  const globalIndex = windowStartIndex + pageFlip.getCurrentPageIndex();
+  if (!bookMounted) return;
+  const globalIndex = currentDisplayedGlobalPage;
   if (globalIndex >= totalPages - 1 && !pendingForwardDone) {
     setStatus('아직 이 부분을 준비하고 있어요. 잠시 후 다시 시도해주세요.');
     return;
@@ -1220,21 +1221,16 @@ function goToNextPage() {
 // 증상과 정확히 일치. 이 함수 자체에도 방어적으로 가드를 걸어둔다(주 수정은
 // syncProgressFromServer 쪽).
 function jumpToGlobalPage(targetPage) {
-  if (!pageFlip || isShiftingWindow || isPortraitFlipAnimating() || totalPages === 0) return;
+  if (!bookMounted || isShiftingWindow || isPortraitFlipAnimating() || totalPages === 0) return;
   targetPage = Math.max(0, Math.min(targetPage, totalPages - 1));
 
-  isShiftingWindow = true;
-  try {
-    const { start, end } = computeWindowRange(targetPage, totalPages);
-    windowStartIndex = start;
-    windowEndIndex = end;
+  const { start, end } = computeWindowRange(targetPage, totalPages);
+  windowStartIndex = start;
+  windowEndIndex = end;
 
-    const newElements = createPageElements(start, end, totalPages);
-    pageFlip.updateFromHtml(newElements);
-    pageFlip.turnToPage(targetPage - windowStartIndex);
-  } finally {
-    isShiftingWindow = false;
-  }
+  mountWindow(createPageElements(start, end, totalPages));
+  if (isSinglePageMode) showPage(targetPage, windowStartIndex, currentRenderWidth, currentRenderHeight);
+  else showSpread(targetPage, windowStartIndex, currentRenderWidth, currentRenderHeight);
 
   currentLastCharIndex = pageStartIndices[targetPage] || 0;
   progressDirty = true;
@@ -1845,10 +1841,7 @@ async function buildFlipBook() {
   const myBuildGeneration = ++buildGeneration;
 
   cancelPortraitFlip();
-  if (pageFlip) {
-    pageFlip.destroy();
-    pageFlip = null;
-  }
+  bookMounted = false;
 
   // #book-stage에 더 이상 여백(padding)이 없으므로 책이 화면 전체를 그대로 채운다
   const stageRect = stageContainer.getBoundingClientRect();
@@ -1965,69 +1958,31 @@ async function buildFlipBook() {
   const initialWindow = computeWindowRange(targetGlobalPage, totalPages);
   windowStartIndex = initialWindow.start;
   windowEndIndex = initialWindow.end;
-  createPageElements(windowStartIndex, windowEndIndex, totalPages)
-    .forEach(el => bookElement.appendChild(el));
+  mountWindow(createPageElements(windowStartIndex, windowEndIndex, totalPages));
 
-  // PageFlip 인스턴스 생성
-  // ⚠️ minWidth/minHeight가 실제 렌더링 크기(renderWidth/renderHeight)보다 크면
-  // PageFlip이 그보다 크게 강제 렌더링하면서 #book-stage(overflow:hidden)에
-  // 텍스트가 잘리는 문제가 생긴다. 그래서 min 값은 항상 실제 크기 이하로 클램프한다.
-  //
-  // 페이지 넘기기는 라이브러리의 기본 클릭/드래그 대신 우리가 만든
-  // 좌/중/우 3분할 클릭 영역으로만 제어한다 (아래 #book-stage 클릭 핸들러 참고).
-  // useMouseEvents:false만으로 라이브러리 자체의 mousedown/touchstart 리스너가
-  // 아예 붙지 않으므로, 우리 클릭 핸들러와 겹쳐서 두 페이지씩 넘어가는 문제는 이걸로 충분히 막힌다.
-  //
-  // ⚠️ disableFlipByClick:true는 절대 켜지 마라 — 모바일 "이전 페이지"가 먹통이 되는
-  // 원인이었다. page-flip 라이브러리 내부에서 disableFlipByClick이 true면 flip() 호출마다
-  // isPointOnCorners()로 "페이지 모서리 근처를 클릭했는지"부터 검사하는데, flipNext()는
-  // 좌표 계산에 렌더 사각형의 left 오프셋을 더해서(e.left + 2*pageWidth - 10) 넘기는 반면
-  // flipPrev()는 그 오프셋을 빼먹고 x:10을 그대로 넘긴다. 그런데 우리처럼 좁은 화면이라
-  // 한 페이지만 보이는 "portrait" 모드에서는 이 라이브러리가 내부적으로 boundsRect.left를
-  // -pageWidth만큼 음수로 잡기 때문에(2페이지 스프레드 좌표계를 그대로 쓰면서 왼쪽 페이지를
-  // 화면 밖으로 밀어두는 방식), flipPrev()가 넘기는 x:10은 모서리 판정 범위에서 한참
-  // 벗어나 버려서 isPointOnCorners가 항상 false → flip()이 조용히 아무 일도 안 하고 끝난다.
-  // (flipNext()는 오프셋을 더했기 때문에 우연히 이 문제를 피해간다 — 그래서 다음 페이지는
-  // 되는데 이전 페이지만 안 되는 것처럼 보였다.) useMouseEvents:false로 이미 클릭/터치
-  // 리스너 자체를 꺼뒀으니 disableFlipByClick은 우리에게 아무 이점 없이 이 버그만 유발한다.
-  pageFlip = new St.PageFlip(bookElement, {
-    width: renderWidth,
-    height: renderHeight,
-    size: "fixed",
-    minWidth: Math.min(200, renderWidth),
-    maxWidth: Math.max(2000, renderWidth),
-    minHeight: Math.min(250, renderHeight),
-    maxHeight: Math.max(2500, renderHeight),
-    maxShadowOpacity: 0.5,
-    showCover: false,
-    mobileScrollSupport: false,
-    useMouseEvents: false
-  });
-
-  pageFlip.loadFromHTML(document.querySelectorAll('#my-book .page'));
-  pageFlip.turnToPage(targetGlobalPage - windowStartIndex);
+  // ⚠️ 2026-08-26 — 예전엔 여기서 StPageFlip 인스턴스를 만들고(minWidth/maxWidth
+  // 클램핑, disableFlipByClick 관련 라이브러리 버그 회피 등 여러 설정이 필요했다)
+  // loadFromHTML()+turnToPage()로 첫 페이지를 그렸다. 라이브러리를 걷어내면서
+  // (js/page-window.js) 그 모든 설정과 버그 회피가 통째로 필요 없어졌다 — 그냥
+  // 보여줄 페이지(들)를 직접 켜면 끝이다.
+  if (isSinglePage) showPage(targetGlobalPage, windowStartIndex, renderWidth, renderHeight);
+  else showSpread(targetGlobalPage, windowStartIndex, renderWidth, renderHeight);
+  bookMounted = true;
   updatePageIndicator(targetGlobalPage);
   updateSearchAvailability();
 
   // 두 페이지 스프레드일 때만 가운데 책등 그림자를 보여준다.
-  // ⚠️ loadFromHTML 이후에 붙인다 — PageFlip이 초기화하면서 bookElement 안에
-  // 자기만의 래퍼로 페이지들을 옮기는데, 그 전에 넣으면 이 요소까지 페이지로
-  // 취급되거나 위치가 꼬일 수 있어서, 이미 자리 잡은 다음 위에 겹쳐 올린다.
+  // ⚠️ showSpread() 이후에 붙인다 — #my-book의 크기(showSpread가 인라인으로 설정)가
+  // 확정된 뒤에 실측해야 정확하다.
   // ⚠️ 2026-08-26 — bookElement(#my-book)가 아니라 stageContainer(#book-stage)에
-  // 붙이도록 바꿨다. 사용자가 "페이지 넘김 애니메이션이 끝나는 순간 가운데 축
-  // 그림자가 뿅하고 나타난다"고 지적해서 z-index를 21로 올려봤는데도(styles.css의
-  // #book-spine 위 주석 참고) 효과가 없었다 — 원인을 더 파보니 StPageFlip이
-  // bookElement에 항등행렬이라도 `transform`을 인라인으로 걸어두는데, CSS
-  // 스펙상 `transform: none`이 아니면(설령 시각적으로 아무 효과가 없는 항등행렬이라도)
-  // 그 요소가 **새 스태킹 컨텍스트를 만든다** — 즉 bookElement 전체가 하나의
-  // 봉인된 상자가 되어, 그 안의 #book-spine이 z-index를 아무리 올려도 bookElement
-  // 자신의 스태킹 레벨(z-index:auto) 밖으로 못 나간다. bookElement의 형제인
-  // 우리 애니메이션 오버레이(perspectiveStage, z-index:20, 명시적 양수라 항상
-  // "z-index:auto 상자" 위에 그려짐)를 절대 못 이길 수밖에 없던 구조였다.
-  // **수정**: 스파인을 bookElement 밖(=오버레이와 같은 부모인 stageContainer)으로
-  // 옮겨서 오버레이와 z-index를 직접 겨루게 했다. 가로 위치(`left:50%`)는 그대로
-  // 둬도 된다 — bookElement가 stageContainer 안에서 flex로 가운데 정렬되므로 둘의
-  // 가로 중심은 항상 일치한다(대칭 오프셋이 상쇄됨). 다만 세로는 bookElement가
+  // 붙인다. 예전엔 StPageFlip이 bookElement에 항등행렬이라도 `transform`을 인라인으로
+  // 걸어둬서(CSS 스펙상 `transform:none`이 아니면 새 스태킹 컨텍스트가 생김) 그 안의
+  // #book-spine이 z-index를 아무리 올려도 형제 오버레이를 못 이겼던 문제가 있었다 —
+  // 라이브러리를 걷어낸 지금은 bookElement에 그런 인라인 transform이 안 걸리므로
+  // 이 문제 자체가 이제 없지만, 이미 검증된 배치(오버레이와 같은 부모, z-index 직접
+  // 경쟁)를 굳이 되돌릴 이유가 없어 그대로 둔다. 가로 위치(`left:50%`)는 그대로 둬도
+  // 된다 — bookElement가 stageContainer 안에서 flex로 가운데 정렬되므로 둘의 가로
+  // 중심은 항상 일치한다(대칭 오프셋이 상쇄됨). 다만 세로는 bookElement가
   // stageContainer보다 짧게 레터박스될 수 있어(`top:0;bottom:0`을 그대로 stageContainer
   // 기준으로 쓰면 책보다 위아래로 삐져나올 수 있음) bookElement의 실측 top/height를
   // 인라인으로 못박는다.
@@ -2043,24 +1998,14 @@ async function buildFlipBook() {
   }
   stageContainer.appendChild(spineElement);
 
-  // 페이지 넘길 때 글자 인덱스 저장 + 창 가장자리 근처면 다음 구간 미리 당겨오기
-  pageFlip.on('flip', (e) => {
-    if (isShiftingWindow) return; // 창 재정렬 중 발생하는 합성 이벤트는 무시
-
-    const globalIndex = windowStartIndex + e.data;
-    currentLastCharIndex = pageStartIndices[globalIndex] || 0;
-    progressDirty = true;
-    updatePageIndicator(globalIndex);
-
-    clearTimeout(debounceSaveTimer);
-    debounceSaveTimer = setTimeout(() => {
-      saveProgress(currentFileName, currentLastCharIndex);
-      progressDirty = false;
-    }, 300);
-
-    maybeShiftPageWindow(globalIndex);
-    resetWakeLockIdleTimer();
-  });
+  // ⚠️ 2026-08-26 — 예전엔 여기서 라이브러리의 'flip' 이벤트를 구독해서 페이지가
+  // 바뀔 때마다 진행상황 저장/인디케이터 갱신/창 재정렬을 했다. 그런데 이 앱의
+  // turnToPage() 호출은 전부(swapRealPageForFlip/maybeShiftPageWindow/jumpToGlobalPage)
+  // isShiftingWindow=true로 감싸져 있었거나 리스너 등록 *전*에 실행돼서, 이 핸들러의
+  // 실제 로직(아래로 옮겨졌던 것과 같은 내용)은 이미 오래전부터 한 번도 실행된 적이
+  // 없었다(=죽은 코드) — 실제 페이지 전환은 전부 finishManualPageTurn()(수동 애니메이션의
+  // onDone)이 담당하고 있었다. 라이브러리를 걷어내며 이벤트 시스템 자체가 없어졌으니
+  // 이 핸들러도 그냥 삭제했다 — 잃는 동작이 없다.
 
   // 창 밖의 나머지는 화면을 막지 않고 백그라운드로 이어서 채운다 (await 안 함).
   if (isPaginationPending()) {
@@ -2210,7 +2155,7 @@ const BRIGHTNESS_DRAG_ENGAGE_PX = 15; // 이만큼은 세로로 움직여야 "�
 const BRIGHTNESS_DRAG_RANGE_PX = 220; // 이 거리를 다 드래그하면 밝기 범위(40~100) 끝까지
 window.addEventListener('pointermove', (e) => {
   if (tapStartX === null || !stageContainer.contains(e.target)) return;
-  if (!rawTextData || !pageFlip) return;
+  if (!rawTextData || !bookMounted) return;
 
   const dx = e.clientX - tapStartX;
   const dy = e.clientY - tapStartY;
@@ -2266,7 +2211,7 @@ window.addEventListener('pointerup', (e) => {
     tapStartX = null;
     return;
   }
-  if (!rawTextData || !pageFlip) {
+  if (!rawTextData || !bookMounted) {
     endBrightnessDrag();
     tapStartX = null;
     return;
@@ -2317,7 +2262,7 @@ window.addEventListener('pointerup', (e) => {
 // 그래서 마지막으로 페이지를 넘긴 뒤 일정 시간은 추가 휠 이벤트를 무시한다.
 let wheelCooldownUntil = 0;
 stageContainer.addEventListener('wheel', (e) => {
-  if (!pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
+  if (!bookMounted || viewerScreen.classList.contains('screen-hidden')) return;
   if (Math.abs(e.deltaY) < 10) return; // 아주 미세한 휠 움직임(관성 스크롤 꼬리 등)은 무시
 
   const now = Date.now();
@@ -2451,8 +2396,8 @@ function findPageForCharIndex(charIndex) {
 // 같은 엉뚱한 페이지로 점프한 로그가 동시에 찍혔다 — 실제로 다른 세션/기기(오늘 이
 // 세션 자체를 포함해 하루 종일 이 책으로 여러 번 테스트했으므로)가 Firestore에
 // 남긴 "더 최신" 진행상황과 맞아떨어진 것. `jumpToGlobalPage()`는
-// `pageFlip.updateFromHtml()`로 창 전체를 애니메이션 없이 즉시 재구성하는데, 이게
-// 수동 rotateY 애니메이션의 오버레이가 떠 있는 동안 실행되면 — 오버레이가 안
+// `mountWindow()`(js/page-window.js)로 창 전체를 애니메이션 없이 즉시 재구성하는데,
+// 이게 수동 rotateY 애니메이션의 오버레이가 떠 있는 동안 실행되면 — 오버레이가 안
 // 덮고 있는 왼쪽 페이지(실제 DOM)만 느닷없이 동기화된 페이지로 바뀌어 보이고,
 // 오른쪽은 오버레이 자신이 미리 캡처해둔 텍스트로 계속 애니메이션하다 끝난다 —
 // 정확히 신고된 증상과 일치한다. **수정**: 애니메이션이 진행 중이면 동기화 자체를
@@ -2462,7 +2407,7 @@ function findPageForCharIndex(charIndex) {
 // 유실되지 않는다. `jumpToGlobalPage()` 자체에도 방어적으로 같은 가드를 추가해뒀다
 // (다른 호출부가 실수로 겹치는 경우까지 대비).
 async function syncProgressFromServer() {
-  if (!currentUser || isDevUser() || !currentFileName || !pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
+  if (!currentUser || isDevUser() || !currentFileName || !bookMounted || viewerScreen.classList.contains('screen-hidden')) return;
   if (isPortraitFlipAnimating()) return; // 수동 페이지 넘김 애니메이션과 충돌 방지 — 다음 60초 주기에 재시도됨
   try {
     const fileId = btoa(encodeURIComponent(currentFileName));
@@ -2480,7 +2425,7 @@ async function syncProgressFromServer() {
       if (isPortraitFlipAnimating()) return;
       lastKnownProgressUpdatedAt = serverUpdatedAt;
       const targetPage = findPageForCharIndex(data.charIndex || 0);
-      const currentPage = windowStartIndex + pageFlip.getCurrentPageIndex();
+      const currentPage = currentDisplayedGlobalPage;
       if (targetPage !== currentPage) {
         jumpToGlobalPage(targetPage);
         setStatus("다른 기기에서 이어보던 위치로 이동했습니다");
@@ -2499,7 +2444,7 @@ async function syncProgressFromServer() {
 // → 탭이 백그라운드로 가는 순간(visibilitychange/pagehide)을 감지해서, 대기 중인
 // 저장을 debounce 없이 즉시 실행한다. 100% 보장은 아니지만 훨씬 안정적이다.
 function flushProgressSave() {
-  if (!currentFileName || !pageFlip) return;
+  if (!currentFileName || !bookMounted) return;
   clearTimeout(debounceSaveTimer);
   // 이 세션에서 실제로 페이지를 넘긴 적이 없으면(=서버 값 그대로) 아무것도 하지
   // 않는다 — 안 그러면 그냥 열어만 두고 방치된 탭이 배경으로 가거나 새로고침될
@@ -2543,7 +2488,7 @@ window.addEventListener('pagehide', () => {
 
 // 방향키 제어 (서재 화면에서는 무시 — 뷰어가 보일 때만 동작)
 window.addEventListener('keydown', (e) => {
-  if (!pageFlip || viewerScreen.classList.contains('screen-hidden')) return;
+  if (!bookMounted || viewerScreen.classList.contains('screen-hidden')) return;
   if (e.key === "ArrowRight") goToNextPage();
   if (e.key === " " || e.code === "Space") {
     e.preventDefault(); // 스페이스바 클릭 시 기본 스크롤 동작 방지
