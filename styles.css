@@ -724,18 +724,29 @@
        ⚠️ 첫 절반(0→52%)에 중간 스톱을 넣지 않았다: 여기 하드 스톱을 넣으면 각 하위
        구간이 ease-in을 새로 시작해 그 지점에서 속도가 끊긴다(예전 "90도 멈춤" 버그와
        같은 부류). "모서리가 먼저 들리는" peel-up은 그래서 이번엔 보류 — 넣으려면
-       별도 병렬 애니메이션 요소가 필요하다. translateZ 피크만 28→30px로 소폭. */
+       별도 병렬 애니메이션 요소가 필요하다. translateZ 피크만 28→30px로 소폭.
+       ⚠️ 2026-08-27, E-plan — 세로축 문짝 스윙 깨기: 사용자가 "제일 어색한 건 곧은
+       세로축을 축으로 페이지가 통째로 도는 것(위/아래 가장자리가 완전 동기)"이라고
+       원인을 정확히 짚었다. 실제 책은 바깥 모서리가 먼저 나가고 접힘선이 대각선이다.
+       순수 rotateY에 **회전 중간에만 피크였다 정확히 0으로 돌아오는** rotateX(위/아래
+       가장자리를 다른 깊이에 둬서 대각선 접힘선처럼 보이게)와 rotateZ(면 안에서 살짝
+       굴러 바깥 모서리가 먼저 나가게)를 더했다. 끝(90%/100%)에서 rotateX/rotateZ가
+       정확히 0이라 착지 상태는 여전히 순수 rotateY(±180) = 완전 평평 = back면이
+       정면으로 딱 앉는다(안 그러면 도착 페이지가 비스듬히 앉는다). transform-origin은
+       스파인축 그대로(JS). rotateX(7deg)·rotateZ(±6deg)는 튜닝 노브 — 실기기에서
+       리드하는 모서리를 위↔아래로 바꾸려면 rotateX 부호만, 굴림 방향은 rotateZ 부호만
+       뒤집으면 된다. */
     @keyframes portrait-flip-leaf-next {
-      0%   { transform: translateZ(0) rotateY(0deg) scaleX(1);         animation-timing-function: ease-in; }
-      52%  { transform: translateZ(30px) rotateY(-96deg) scaleX(0.06); animation-timing-function: ease-out; }
-      90%  { transform: translateZ(0) rotateY(-184deg) scaleX(1);      animation-timing-function: ease-out; }
-      100% { transform: translateZ(0) rotateY(-180deg) scaleX(1); }
+      0%   { transform: translateZ(0) rotateY(0deg) rotateX(0deg) rotateZ(0deg) scaleX(1);           animation-timing-function: ease-in; }
+      52%  { transform: translateZ(30px) rotateY(-96deg) rotateX(7deg) rotateZ(-6deg) scaleX(0.06);  animation-timing-function: ease-out; }
+      90%  { transform: translateZ(0) rotateY(-184deg) rotateX(1deg) rotateZ(-1deg) scaleX(1);       animation-timing-function: ease-out; }
+      100% { transform: translateZ(0) rotateY(-180deg) rotateX(0deg) rotateZ(0deg) scaleX(1); }
     }
     @keyframes portrait-flip-leaf-prev {
-      0%   { transform: translateZ(0) rotateY(0deg) scaleX(1);         animation-timing-function: ease-in; }
-      52%  { transform: translateZ(30px) rotateY(96deg) scaleX(0.06);  animation-timing-function: ease-out; }
-      90%  { transform: translateZ(0) rotateY(184deg) scaleX(1);       animation-timing-function: ease-out; }
-      100% { transform: translateZ(0) rotateY(180deg) scaleX(1); }
+      0%   { transform: translateZ(0) rotateY(0deg) rotateX(0deg) rotateZ(0deg) scaleX(1);           animation-timing-function: ease-in; }
+      52%  { transform: translateZ(30px) rotateY(96deg) rotateX(7deg) rotateZ(6deg) scaleX(0.06);    animation-timing-function: ease-out; }
+      90%  { transform: translateZ(0) rotateY(184deg) rotateX(1deg) rotateZ(1deg) scaleX(1);         animation-timing-function: ease-out; }
+      100% { transform: translateZ(0) rotateY(180deg) rotateX(0deg) rotateZ(0deg) scaleX(1); }
     }
 
     /* 페이지 넘김 그림자 — 위 leaf 카드와 완전히 분리된, 회전 안 하는 평평한 레이어
