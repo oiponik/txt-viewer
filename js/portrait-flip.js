@@ -125,7 +125,7 @@ export function coverPanelWithLeavingContent({ stage, offsetTop, offsetLeft, wid
 //                     0으로 못 되돌려 플래시가 생긴다.
 //   overlapPx       → 이웃 스트립을 몇 px 겹칠지(서브픽셀 반올림 hairline 틈 방지).
 // 곡선 세기(peak 각도·translateZ 들림)는 styles.css의 @keyframes portrait-flip-strip-* 에서.
-const STRIP_PEEL = { enabled: true, strips: 9, stripDurationMs: 540, stepMs: 24, overlapPx: 3 };
+const STRIP_PEEL = { enabled: true, strips: 10, stripDurationMs: 520, stepMs: 22, overlapPx: 3 };
 
 // 패널 하나(세로 모드에서는 페이지 전체, 가로 모드에서는 좌/우 절반 중 하나)의 leaf/base
 // 카드를 만들고 애니메이션을 건다. `activeAnimation` 등록/해제는 호출자(playPortraitPageTurn/
