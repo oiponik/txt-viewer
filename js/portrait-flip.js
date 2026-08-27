@@ -114,14 +114,18 @@ export function coverPanelWithLeavingContent({ stage, offsetTop, offsetLeft, wid
 }
 
 // 넘어가는 면의 "아래쪽이 먼저 곡선으로 들린다" 세그먼트 peel 설정.
-//   enabled=false  → 예전처럼 무변형 `.page` 한 장(순수 rotateY 카드 뒤집기).
-//   strips         → 넘어가는 면을 가로로 몇 등분할지. 많을수록 곡선이 매끄럽지만
-//                    동시 3D 레이어가 늘어 실기기 합성 비용↑.
-//   stepMs         → 이웃 스트립 사이 시차(아래 스트립이 먼저 시작). ⚠️ 마지막(맨 위)
-//                    스트립이 leafCard 애니메이션이 끝나기 전에 곡선을 0으로 되돌려야
-//                    하므로 (strips-1)*stepMs 는 duration*0.45 이하로 유지할 것.
-//   overlapPx      → 이웃 스트립을 몇 px 겹칠지(서브픽셀 반올림 hairline 틈 방지).
-const STRIP_PEEL = { enabled: true, strips: 6, stepMs: 34, overlapPx: 3 };
+//   enabled=false   → 예전처럼 무변형 `.page` 한 장(순수 rotateY 카드 뒤집기).
+//   strips          → 넘어가는 면을 가로로 몇 등분할지. 많을수록 곡선이 매끄럽지만
+//                     동시 3D 레이어가 늘어 실기기 합성 비용↑.
+//   stripDurationMs → 각 스트립의 곡선 델타 1회분 길이(leafCard 750ms와 별개, 더 짧게).
+//                     짧을수록 시차(stagger) 예산이 늘어 곡선을 넘김 중반까지 끌고 갈 수 있다.
+//   stepMs          → 이웃 스트립 사이 시차(아래 스트립이 먼저 시작).
+//                     ⚠️ (strips-1)*stepMs + stripDurationMs ≤ leafCard duration(750) 유지 —
+//                     안 그러면 맨 위 스트립이 leafCard가 rotateY(0)로 스냅되기 전에 델타를
+//                     0으로 못 되돌려 플래시가 생긴다.
+//   overlapPx       → 이웃 스트립을 몇 px 겹칠지(서브픽셀 반올림 hairline 틈 방지).
+// 곡선 세기(peak 각도·translateZ 들림)는 styles.css의 @keyframes portrait-flip-strip-* 에서.
+const STRIP_PEEL = { enabled: true, strips: 9, stripDurationMs: 540, stepMs: 24, overlapPx: 3 };
 
 // 패널 하나(세로 모드에서는 페이지 전체, 가로 모드에서는 좌/우 절반 중 하나)의 leaf/base
 // 카드를 만들고 애니메이션을 건다. `activeAnimation` 등록/해제는 호출자(playPortraitPageTurn/
@@ -250,7 +254,7 @@ function buildPanelAnimation({
       strip.style.transformOrigin = sign < 0 ? 'left center' : 'right center';
       // 아래 스트립(k = n-1)이 delay 0으로 제일 먼저, 위로 갈수록 늦게 시작.
       const delay = (n - 1 - k) * STRIP_PEEL.stepMs;
-      strip.style.animation = `portrait-flip-strip-${direction} ${duration}ms linear ${delay}ms both`;
+      strip.style.animation = `portrait-flip-strip-${direction} ${STRIP_PEEL.stripDurationMs}ms linear ${delay}ms both`;
 
       // 페이지 통짜 복사본을 위로 밀어 이 스트립 몫의 가로 밴드만 창처럼 보이게 한다
       // (clip-path 아님 — 순수 overflow:hidden). 복사본은 k와 무관하게 항상 leafCard
