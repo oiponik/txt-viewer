@@ -207,14 +207,19 @@ function buildPanelAnimation({
   // 50% 지점에서 감속→재가속이 겹치는 문제가 있었다).
   leafCard.style.animation = `portrait-flip-leaf-${direction} ${duration}ms linear`;
 
-  // 앞면 — 넘어가는 페이지 내용. 카드 안에서 회전을 더 얹지 않으므로(로컬 rotateY 0)
-  // 카드 각도가 곧 이 면의 유효 각도다.
+  // 앞면 — 넘어가는 페이지 내용. 카드 자신의 rotateY(스파인축, 곧은 직선 고정)와
+  // 별개로, 이 면에만 skewY를 걸어 "스파인은 안 움직이고 바깥 가장자리만 휘는" flex를
+  // 준다(F-plan). transform-origin이 스파인 가장자리라 skewY가 그 x=0 지점을 안
+  // 건드린다 → 회전축은 절대 안 휘고 바깥쪽만 평행사변형처럼 밀린다. 회전 타이밍
+  // 키프레임(leafCard)과 완전히 독립. styles.css의 @keyframes portrait-flip-flex-*.
   const front = buildPageElement(leavingText, leavingFooter, leavingWidth, leavingHeight);
   front.style.position = 'absolute';
   front.style.top = '0';
   front.style.left = '0';
   front.style.backfaceVisibility = 'hidden';
   front.style.webkitBackfaceVisibility = 'hidden';
+  front.style.transformOrigin = sign < 0 ? 'left center' : 'right center';
+  front.style.animation = `portrait-flip-flex-${direction} ${duration}ms linear`;
 
   // 앞면 위에 얹는 "곡률 눈속임" 레이어 — v1의 가는 흰 밴드(셰인) 한 겹으로는 "평면이
   // 통째로 회전한다"는 근본 인상을 못 바꿨다(사용자 실기기 피드백: "아직 판때기 느낌").

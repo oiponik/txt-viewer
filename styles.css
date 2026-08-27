@@ -725,28 +725,50 @@
        구간이 ease-in을 새로 시작해 그 지점에서 속도가 끊긴다(예전 "90도 멈춤" 버그와
        같은 부류). "모서리가 먼저 들리는" peel-up은 그래서 이번엔 보류 — 넣으려면
        별도 병렬 애니메이션 요소가 필요하다. translateZ 피크만 28→30px로 소폭.
-       ⚠️ 2026-08-27, E-plan — 세로축 문짝 스윙 깨기: 사용자가 "제일 어색한 건 곧은
-       세로축을 축으로 페이지가 통째로 도는 것(위/아래 가장자리가 완전 동기)"이라고
-       원인을 정확히 짚었다. 실제 책은 바깥 모서리가 먼저 나가고 접힘선이 대각선이다.
-       순수 rotateY에 **회전 중간에만 피크였다 정확히 0으로 돌아오는** rotateX(위/아래
-       가장자리를 다른 깊이에 둬서 대각선 접힘선처럼 보이게)와 rotateZ(면 안에서 살짝
-       굴러 바깥 모서리가 먼저 나가게)를 더했다. 끝(90%/100%)에서 rotateX/rotateZ가
-       정확히 0이라 착지 상태는 여전히 순수 rotateY(±180) = 완전 평평 = back면이
-       정면으로 딱 앉는다(안 그러면 도착 페이지가 비스듬히 앉는다). transform-origin은
-       스파인축 그대로(JS). rotateX(7deg)·rotateZ(±6deg)는 튜닝 노브 — 실기기에서
-       리드하는 모서리를 위↔아래로 바꾸려면 rotateX 부호만, 굴림 방향은 rotateZ 부호만
-       뒤집으면 된다. */
+       ⚠️ 2026-08-27, E-plan(실패, 되돌림) — 세로축 문짝 스윙을 깨려고 leafCard 자체에
+       rotateX/rotateZ를 (중간 피크 → 끝 0으로) 더했다. 그런데 leafCard는 transform-origin이
+       스파인축이라, 여기 rotateX/rotateZ를 걸면 **회전축(스파인 가장자리) 자신이 같이
+       기울어진다** — 사용자 피드백: "가운데 회전축은 원래대로 직선이어야 하는데 지금은
+       회전축과 바깥쪽이 같이 휘네". 그래서 leafCard는 순수 rotateY로 되돌리고(스파인축
+       = 곧은 수직 직선 고정), "바깥쪽만 휨"은 아래 F-plan(front에만 skewY)으로 옮겼다.
+       ⚠️ 2026-08-27, F-plan — 스파인 고정 + 바깥만 flex: leafCard는 순수 rotateY(축
+       직선). 대신 `front`(넘어가는 면)에만 별도로 `skewY`를 건다(transform-origin은
+       스파인 가장자리, js/portrait-flip.js). skewY는 origin 쪽 x=0 지점을 안 움직이므로
+       스파인 가장자리는 수직 직선 그대로 고정되고, 바깥 가장자리만 세로로 밀린다
+       (평행사변형). 회전 중간에만 살짝 휘었다 끝에서 정확히 0 복귀 — @keyframes
+       portrait-flip-flex-* 참고. 축은 절대 안 건드린다. */
     @keyframes portrait-flip-leaf-next {
-      0%   { transform: translateZ(0) rotateY(0deg) rotateX(0deg) rotateZ(0deg) scaleX(1);           animation-timing-function: ease-in; }
-      52%  { transform: translateZ(30px) rotateY(-96deg) rotateX(7deg) rotateZ(-6deg) scaleX(0.06);  animation-timing-function: ease-out; }
-      90%  { transform: translateZ(0) rotateY(-184deg) rotateX(1deg) rotateZ(-1deg) scaleX(1);       animation-timing-function: ease-out; }
-      100% { transform: translateZ(0) rotateY(-180deg) rotateX(0deg) rotateZ(0deg) scaleX(1); }
+      0%   { transform: translateZ(0) rotateY(0deg) scaleX(1);         animation-timing-function: ease-in; }
+      52%  { transform: translateZ(30px) rotateY(-96deg) scaleX(0.06); animation-timing-function: ease-out; }
+      90%  { transform: translateZ(0) rotateY(-184deg) scaleX(1);      animation-timing-function: ease-out; }
+      100% { transform: translateZ(0) rotateY(-180deg) scaleX(1); }
     }
     @keyframes portrait-flip-leaf-prev {
-      0%   { transform: translateZ(0) rotateY(0deg) rotateX(0deg) rotateZ(0deg) scaleX(1);           animation-timing-function: ease-in; }
-      52%  { transform: translateZ(30px) rotateY(96deg) rotateX(7deg) rotateZ(6deg) scaleX(0.06);    animation-timing-function: ease-out; }
-      90%  { transform: translateZ(0) rotateY(184deg) rotateX(1deg) rotateZ(1deg) scaleX(1);         animation-timing-function: ease-out; }
-      100% { transform: translateZ(0) rotateY(180deg) rotateX(0deg) rotateZ(0deg) scaleX(1); }
+      0%   { transform: translateZ(0) rotateY(0deg) scaleX(1);         animation-timing-function: ease-in; }
+      52%  { transform: translateZ(30px) rotateY(96deg) scaleX(0.06);  animation-timing-function: ease-out; }
+      90%  { transform: translateZ(0) rotateY(184deg) scaleX(1);       animation-timing-function: ease-out; }
+      100% { transform: translateZ(0) rotateY(180deg) scaleX(1); }
+    }
+
+    /* F-plan — 스파인(회전축) 직선 고정, 바깥쪽만 flex. leafCard(순수 rotateY)와 별개로
+       `front`(js/portrait-flip.js)에만 건다. transform-origin이 스파인 가장자리라
+       skewY는 그 x=0 지점을 안 움직인다 → 스파인 가장자리는 수직 직선 그대로,
+       바깥 가장자리만 세로로 밀려 평행사변형처럼 휜다. 회전 초반에 살짝 휘었다
+       (0→30%) 되돌아온다(30→60%), 그 뒤엔 0 — 90도 넘어 front가 backface로 사라지는
+       구간엔 이미 0. next/prev는 skew 방향 반대. 각도(4deg)·피크 위치는 튜닝 노브.
+       leafCard 회전 타이밍과 독립이라 여기 중간 스톱을 넣어도 "90도 멈춤" 부류
+       문제 없음(skew 자체 속도에만 미세 영향, 4deg라 체감 불가). */
+    @keyframes portrait-flip-flex-next {
+      0%   { transform: skewY(0deg); animation-timing-function: ease-out; }
+      30%  { transform: skewY(4deg); animation-timing-function: ease-in; }
+      60%  { transform: skewY(0deg); }
+      100% { transform: skewY(0deg); }
+    }
+    @keyframes portrait-flip-flex-prev {
+      0%   { transform: skewY(0deg);  animation-timing-function: ease-out; }
+      30%  { transform: skewY(-4deg); animation-timing-function: ease-in; }
+      60%  { transform: skewY(0deg); }
+      100% { transform: skewY(0deg); }
     }
 
     /* 페이지 넘김 그림자 — 위 leaf 카드와 완전히 분리된, 회전 안 하는 평평한 레이어
