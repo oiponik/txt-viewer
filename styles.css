@@ -732,11 +732,12 @@
        기울어진다** — 사용자 피드백: "가운데 회전축은 원래대로 직선이어야 하는데 지금은
        회전축과 바깥쪽이 같이 휘네". 그래서 leafCard는 순수 rotateY로 되돌리고(스파인축
        = 곧은 수직 직선 고정), "바깥쪽만 휨"은 아래 F-plan(front에만 skewY)으로 옮겼다.
-       ⚠️ 2026-08-27, F-plan(폐기) — leafCard 순수 rotateY 유지하고 `front`에만 skewY.
-       약하면 안 보이고, 키우면 평행사변형 삼각 틈, 3D로 돌리면 base와 어긋나 꺾임/잘림.
-       B안(3조각 중첩 커얼)도 잰크. → "곡률"은 포기하고 넘김 시작 순간 자유 가장자리
-       쪽 아래 모서리만 살짝 드는 dog-ear로 축소(@keyframes portrait-flip-corner-* +
-       js/portrait-flip.js의 flap). leafCard는 계속 순수 rotateY. */
+       ⚠️ 2026-08-27 — 곡률 시도 전부 보류(내일 재개): F-plan(front에만 skewY) 약하면
+       안 보이고 키우면 삼각 틈, 3D면 꺾임/잘림. B-plan(3조각 중첩 커얼) 잰크. 모서리
+       dog-ear flap도 각도 키우니 같은 "분리·꺾임". → 곡률 관련 코드(front skewY,
+       curl-shade, dogear 스트립, corner flap) 전부 제거하고 순수 rotateY 카드 뒤집기로
+       복귀. leafCard는 계속 순수 rotateY. 아래는 유지된 것: scaleX 제거(90도 멈춤 해결),
+       perspective 3600px + translateZ 4px(넘어가는 가장자리 확대 완화). */
     /* ⚠️ 2026-08-27 — "90도에서 멈췄다 넘어가는" 느낌 직격(오늘 작업 전부터 있던 것).
        원인: 52% 스톱의 scaleX(0.06)이 rotateY(-96deg)의 자연스러운 원근 축소 위에
        한 번 더 눌러서, 중간에 페이지가 실처럼(≈1~2px) 사라졌다 다시 나타났다 — 눈엔
@@ -758,30 +759,6 @@
       100% { transform: translateZ(0) rotateY(180deg); }
     }
 
-    /* 모서리 dog-ear (js/portrait-flip.js의 flap). "바깥 가장자리 전체 변형"(A~F안)은
-       전부 다른 레이어와 어긋나 잘림/꺾임이 났다 — 이건 **자유 가장자리 쪽 아래 모서리
-       하나 + 넘김 시작 순간만**. 모서리가 들릴 때 생기는 삼각형 틈은 실제 dog-ear에서
-       나야 정상인 모양이라 "어긋나 보이는" 문제 자체가 없고, 페이지가 아직 정면일 때
-       (0→26%) 일어났다 48%에 0으로 펴진다. flap은 모서리를 대각선으로 가로지르는
-       접힘선을 축으로 rotate3d — JS에서 transform-origin(대각선 끝점)/축 벡터를,
-       여기선 각도만. 0→26%(들림) ease-out, 26→48%(복귀) ease-in.
-       ⚠️ 2026-08-27: 부호 양수(+70deg)여야 모서리가 화면 안쪽(-Z, 독자 반대)으로
-       접힌다 — 사용자가 처음엔 "독자 쪽"이라 했다가 실기기 보고 "독자 반대가 맞다"로
-       정정. 각도 58→70deg(곡률 더), flapSize도 0.30→0.45(범위 더 넓게, js). 각도·
-       부호·flapSize가 튜닝 노브. */
-    @keyframes portrait-flip-corner-next {
-      0%   { transform: rotate3d(-1, 1, 0, 0deg);   animation-timing-function: ease-out; }
-      26%  { transform: rotate3d(-1, 1, 0, 70deg);  animation-timing-function: ease-in; }
-      48%  { transform: rotate3d(-1, 1, 0, 0deg); }
-      100% { transform: rotate3d(-1, 1, 0, 0deg); }
-    }
-    @keyframes portrait-flip-corner-prev {
-      0%   { transform: rotate3d(1, 1, 0, 0deg);   animation-timing-function: ease-out; }
-      26%  { transform: rotate3d(1, 1, 0, 70deg);  animation-timing-function: ease-in; }
-      48%  { transform: rotate3d(1, 1, 0, 0deg); }
-      100% { transform: rotate3d(1, 1, 0, 0deg); }
-    }
-
     /* 페이지 넘김 그림자 — 위 leaf 카드와 완전히 분리된, 회전 안 하는 평평한 레이어
        (js/portrait-flip.js의 shadowLayer). 카드가 뭘 하든(90도에서 아무리 짜부라져도)
        이 그림자는 항상 평평한 표면 위에 얹힌 것처럼 opacity만 0→1→0으로 자연스럽게
@@ -795,13 +772,6 @@
       100% { opacity: 0; }
     }
 
-    /* 모서리 dog-ear 접힌 자리 그림자 — 들림과 같은 타이밍으로 짙어졌다 사라진다. */
-    @keyframes portrait-flip-corner-shade {
-      0%   { opacity: 0;   animation-timing-function: ease-out; }
-      26%  { opacity: 0.9; animation-timing-function: ease-in; }
-      48%  { opacity: 0; }
-      100% { opacity: 0; }
-    }
 
     /* 밝기 오버레이 — 브라우저는 실제 기기 화면 밝기를 제어할 수 없어서, 읽기
        영역(book-stage) 위에 반투명 검은 막을 씌워 어둡게 보이도록 흉내낸다.

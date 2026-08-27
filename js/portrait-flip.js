@@ -231,65 +231,14 @@ function buildPanelAnimation({
   back.style.webkitBackfaceVisibility = 'hidden';
   back.style.transform = 'rotateY(180deg)';
 
-  // === 모서리 dog-ear ======================================================
-  // "곡률을 최소화하되, 넘김이 시작될 때 자유 가장자리 쪽 아래 모서리가 살짝 휘면서
-  // 넘어가는" 형태(사용자 요청). 지금까지 시도한 "바깥 가장자리 전체 변형"은 전부
-  // 다른 레이어와 어긋나 잘림/꺾임이 났는데, 이건 **모서리 하나 + 시작 순간만**이라
-  // 훨씬 안전하다: (1) 모서리가 들릴 때 생기는 삼각형 틈은 실제 dog-ear에서 나야
-  // 정상인 모양이라 "어긋나 보이는" 문제 자체가 없다, (2) 페이지가 아직 정면일 때
-  // (0~22%) 일어났다 옆으로 돌기 전에 펴져서 잘 보이고 아티팩트 구간을 안 지난다,
-  // (3) 작은 요소 하나라 깨지면 `.portrait-flip-corner { display:none }`로 즉시 롤백.
-  //   구조: [flapSize 정사각 클립(overflow:hidden), 자유 가장자리 쪽 아래 모서리에 배치]
-  //           ├ [leavingText 담은 .page 통짜 복사본을 밀어 그 모서리 슬라이스만 보이게
-  //           │  — rotateY(0)에서 front의 그 모서리와 픽셀 일치]
-  //           └ [접힌 자리 그림자 그라디언트 — 들릴 때 짙어졌다 사라짐]
-  //   flap은 dog-ear 접힘선(모서리를 대각선으로 가로지르는 선)을 축으로 rotate3d 한다.
-  //   transform-origin이 그 대각선의 한 끝점, 축 벡터가 대각선 방향. 회전 초반
-  //   (0→22% 피크)에만 들렸다 45%에 0으로 복귀 — 그 뒤엔 front의 일부. 카드가 90도를
-  //   넘으면 backface-visibility로 front와 함께 사라진다.
-  //   flapSize(모서리 크기)·각도(styles.css @keyframes portrait-flip-corner-*)가 튜닝 노브.
-  //   rotate3d 각도 부호 = 모서리가 독자 쪽으로 들리는지 반대인지 — 실기기에서 뒤집어 조정.
-  const flapSize = Math.round(Math.min(leavingWidth, leavingHeight) * 0.45);
-  const flap = document.createElement('div');
-  flap.className = 'portrait-flip-corner';
-  flap.style.position = 'absolute';
-  flap.style.width = flapSize + 'px';
-  flap.style.height = flapSize + 'px';
-  flap.style.overflow = 'hidden';
-  flap.style.pointerEvents = 'none';
-  flap.style.backfaceVisibility = 'hidden';
-  flap.style.webkitBackfaceVisibility = 'hidden';
-  flap.style.top = (leavingHeight - flapSize) + 'px';
-  // next: 스파인이 왼쪽 → 자유 가장자리 오른쪽 → 오른쪽 아래 모서리. 접힘선은 flap의
-  //   오른쪽위(100% 0)↔왼쪽아래(0 100%) 대각선. origin=오른쪽위, 축 벡터=(-1,1,0).
-  // prev: 스파인 오른쪽 → 왼쪽 아래 모서리. 접힘선은 flap의 왼쪽위(0 0)↔오른쪽아래
-  //   (100% 100%) 대각선. origin=왼쪽위, 축 벡터=(1,1,0).
-  flap.style.left = (sign < 0 ? (leavingWidth - flapSize) : 0) + 'px';
-  flap.style.transformOrigin = sign < 0 ? '100% 0' : '0 0';
-  flap.style.animation = `portrait-flip-corner-${direction} ${duration}ms linear`;
-
-  const flapCopy = buildPageElement(leavingText, leavingFooter, leavingWidth, leavingHeight);
-  flapCopy.style.position = 'absolute';
-  flapCopy.style.top = -(leavingHeight - flapSize) + 'px';
-  flapCopy.style.left = (sign < 0 ? -(leavingWidth - flapSize) : 0) + 'px';
-  flap.appendChild(flapCopy);
-
-  const flapShade = document.createElement('div');
-  flapShade.className = 'portrait-flip-corner-shade';
-  flapShade.style.position = 'absolute';
-  flapShade.style.top = '0';
-  flapShade.style.left = '0';
-  flapShade.style.width = '100%';
-  flapShade.style.height = '100%';
-  flapShade.style.pointerEvents = 'none';
-  flapShade.style.background = sign < 0
-    ? 'linear-gradient(to bottom right, rgba(0,0,0,0) 42%, rgba(0,0,0,0.32))'
-    : 'linear-gradient(to bottom left, rgba(0,0,0,0) 42%, rgba(0,0,0,0.32))';
-  flapShade.style.animation = `portrait-flip-corner-shade ${duration}ms linear`;
-  flap.appendChild(flapShade);
+  // ⚠️ 2026-08-27 되돌림 — 모서리 dog-ear flap: 자유 가장자리 쪽 아래 모서리에 .page
+  // 복사본 조각을 얹고 접힘선(모서리 대각선)을 축으로 rotate3d로 접었었다. "곡률로
+  // 보일 만큼" 각도/크기를 키우니(70deg / 페이지 0.45) 결국 다른 레이어(front/base)와
+  // 어긋나 "분리되고 꺾여" 보였다(사용자) — front 한 겹 변형(A~F안)이 냈던 것과 같은
+  // 종류의 아티팩트. 모서리로 국소화해도 각도가 커지면 같은 문제. 곡률 자체를 보류하고
+  // 순수 rotateY 카드 뒤집기로 되돌림. (내일 다른 접근으로 재개 예정.)
 
   leafCard.appendChild(front);
-  leafCard.appendChild(flap);
   leafCard.appendChild(back);
 
   perspectiveStage.appendChild(base);
