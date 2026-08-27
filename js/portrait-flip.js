@@ -258,7 +258,61 @@ function buildPanelAnimation({
   back.style.webkitBackfaceVisibility = 'hidden';
   back.style.transform = 'rotateY(180deg)';
 
+  // === D안 — 바깥 가장자리 dog-ear 스트립 ======================================
+  // v2(전면 롤링 명암)까지도 "판때기" 느낌이 남아서(사용자 실기기 피드백), 자유
+  // 가장자리(스파인 반대쪽)에 얇은 조각 하나를 얹어 넘김 초반에 살짝 말려 올라갔다
+  // 되돌아오게 한다 — 페이지 모서리가 먼저 들리는, 실루엣이 실제로 변형되는 유일한
+  // "종이" 신호. **중첩 preserve-3d를 새로 만들지 않는다**: 이 스트립은 front/back과
+  // 같은 깊이(leafCard의 직계 자식)라 leafCard의 기존 preserve-3d 컨텍스트를 그대로
+  // 쓴다. 클립은 clip-path가 아니라 overflow:hidden. JS 매 프레임 갱신도 없다
+  // (styles.css의 @keyframes portrait-flip-dogear-*).
+  //   구조: [클립 컨테이너 overflow:hidden, 폭=stripW, 힌지축 = 안쪽 가장자리]
+  //           ├ [leavingText 담은 .page 통짜 복사본(폭=leavingWidth)을 좌우로 밀어
+  //           │  바깥 슬라이스만 보이게 — rotateY(0)에서 front의 그 슬라이스와 픽셀
+  //           │  일치, 불투명 배경이라 겹쳐도 깜빡임 없음]
+  //           └ [힌지 쪽이 짙은 그림자 그라디언트 — 접힌 안쪽 앰비언트 오클루전 흉내]
+  // 스트립은 회전 초반(0→48%)에만 말렸다 펴지고 그 뒤엔 rotateY(0)이라 사실상 front의
+  // 일부처럼 행동한다 — 카드가 90도를 넘으면 스트립 자신 + 안쪽 .page 복사본이 전부
+  // backface-visibility로 front와 함께 사라진다. 말림 각도·타이밍은 튜닝 노브.
+  const stripW = Math.max(36, Math.round(leavingWidth * 0.16));
+  const dogear = document.createElement('div');
+  dogear.className = 'portrait-flip-dogear';
+  dogear.style.position = 'absolute';
+  dogear.style.top = '0';
+  dogear.style.left = (sign < 0 ? (leavingWidth - stripW) : 0) + 'px';
+  dogear.style.width = stripW + 'px';
+  dogear.style.height = leavingHeight + 'px';
+  dogear.style.overflow = 'hidden';
+  dogear.style.pointerEvents = 'none';
+  // 힌지축 = 스파인 반대쪽(자유 가장자리)이 아니라 그 안쪽 — next는 스트립의 왼쪽
+  // 가장자리, prev는 오른쪽 가장자리에서 접힌다.
+  dogear.style.transformOrigin = sign < 0 ? 'left center' : 'right center';
+  dogear.style.backfaceVisibility = 'hidden';
+  dogear.style.webkitBackfaceVisibility = 'hidden';
+  dogear.style.animation = `portrait-flip-dogear-${direction} ${duration}ms linear`;
+
+  const dogearCopy = buildPageElement(leavingText, '', leavingWidth, leavingHeight);
+  dogearCopy.style.position = 'absolute';
+  dogearCopy.style.top = '0';
+  dogearCopy.style.left = (sign < 0 ? -(leavingWidth - stripW) : 0) + 'px';
+  dogear.appendChild(dogearCopy);
+
+  const dogearShade = document.createElement('div');
+  dogearShade.className = 'portrait-flip-dogear-shade';
+  dogearShade.style.position = 'absolute';
+  dogearShade.style.top = '0';
+  dogearShade.style.left = '0';
+  dogearShade.style.width = '100%';
+  dogearShade.style.height = '100%';
+  dogearShade.style.pointerEvents = 'none';
+  dogearShade.style.background = sign < 0
+    ? 'linear-gradient(to right, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0) 55%)'
+    : 'linear-gradient(to left, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0) 55%)';
+  dogearShade.style.animation = `portrait-flip-dogear-shade ${duration}ms linear`;
+  dogear.appendChild(dogearShade);
+
   leafCard.appendChild(front);
+  leafCard.appendChild(dogear);
   leafCard.appendChild(back);
 
   perspectiveStage.appendChild(base);

@@ -772,6 +772,33 @@
       100% { background-position: 26% 0; opacity: 0; }
     }
 
+    /* D안 — 바깥 가장자리 dog-ear 스트립(js/portrait-flip.js의 dogear). v2까지도
+       "판때기" 느낌이 남아서(실기기 피드백), 자유 가장자리 조각 하나가 넘김 초반에
+       살짝 말려 올라갔다(rotateY) 펴진다 — 실루엣이 실제로 변형되는 유일한 조각.
+       leafCard(preserve-3d)의 직계 자식이라 중첩 preserve-3d를 새로 만들지 않는다.
+       0→48% 구간만 실제로 움직이고 그 뒤엔 rotateY(0)이라 사실상 front의 일부.
+       힌지축은 방향별로 반대(next=스트립 왼쪽 가장자리, prev=오른쪽). 말림 각도(35deg)·
+       타이밍은 튜닝 노브. 0→22%(들림) ease-out, 22→48%(복귀) ease-in. */
+    @keyframes portrait-flip-dogear-next {
+      0%   { transform: rotateY(0deg);  animation-timing-function: ease-out; }
+      22%  { transform: rotateY(35deg); animation-timing-function: ease-in; }
+      48%  { transform: rotateY(0deg); }
+      100% { transform: rotateY(0deg); }
+    }
+    @keyframes portrait-flip-dogear-prev {
+      0%   { transform: rotateY(0deg);   animation-timing-function: ease-out; }
+      22%  { transform: rotateY(-35deg); animation-timing-function: ease-in; }
+      48%  { transform: rotateY(0deg); }
+      100% { transform: rotateY(0deg); }
+    }
+    /* dog-ear 힌지 쪽 그림자 — 말림과 같은 타이밍으로 짙어졌다 사라진다. */
+    @keyframes portrait-flip-dogear-shade {
+      0%   { opacity: 0;   animation-timing-function: ease-out; }
+      22%  { opacity: 0.9; animation-timing-function: ease-in; }
+      48%  { opacity: 0; }
+      100% { opacity: 0; }
+    }
+
     /* 밝기 오버레이 — 브라우저는 실제 기기 화면 밝기를 제어할 수 없어서, 읽기
        영역(book-stage) 위에 반투명 검은 막을 씌워 어둡게 보이도록 흉내낸다.
        #main-content가 position:relative라 여기 기준으로 book-stage 영역만 덮는다.
