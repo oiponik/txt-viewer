@@ -208,10 +208,11 @@ function buildPanelAnimation({
   leafCard.style.animation = `portrait-flip-leaf-${direction} ${duration}ms linear`;
 
   // 앞면 — 넘어가는 페이지 내용. 카드 자신의 rotateY(스파인축, 곧은 직선 고정)와
-  // 별개로, 이 면에만 skewY를 걸어 "스파인은 안 움직이고 바깥 가장자리만 휘는" flex를
-  // 준다(F-plan). transform-origin이 스파인 가장자리라 skewY가 그 x=0 지점을 안
-  // 건드린다 → 회전축은 절대 안 휘고 바깥쪽만 평행사변형처럼 밀린다. 회전 타이밍
-  // 키프레임(leafCard)과 완전히 독립. styles.css의 @keyframes portrait-flip-flex-*.
+  // 별개로, 이 면에만 flex 애니메이션(skewY + 자기 스파인축 rotateY, 둘 다 중간
+  // 피크→끝 0)을 걸어 "스파인은 안 움직이고 바깥 가장자리만 휘는" 느낌을 준다(F-plan).
+  // transform-origin이 스파인 가장자리라 skewY도 rotateY도 그 x=0 선을 안 건드린다
+  // → 회전축은 절대 안 휘고 바깥쪽만 휜다. leafCard 회전 타이밍과 완전히 독립.
+  // styles.css의 @keyframes portrait-flip-flex-*.
   const front = buildPageElement(leavingText, leavingFooter, leavingWidth, leavingHeight);
   front.style.position = 'absolute';
   front.style.top = '0';
