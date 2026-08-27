@@ -216,30 +216,34 @@ function buildPanelAnimation({
   front.style.backfaceVisibility = 'hidden';
   front.style.webkitBackfaceVisibility = 'hidden';
 
-  // 앞면 위에 얹는 "곡률 눈속임" 셰인 — 회전하는 종이 표면을 빛이 쓸고 지나가는 것처럼
-  // 보이게 하는 이동 하이라이트 한 겹. 평면은 고정 광원 아래서 이동 하이라이트가 안
-  // 생기지만 휜 표면은 생긴다 — 그래서 이 한 겹만으로도 "빳빳한 카드"가 아니라 "휘는
-  // 종이"라는 인상을 준다. clip-path도 JS 매 프레임 갱신도 없다: background-position과
-  // opacity만 styles.css의 @keyframes(portrait-flip-sheen-*)가 움직인다. front의
-  // 자식이라 카드가 90도를 넘어 front가 backface-visibility로 사라지면 이 셰인도 같이
-  // 사라진다(도착면 back은 이미 평평하게 앉은 상태라 셰인이 없어야 자연스럽다).
-  // 하이라이트 밴드는 스파인(회전축) 쪽에서 시작해 바깥 가장자리로 쓸려나간다.
-  const sheen = document.createElement('div');
-  sheen.className = 'portrait-flip-sheen';
-  sheen.style.position = 'absolute';
-  sheen.style.top = '0';
-  sheen.style.left = '0';
-  sheen.style.width = '100%';
-  sheen.style.height = '100%';
-  sheen.style.pointerEvents = 'none';
-  sheen.style.zIndex = '1';
-  sheen.style.background = sign < 0
-    ? 'linear-gradient(100deg, rgba(255,255,255,0) 38%, rgba(255,255,255,0.22) 50%, rgba(255,255,255,0) 62%)'
-    : 'linear-gradient(260deg, rgba(255,255,255,0) 38%, rgba(255,255,255,0.22) 50%, rgba(255,255,255,0) 62%)';
-  sheen.style.backgroundSize = '260% 100%';
-  sheen.style.backgroundRepeat = 'no-repeat';
-  sheen.style.animation = `portrait-flip-sheen-${direction} ${duration}ms linear`;
-  front.appendChild(sheen);
+  // 앞면 위에 얹는 "곡률 눈속임" 레이어 — v1의 가는 흰 밴드(셰인) 한 겹으로는 "평면이
+  // 통째로 회전한다"는 근본 인상을 못 바꿨다(사용자 실기기 피드백: "아직 판때기 느낌").
+  // v2에선 front 전체에 실린더형 명암을 깐다: 스파인 쪽과 자유 가장자리 쪽이 어둡고
+  // 그 사이에 밝은 능선 — 굽은 종이 표면에 빛이 닿는 모양이다. 회전이 진행되며 이
+  // 패턴이 페이지를 굴러가듯(background-position) 이동하고 동시에 짙어졌다(opacity)
+  // 사라진다. 게임의 2D page-curl 셰이더 페이크와 같은 접근 — 여전히 기하학은 순수
+  // 평면이고 clip-path도 JS 매 프레임 갱신도 없다(styles.css의 @keyframes
+  // portrait-flip-curl-shade-* 가 전부). front의 자식이라 카드가 90도를 넘어
+  // backface-visibility로 front가 사라지면 이 레이어도 같이 사라진다(도착면 back은
+  // 이미 평평하게 앉은 상태라 명암이 없어야 자연스럽다). 그라디언트는 방향별로 좌우
+  // 반전 — next는 스파인이 왼쪽, prev는 오른쪽. 명암 세기(0.30/0.36 어둠, 0.20 능선)·
+  // 능선 위치(35%)·스윕 거리는 실기기 피드백으로 조정하는 튜닝 노브다.
+  const curlShade = document.createElement('div');
+  curlShade.className = 'portrait-flip-curl-shade';
+  curlShade.style.position = 'absolute';
+  curlShade.style.top = '0';
+  curlShade.style.left = '0';
+  curlShade.style.width = '100%';
+  curlShade.style.height = '100%';
+  curlShade.style.pointerEvents = 'none';
+  curlShade.style.zIndex = '1';
+  curlShade.style.background = sign < 0
+    ? 'linear-gradient(to right, rgba(0,0,0,0.30) 0%, rgba(0,0,0,0.04) 16%, rgba(255,255,255,0.20) 35%, rgba(0,0,0,0.06) 58%, rgba(0,0,0,0.36) 100%)'
+    : 'linear-gradient(to left, rgba(0,0,0,0.30) 0%, rgba(0,0,0,0.04) 16%, rgba(255,255,255,0.20) 35%, rgba(0,0,0,0.06) 58%, rgba(0,0,0,0.36) 100%)';
+  curlShade.style.backgroundSize = '140% 100%';
+  curlShade.style.backgroundRepeat = 'no-repeat';
+  curlShade.style.animation = `portrait-flip-curl-shade-${direction} ${duration}ms linear`;
+  front.appendChild(curlShade);
 
   // 뒷면 — 실제 도착 페이지 내용(landingText/landingFooter)을 담는다. 로컬
   // rotateY(180deg)를 이미 걸어뒀으므로, 카드 자신이 180도까지 다 돌면 180+180=360
@@ -302,7 +306,9 @@ export function playPortraitPageTurn({
   stage, width, height, direction, offsetTop = 0, offsetLeft = 0,
   leavingWidth, leavingHeight,
   leavingText, leavingFooter, revealingText, revealingFooter,
-  duration = 1000, onDone,
+  // 2026-08-27: 1000→750ms. "더 자연스럽게" 튜닝 패스 — 1초는 반복해서 읽기엔 굼떴다.
+  // reader.js는 duration을 명시적으로 안 넘기므로 이 기본값이 세로/가로 모두에 적용된다.
+  duration = 750, onDone,
 }) {
   if (activeAnimation) return false;
   if (leavingWidth == null) leavingWidth = width;
@@ -330,7 +336,7 @@ export function playPortraitPageTurn({
 // 그대로 유지한다(나중에 다시 필요해지면 재사용 가능).
 // direction: 'next' | 'prev' — 모든 패널에 공통 적용(좌/우 패널이 서로 다른 축을 쓰지 않는다).
 // 반환값: 애니메이션을 실제로 시작했으면 true, 이미 진행 중이거나 패널이 하나도 없으면 false.
-export function playSpreadPageTurn({ stage, direction, duration = 1000, onDone, panels }) {
+export function playSpreadPageTurn({ stage, direction, duration = 750, onDone, panels }) {
   if (activeAnimation) return false;
   if (!panels || panels.length === 0) return false;
 

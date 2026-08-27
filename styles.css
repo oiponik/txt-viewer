@@ -715,15 +715,26 @@
        `scaleX(0.06)`로 짜부라지는 지점, 정확히 그림자가 가장 짙어야 할 그 순간)에
        그림자도 같이 눌려버려 부자연스러웠다. **수정**: 이 키프레임에서 `box-shadow`를
        완전히 뗐다 — 그림자는 이제 회전 안 하는 별도 레이어(`portrait-flip-shadow-fade`
-       키프레임, `js/portrait-flip.js`의 `shadowLayer` 참고)가 맡는다. */
+       키프레임, `js/portrait-flip.js`의 `shadowLayer` 참고)가 맡는다.
+       ⚠️ 2026-08-27, "더 자연스럽게" 튜닝 패스(A-plan v2 — 리스크 0, 키프레임 숫자만):
+       (1) duration 1000→750ms(js/portrait-flip.js 기본값). (2) 짜부라지는 순간을
+       50%/-90deg → 52%/-96deg로 살짝 뒤·너머로 밀어 "확 넘어가는" 중반을 조금 더
+       끌고 간다. (3) 90% 스톱에서 rotateY를 4deg 지나쳤다(-184deg) 100%에서 -180deg로
+       되돌아오는 미세 오버슈트 — 페이지가 툭 떨어져 자리잡는 "정착" 느낌.
+       ⚠️ 첫 절반(0→52%)에 중간 스톱을 넣지 않았다: 여기 하드 스톱을 넣으면 각 하위
+       구간이 ease-in을 새로 시작해 그 지점에서 속도가 끊긴다(예전 "90도 멈춤" 버그와
+       같은 부류). "모서리가 먼저 들리는" peel-up은 그래서 이번엔 보류 — 넣으려면
+       별도 병렬 애니메이션 요소가 필요하다. translateZ 피크만 28→30px로 소폭. */
     @keyframes portrait-flip-leaf-next {
-      0%   { transform: translateZ(0) rotateY(0deg) scaleX(1); animation-timing-function: ease-in; }
-      50%  { transform: translateZ(28px) rotateY(-90deg) scaleX(0.06); animation-timing-function: ease-out; }
+      0%   { transform: translateZ(0) rotateY(0deg) scaleX(1);         animation-timing-function: ease-in; }
+      52%  { transform: translateZ(30px) rotateY(-96deg) scaleX(0.06); animation-timing-function: ease-out; }
+      90%  { transform: translateZ(0) rotateY(-184deg) scaleX(1);      animation-timing-function: ease-out; }
       100% { transform: translateZ(0) rotateY(-180deg) scaleX(1); }
     }
     @keyframes portrait-flip-leaf-prev {
-      0%   { transform: translateZ(0) rotateY(0deg) scaleX(1); animation-timing-function: ease-in; }
-      50%  { transform: translateZ(28px) rotateY(90deg) scaleX(0.06); animation-timing-function: ease-out; }
+      0%   { transform: translateZ(0) rotateY(0deg) scaleX(1);         animation-timing-function: ease-in; }
+      52%  { transform: translateZ(30px) rotateY(96deg) scaleX(0.06);  animation-timing-function: ease-out; }
+      90%  { transform: translateZ(0) rotateY(184deg) scaleX(1);       animation-timing-function: ease-out; }
       100% { transform: translateZ(0) rotateY(180deg) scaleX(1); }
     }
 
@@ -736,28 +747,29 @@
        공유 키프레임에 넣을 수 없음) — 여기선 순수 opacity 페이드만 담당한다. */
     @keyframes portrait-flip-shadow-fade {
       0%   { opacity: 0; animation-timing-function: ease-in; }
-      50%  { opacity: 1; animation-timing-function: ease-out; }
+      52%  { opacity: 1; animation-timing-function: ease-out; }
       100% { opacity: 0; }
     }
 
-    /* 앞면 곡률 눈속임 셰인 — js/portrait-flip.js의 sheen 레이어(front의 자식). 이동
-       하이라이트가 회전하는 페이지 표면을 스파인 쪽에서 바깥으로 쓸고 지나가게 해서
-       "평면 카드"가 아니라 "휜 종이"로 보이게 하는 게 목적이다(평면은 고정 광원에서
-       이동 하이라이트가 안 생기지만 곡면은 생긴다). front의 자식이라 카드가 90도를
-       넘으면 backface로 같이 사라진다 — 그래서 0→50% 구간만 실제로 보이고 이후는
-       무의미하다. leaf/그림자 키프레임과 같은 방식(0%: ease-in, 50%: ease-out)으로
-       50% 지점에서 속도가 안 끊기게 맞췄다. background-position과 opacity만 움직인다
-       — clip-path도 JS 프레임 갱신도 없음. 하이라이트 세기(0.22)·밴드 폭(38~62%)·
-       스윕 거리는 실기기 피드백으로 조정하는 튜닝 노브다. */
-    @keyframes portrait-flip-sheen-next {
-      0%   { background-position: 100% 0; opacity: 0; animation-timing-function: ease-in; }
-      50%  { background-position: 15% 0;  opacity: 1; animation-timing-function: ease-out; }
-      100% { background-position: 0% 0;   opacity: 0; }
+    /* 앞면 곡률 눈속임 명암 — js/portrait-flip.js의 curlShade 레이어(front의 자식).
+       v1(가는 흰 밴드 셰인)으로는 "평면 회전" 근본을 못 바꿔서(실기기 피드백), v2는
+       front 전체에 실린더형 명암을 깐다: 양 끝(스파인·자유 가장자리)이 어둡고 그
+       사이에 밝은 능선 — 굽은 종이에 빛이 닿는 모양. 회전이 진행되며 이 패턴이
+       background-position으로 굴러가듯 이동하고 opacity로 짙어졌다 사라진다. front의
+       자식이라 카드가 90도를 넘으면 backface로 같이 사라진다 — 0→52% 구간만 실제로
+       보인다. leaf/그림자 키프레임과 같은 방식(0%: ease-in, 52%: ease-out)으로 52%
+       지점에서 속도가 안 끊기게 맞췄다. clip-path도 JS 프레임 갱신도 없음. 방향별
+       그라디언트 좌우 반전은 JS에서 인라인으로 넣는다(next는 스파인 왼쪽, prev는
+       오른쪽) — 여기선 position/opacity만. 스윕 거리·피크 opacity는 튜닝 노브다. */
+    @keyframes portrait-flip-curl-shade-next {
+      0%   { background-position: 8% 0;  opacity: 0;    animation-timing-function: ease-in; }
+      45%  { background-position: 58% 0; opacity: 0.95; animation-timing-function: ease-out; }
+      100% { background-position: 74% 0; opacity: 0; }
     }
-    @keyframes portrait-flip-sheen-prev {
-      0%   { background-position: 0% 0;   opacity: 0; animation-timing-function: ease-in; }
-      50%  { background-position: 85% 0;  opacity: 1; animation-timing-function: ease-out; }
-      100% { background-position: 100% 0; opacity: 0; }
+    @keyframes portrait-flip-curl-shade-prev {
+      0%   { background-position: 92% 0; opacity: 0;    animation-timing-function: ease-in; }
+      45%  { background-position: 42% 0; opacity: 0.95; animation-timing-function: ease-out; }
+      100% { background-position: 26% 0; opacity: 0; }
     }
 
     /* 밝기 오버레이 — 브라우저는 실제 기기 화면 밝기를 제어할 수 없어서, 읽기
