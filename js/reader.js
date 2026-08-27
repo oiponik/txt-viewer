@@ -1146,8 +1146,17 @@ function goToNextPage() {
 // 덮고 있는 진짜 페이지 DOM을 오버레이 모르게 바꿔치기해버려서, 애니메이션이 끝난
 // 뒤 한 박자 늦게 페이지가 또 바뀌는 것처럼 보인다 — 아래 syncProgressFromServer()
 // 위 주석 참고(주 수정은 그쪽에 있고, 여기는 방어적 가드).
-function jumpToGlobalPage(targetPage) {
+// opts.save=false / opts.exactCharIndex: syncProgressFromServer가 다른 기기에서
+// 저장된 위치로 따라 이동시킬 때 쓴다. 이 경우 (1) 그 위치를 다시 새 타임스탬프로
+// 서버에 되쓰면 안 되고(save=false), (2) currentLastCharIndex를 로컬 페이지 시작으로
+// 스냅하지 말고 서버가 준 정확한 글자 위치를 그대로 유지해야 한다(exactCharIndex).
+// 안 그러면: 두 기기의 페이지 격자(폰트/뷰포트가 달라 서로 다름)에 번갈아 스냅되면서
+// 매번 수백 자씩 앞으로 당겨진 값이 서버로 broadcast → 상대 기기가 그걸 보고 또
+// 뒤로 이동 → 위치가 조금씩 계속 뒤로 밀리는 핑퐁이 생긴다("보고 있는데 갑자기
+// 두세 페이지 뒤로" 증상).
+function jumpToGlobalPage(targetPage, opts) {
   if (!bookMounted || isShiftingWindow || isPortraitFlipAnimating() || totalPages === 0) return;
+  const { save = true, exactCharIndex = null } = opts || {};
   targetPage = Math.max(0, Math.min(targetPage, totalPages - 1));
 
   const { start, end } = computeWindowRange(targetPage, totalPages);
@@ -1158,15 +1167,17 @@ function jumpToGlobalPage(targetPage) {
   if (isSinglePageMode) showPage(targetPage, windowStartIndex, currentRenderWidth, currentRenderHeight);
   else showSpread(targetPage, windowStartIndex, currentRenderWidth, currentRenderHeight);
 
-  currentLastCharIndex = pageStartIndices[targetPage] || 0;
-  progressDirty = true;
+  currentLastCharIndex = (exactCharIndex != null) ? exactCharIndex : (pageStartIndices[targetPage] || 0);
   updatePageIndicator(targetPage);
 
-  clearTimeout(debounceSaveTimer);
-  debounceSaveTimer = setTimeout(() => {
-    saveProgress(currentFileName, currentLastCharIndex);
-    progressDirty = false;
-  }, 300);
+  if (save) {
+    progressDirty = true;
+    clearTimeout(debounceSaveTimer);
+    debounceSaveTimer = setTimeout(() => {
+      saveProgress(currentFileName, currentLastCharIndex);
+      progressDirty = false;
+    }, 300);
+  }
 }
 
 // 💡 뷰어 설정 저장/적용 — "책 자체"가 아니라 "이 사람이 어떻게 읽고 싶은지"에 대한
@@ -2322,11 +2333,18 @@ async function syncProgressFromServer() {
       // 부족하다.
       if (isPortraitFlipAnimating()) return;
       lastKnownProgressUpdatedAt = serverUpdatedAt;
-      const targetPage = findPageForCharIndex(data.charIndex || 0);
+      const serverCharIndex = data.charIndex || 0;
+      const targetPage = findPageForCharIndex(serverCharIndex);
       const currentPage = currentDisplayedGlobalPage;
       if (targetPage !== currentPage) {
-        jumpToGlobalPage(targetPage);
+        // save:false + 정확한 글자 위치로 이동 — 이 이동을 다시 서버로 되쓰지 않는다
+        // (되쓰면 두 기기가 서로의 위치를 번갈아 뒤로 당기는 핑퐁이 생긴다).
+        jumpToGlobalPage(targetPage, { save: false, exactCharIndex: serverCharIndex });
         setStatus("다른 기기에서 이어보던 위치로 이동했습니다");
+      } else {
+        // 페이지 번호는 그대로여도 서버의 정확한 글자 위치를 채택해둔다 — 안 그러면
+        // 이후 이 기기가 페이지를 넘길 때 낡은/스냅된 기준으로 저장할 수 있다.
+        currentLastCharIndex = serverCharIndex;
       }
     }
   } catch (err) {
