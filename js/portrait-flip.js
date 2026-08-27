@@ -113,20 +113,6 @@ export function coverPanelWithLeavingContent({ stage, offsetTop, offsetLeft, wid
   return cover;
 }
 
-// 넘어가는 면의 "아래쪽이 먼저 곡선으로 들린다" 세그먼트 peel 설정.
-//   enabled=false   → 예전처럼 무변형 `.page` 한 장(순수 rotateY 카드 뒤집기).
-//   strips          → 넘어가는 면을 가로로 몇 등분할지. 많을수록 곡선이 매끄럽지만
-//                     동시 3D 레이어가 늘어 실기기 합성 비용↑.
-//   stripDurationMs → 각 스트립의 곡선 델타 1회분 길이(leafCard 750ms와 별개, 더 짧게).
-//                     짧을수록 시차(stagger) 예산이 늘어 곡선을 넘김 중반까지 끌고 갈 수 있다.
-//   stepMs          → 이웃 스트립 사이 시차(아래 스트립이 먼저 시작).
-//                     ⚠️ 곡률은 leafCard가 90°(≈390ms, 52% 스톱)에 닿기 전에 끝나야 자연
-//                     스럽다(사용자 요청) — 마지막 스트립 종료 시각 (strips-1)*stepMs +
-//                     stripDurationMs 를 ~360ms 이하로 유지할 것.
-//   overlapPx       → 이웃 스트립을 몇 px 겹칠지(서브픽셀 반올림 hairline 틈 방지).
-// 곡선 세기(peak 각도·translateZ 들림)는 styles.css의 @keyframes portrait-flip-strip-* 에서.
-const STRIP_PEEL = { enabled: true, strips: 10, stripDurationMs: 230, stepMs: 12, overlapPx: 3 };
-
 // 패널 하나(세로 모드에서는 페이지 전체, 가로 모드에서는 좌/우 절반 중 하나)의 leaf/base
 // 카드를 만들고 애니메이션을 건다. `activeAnimation` 등록/해제는 호출자(playPortraitPageTurn/
 // playSpreadPageTurn)가 맡는다 — 이 함수는 패널 하나의 DOM/애니메이션 생명주기만 다룬다.
@@ -224,55 +210,13 @@ function buildPanelAnimation({
   // 50% 지점에서 감속→재가속이 겹치는 문제가 있었다).
   leafCard.style.animation = `portrait-flip-leaf-${direction} ${duration}ms linear`;
 
-  // 넘어가는 면 — 예전엔 무변형 `.page` 한 장(`front`)이었다. 지금은 세로로 N등분한
-  // 스트립 여러 장으로 나눠서, 각 스트립이 전부 같은 직선 스파인(x=0)을 힌지로 순수
-  // rotateY를 하되 **아래 스트립부터 먼저**(animation-delay 시차) 조금 더 앞서 돌게
-  // 한다 — 넘김 초반에 페이지 아래쪽이 먼저 곡선으로 들리고 그 말림이 위로 쓸려
-  // 올라간다. 스파인축은 모든 스트립이 x=0을 공유하므로 곧은 수직 직선 그대로다
-  // (E안 실패 = leafCard 자체를 기울여 축까지 휘었음 / F·B·모서리안 실패 = front 한
-  // 겹만 변형해 다른 레이어와 어긋나 잘림 — 둘 다 피한다: 스트립은 leafCard
-  // (preserve-3d)의 직계 형제라 중첩 preserve-3d가 없고, 각 스트립은 rigid하게 회전만
-  // 한다). 곡선 각도/등분수/시차는 styles.css의 @keyframes portrait-flip-strip-* 와
-  // 위 STRIP_PEEL 에서 튜닝. STRIP_PEEL.enabled=false면 예전처럼 무변형 한 장.
-  const leafFaces = [];
-  if (STRIP_PEEL.enabled) {
-    const n = STRIP_PEEL.strips;
-    const rowH = leavingHeight / n;
-    for (let k = 0; k < n; k++) {
-      const strip = document.createElement('div');
-      strip.className = 'portrait-flip-strip';
-      strip.style.position = 'absolute';
-      strip.style.left = '0';
-      strip.style.top = (k * rowH) + 'px';
-      strip.style.width = leavingWidth + 'px';
-      // 아래 이웃과 몇 px 겹쳐 서브픽셀 반올림 hairline 틈을 막는다 — 겹치는 구간은
-      // 두 스트립이 똑같은 픽셀을 그리므로(둘 다 같은 통짜 복사본의 창) 평상시엔 안 보인다.
-      strip.style.height = (rowH + (k < n - 1 ? STRIP_PEEL.overlapPx : 0)) + 'px';
-      strip.style.overflow = 'hidden';
-      strip.style.backfaceVisibility = 'hidden';
-      strip.style.webkitBackfaceVisibility = 'hidden';
-      strip.style.transformOrigin = sign < 0 ? 'left center' : 'right center';
-      // 아래 스트립(k = n-1)이 delay 0으로 제일 먼저, 위로 갈수록 늦게 시작.
-      const delay = (n - 1 - k) * STRIP_PEEL.stepMs;
-      strip.style.animation = `portrait-flip-strip-${direction} ${STRIP_PEEL.stripDurationMs}ms linear ${delay}ms both`;
-
-      // 페이지 통짜 복사본을 위로 밀어 이 스트립 몫의 가로 밴드만 창처럼 보이게 한다
-      // (clip-path 아님 — 순수 overflow:hidden). 복사본은 k와 무관하게 항상 leafCard
-      // 좌표에 정렬된다(strip top = k*rowH, 복사본 top = -k*rowH 이므로 상쇄).
-      const copy = buildPageElement(leavingText, leavingFooter, leavingWidth, leavingHeight);
-      copy.style.top = (-k * rowH) + 'px';
-      strip.appendChild(copy);
-      leafFaces.push(strip);
-    }
-  } else {
-    const front = buildPageElement(leavingText, leavingFooter, leavingWidth, leavingHeight);
-    front.style.position = 'absolute';
-    front.style.top = '0';
-    front.style.left = '0';
-    front.style.backfaceVisibility = 'hidden';
-    front.style.webkitBackfaceVisibility = 'hidden';
-    leafFaces.push(front);
-  }
+  // 앞면 — 넘어가는 페이지 내용. 그 자체는 아무 변형 없이 leafCard의 rotateY만 따른다.
+  const front = buildPageElement(leavingText, leavingFooter, leavingWidth, leavingHeight);
+  front.style.position = 'absolute';
+  front.style.top = '0';
+  front.style.left = '0';
+  front.style.backfaceVisibility = 'hidden';
+  front.style.webkitBackfaceVisibility = 'hidden';
 
   // 뒷면 — 실제 도착 페이지 내용(landingText/landingFooter)을 담는다. 로컬
   // rotateY(180deg)를 이미 걸어뒀으므로, 카드 자신이 180도까지 다 돌면 180+180=360
@@ -287,7 +231,14 @@ function buildPanelAnimation({
   back.style.webkitBackfaceVisibility = 'hidden';
   back.style.transform = 'rotateY(180deg)';
 
-  for (const face of leafFaces) leafCard.appendChild(face);
+  // ⚠️ 2026-08-27 되돌림 — 모서리 dog-ear flap: 자유 가장자리 쪽 아래 모서리에 .page
+  // 복사본 조각을 얹고 접힘선(모서리 대각선)을 축으로 rotate3d로 접었었다. "곡률로
+  // 보일 만큼" 각도/크기를 키우니(70deg / 페이지 0.45) 결국 다른 레이어(front/base)와
+  // 어긋나 "분리되고 꺾여" 보였다(사용자) — front 한 겹 변형(A~F안)이 냈던 것과 같은
+  // 종류의 아티팩트. 모서리로 국소화해도 각도가 커지면 같은 문제. 곡률 자체를 보류하고
+  // 순수 rotateY 카드 뒤집기로 되돌림. (내일 다른 접근으로 재개 예정.)
+
+  leafCard.appendChild(front);
   leafCard.appendChild(back);
 
   perspectiveStage.appendChild(base);
