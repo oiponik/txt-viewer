@@ -120,12 +120,12 @@ export function coverPanelWithLeavingContent({ stage, offsetTop, offsetLeft, wid
 //   stripDurationMs → 각 스트립의 곡선 델타 1회분 길이(leafCard 750ms와 별개, 더 짧게).
 //                     짧을수록 시차(stagger) 예산이 늘어 곡선을 넘김 중반까지 끌고 갈 수 있다.
 //   stepMs          → 이웃 스트립 사이 시차(아래 스트립이 먼저 시작).
-//                     ⚠️ (strips-1)*stepMs + stripDurationMs ≤ leafCard duration(750) 유지 —
-//                     안 그러면 맨 위 스트립이 leafCard가 rotateY(0)로 스냅되기 전에 델타를
-//                     0으로 못 되돌려 플래시가 생긴다.
+//                     ⚠️ 곡률은 leafCard가 90°(≈390ms, 52% 스톱)에 닿기 전에 끝나야 자연
+//                     스럽다(사용자 요청) — 마지막 스트립 종료 시각 (strips-1)*stepMs +
+//                     stripDurationMs 를 ~360ms 이하로 유지할 것.
 //   overlapPx       → 이웃 스트립을 몇 px 겹칠지(서브픽셀 반올림 hairline 틈 방지).
 // 곡선 세기(peak 각도·translateZ 들림)는 styles.css의 @keyframes portrait-flip-strip-* 에서.
-const STRIP_PEEL = { enabled: true, strips: 10, stripDurationMs: 520, stepMs: 22, overlapPx: 3 };
+const STRIP_PEEL = { enabled: true, strips: 10, stripDurationMs: 230, stepMs: 12, overlapPx: 3 };
 
 // 패널 하나(세로 모드에서는 페이지 전체, 가로 모드에서는 좌/우 절반 중 하나)의 leaf/base
 // 카드를 만들고 애니메이션을 건다. `activeAnimation` 등록/해제는 호출자(playPortraitPageTurn/

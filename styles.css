@@ -763,26 +763,25 @@
        순수 rotateY(위 키프레임) — 스파인축은 곧은 수직 직선 고정. 넘어가는 면을 가로로
        N등분한 각 스트립(js/portrait-flip.js의 STRIP_PEEL)이 이 키프레임을 animation-delay만
        다르게 해서 공유한다: 스파인(x=0)을 힌지로 leafCard 회전 위에 얹히는 **일시 델타** —
-       24%까지 rotateY를 70도 더 앞서 확 돌리면서 translateZ로 38px 독자 쪽으로 들어올렸다가
-       (모서리가 화면 밖으로 떠오르는 느낌 = 곡률), 50%까지 살짝만 풀며 그 각을 버티고,
-       100%에서 정확히 0/0으로 복귀(→ 착지 시 base와 완전 평면 정렬). 아래 스트립이 delay
-       0으로 먼저 peak(−70°)에 닿을 때 맨 위 스트립은 아직 델타 0이라, 그 순간 페이지
-       아래끝↔위끝이 약 70° 벌어진 팬(=강한 곡률)이 된다. 시차 때문에 말림이 아래→위로
-       쓸려 올라간다. 델타 1회분 길이는 leafCard(750ms)보다 짧은 STRIP_PEEL.stripDurationMs
-       라, 시차가 커도 넘김이 끝나기 전에 전부 평면으로 돌아온다. leafCard 키프레임과
+       28%까지 rotateY를 70도 더 앞서 확 돌리면서 translateZ로 38px 독자 쪽으로 들어올렸다가
+       (모서리가 화면 밖으로 떠오르는 느낌 = 곡률), 나머지 구간에 부드럽게 0/0으로 복귀
+       (→ 착지 시 base와 완전 평면 정렬). 아래 스트립이 delay 0으로 먼저 peak(−70°)에 닿을
+       때 맨 위 스트립은 아직 델타 0이라, 그 순간 페이지 아래끝↔위끝이 약 70° 벌어진
+       팬(=강한 곡률). 시차 때문에 말림이 아래→위로 쓸려 올라간다. ⚠️ 이 곡률 전체가
+       leafCard가 90°(≈390ms)에 닿기 전에 끝난다 — 마지막 스트립 종료가
+       (strips-1)*stepMs + stripDurationMs = 9*12 + 230 = 338ms(< 390). 이후 구간은
+       평면이 된 스트립들이 leafCard rotateY만 그대로 타고 넘어간다. leafCard 키프레임과
        독립적이라 중간 스톱이 "90도 멈춤" 계열 문제를 안 만든다(F안 주석과 같은 논리).
        튜닝 노브: 여기 peak rotateY(팬 벌어짐 각도)/translateZ, js의
        STRIP_PEEL.strips/stepMs/stripDurationMs. 되돌리기: STRIP_PEEL.enabled=false. */
     @keyframes portrait-flip-strip-next {
       0%   { transform: translateZ(0) rotateY(0deg);       animation-timing-function: ease-out; }
-      24%  { transform: translateZ(38px) rotateY(-70deg);  animation-timing-function: linear; }
-      50%  { transform: translateZ(31px) rotateY(-60deg);  animation-timing-function: ease-in; }
+      28%  { transform: translateZ(38px) rotateY(-70deg);  animation-timing-function: ease-in; }
       100% { transform: translateZ(0) rotateY(0deg); }
     }
     @keyframes portrait-flip-strip-prev {
       0%   { transform: translateZ(0) rotateY(0deg);       animation-timing-function: ease-out; }
-      24%  { transform: translateZ(38px) rotateY(70deg);   animation-timing-function: linear; }
-      50%  { transform: translateZ(31px) rotateY(60deg);   animation-timing-function: ease-in; }
+      28%  { transform: translateZ(38px) rotateY(70deg);   animation-timing-function: ease-in; }
       100% { transform: translateZ(0) rotateY(0deg); }
     }
 
