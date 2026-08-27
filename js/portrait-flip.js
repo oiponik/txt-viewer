@@ -144,9 +144,10 @@ function buildPanelAnimation({
   perspectiveStage.style.height = height + 'px';
   perspectiveStage.style.zIndex = '20';
   perspectiveStage.style.pointerEvents = 'none';
-  // 2026-08-27: 1600→2400px. 1600px는 너무 강해서 회전 중 넘어가는(스파인 반대) 쪽
-  // 가장자리가 카메라 쪽으로 부풀어 확대돼 보였다(사용자). 거리를 늘려 더 평평하게.
-  perspectiveStage.style.perspective = '2400px';
+  // 2026-08-27: 1600→2400→3600px. 넘어가는(스파인 반대) 쪽 가장자리가 카메라 쪽으로
+  // 부풀어 확대돼 보인다는 피드백이 2400에서도 남아서 더 늘렸다(값이 클수록 평면투영에
+  // 가까워져 원근 확대가 줄어든다). translateZ 들림 피크도 30→14→4px로 같이 줄임.
+  perspectiveStage.style.perspective = '3600px';
   // perspective-origin(소실점)을 지정 안 하면 기본값 50% 50% — 즉 패널 자기 자신의
   // 한가운데가 되는데, 이건 회전축(스파인 쪽 가장자리)에서 패널 폭의 절반만큼 떨어진,
   // 화면 전체 기준으로는 책의 진짜 가운데(스파인)와 거리가 먼 지점이다. 실제 책을 볼
@@ -248,7 +249,7 @@ function buildPanelAnimation({
   //   넘으면 backface-visibility로 front와 함께 사라진다.
   //   flapSize(모서리 크기)·각도(styles.css @keyframes portrait-flip-corner-*)가 튜닝 노브.
   //   rotate3d 각도 부호 = 모서리가 독자 쪽으로 들리는지 반대인지 — 실기기에서 뒤집어 조정.
-  const flapSize = Math.round(Math.min(leavingWidth, leavingHeight) * 0.30);
+  const flapSize = Math.round(Math.min(leavingWidth, leavingHeight) * 0.45);
   const flap = document.createElement('div');
   flap.className = 'portrait-flip-corner';
   flap.style.position = 'absolute';

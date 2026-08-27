@@ -246,4 +246,11 @@ Bookify — 로그인한 사용자가 `.txt` 파일을 업로드해서 페이지
   - **(3) 모서리 방향**: `@keyframes portrait-flip-corner-*`의 rotate3d 각도 부호를 **음수로** (`+52deg → -58deg`) — 이래야 모서리가 +Z(독자 쪽)로 들린다(22% 샘플 `matrix3d`의 out-of-plane 성분 부호가 이전과 반대로 뒤집힌 것 확인).
   - **(2) 세기**: 각도 `52→58deg`, 피크 타이밍 `22%→26%`, 복귀 `45%→48%`(더 크고 조금 더 오래 = 잘 보이게). `portrait-flip-corner-shade`도 `26%/48%`로 sync.
   - `CACHE_VERSION` `v104`→`v105`.
-  - **검증**: 캐시버스트 `styles.css`+동적 import — `perspective:2400px`(origin `0px 320px` 그대로), leaf 52% = 순수 rotateY(-90°)+translateZ(14), corner 26% = 축 `(-1,1,0)/√2` 기준 58° 회전인데 out-of-plane 성분(`m02`) 부호가 이전(+52deg) 대비 반대(`-0.557 → +0.600`) = 접힘 방향 뒤집힘 확인. `onDone`·완료판정 정상, 콘솔 에러 0. ⚠️ 실기기에서 (1) 확대가 충분히 가라앉았는지, (2)(3) 모서리가 이제 독자 쪽으로 보이게 드는지는 사용자 확인 몫.
+  - **검증**: 캐시버스트 `styles.css`+동적 import — `perspective:2400px`(origin `0px 320px` 그대로), leaf 52% = 순수 rotateY(-90°)+translateZ(14), corner 26° = 축 `(-1,1,0)/√2` 기준 58° 회전인데 out-of-plane 성분(`m02`) 부호가 이전(+52deg) 대비 반대(`-0.557 → +0.600`) = 접힘 방향 뒤집힘 확인. `onDone`·완료판정 정상, 콘솔 에러 0.
+- ✅ **완료·커밋됨 (2026-08-27 — 모서리 부호 정정 + 곡률/범위 ↑ + 확대 더 완화)**: 사용자가 실기기 보고 정정 — "모서리는 **독자 반대**(화면 안쪽)가 맞다", 그리고 "곡률 범위 더 넓게, 곡률도 더, 넘어가는 가장자리 카메라 쪽 확대 더 줄여".
+  - **모서리 방향 되돌림**: `@keyframes portrait-flip-corner-*` 각도 `-58deg → +70deg`(양수 = 화면 안쪽으로 접힘, 22% 샘플 `m02 = -0.664`로 음수 = -Z = 독자 반대 확인).
+  - **곡률 ↑**: 각도 `58→70deg`.
+  - **범위 ↑**: `flapSize` 비율 `js`에서 `0.30→0.45`(189px² on 420×640 = 폭의 45%).
+  - **확대 완화**: `perspective 2400→3600px`, leaf 52% `translateZ 14→4px`.
+  - `CACHE_VERSION` `v105`→`v106`.
+  - 검증: `perspective:3600px`, leaf 52%=rotateY(-90)+translateZ(4), corner 26%=`rotate3d(-1,1,0,70deg)`(m22=cos70°≈0.342, m02=-0.664 음수=독자 반대), flap `189×189` `left:231/top:451`(더 큰 오른쪽아래 모서리). `onDone`·완료판정 정상, 콘솔 에러 0. ⚠️ 실기기 확인 몫 — 부호·각도·flapSize·perspective 전부 튜닝 노브.

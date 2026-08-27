@@ -747,13 +747,13 @@
        52→100 ease-out, "90도 스터터" 방지)와 translateZ 들림 피크를 담는다. */
     @keyframes portrait-flip-leaf-next {
       0%   { transform: translateZ(0) rotateY(0deg);      animation-timing-function: ease-in; }
-      52%  { transform: translateZ(14px) rotateY(-90deg); animation-timing-function: ease-out; }
+      52%  { transform: translateZ(4px) rotateY(-90deg); animation-timing-function: ease-out; }
       90%  { transform: translateZ(0) rotateY(-182deg);   animation-timing-function: ease-out; }
       100% { transform: translateZ(0) rotateY(-180deg); }
     }
     @keyframes portrait-flip-leaf-prev {
       0%   { transform: translateZ(0) rotateY(0deg);      animation-timing-function: ease-in; }
-      52%  { transform: translateZ(14px) rotateY(90deg);  animation-timing-function: ease-out; }
+      52%  { transform: translateZ(4px) rotateY(90deg);  animation-timing-function: ease-out; }
       90%  { transform: translateZ(0) rotateY(182deg);    animation-timing-function: ease-out; }
       100% { transform: translateZ(0) rotateY(180deg); }
     }
@@ -765,18 +765,19 @@
        (0→26%) 일어났다 48%에 0으로 펴진다. flap은 모서리를 대각선으로 가로지르는
        접힘선을 축으로 rotate3d — JS에서 transform-origin(대각선 끝점)/축 벡터를,
        여기선 각도만. 0→26%(들림) ease-out, 26→48%(복귀) ease-in.
-       ⚠️ 2026-08-27: 각도 부호 음수(-58deg)여야 모서리가 독자 쪽(+Z)으로 들린다
-       (사용자: "모서리는 독자쪽으로 휘어져야"). 52→58deg로 키우고 피크도 22→26%로
-       늦춰 더 보이게(안 보인다는 피드백). 각도·부호는 튜닝 노브. */
+       ⚠️ 2026-08-27: 부호 양수(+70deg)여야 모서리가 화면 안쪽(-Z, 독자 반대)으로
+       접힌다 — 사용자가 처음엔 "독자 쪽"이라 했다가 실기기 보고 "독자 반대가 맞다"로
+       정정. 각도 58→70deg(곡률 더), flapSize도 0.30→0.45(범위 더 넓게, js). 각도·
+       부호·flapSize가 튜닝 노브. */
     @keyframes portrait-flip-corner-next {
       0%   { transform: rotate3d(-1, 1, 0, 0deg);   animation-timing-function: ease-out; }
-      26%  { transform: rotate3d(-1, 1, 0, -58deg); animation-timing-function: ease-in; }
+      26%  { transform: rotate3d(-1, 1, 0, 70deg);  animation-timing-function: ease-in; }
       48%  { transform: rotate3d(-1, 1, 0, 0deg); }
       100% { transform: rotate3d(-1, 1, 0, 0deg); }
     }
     @keyframes portrait-flip-corner-prev {
       0%   { transform: rotate3d(1, 1, 0, 0deg);   animation-timing-function: ease-out; }
-      26%  { transform: rotate3d(1, 1, 0, -58deg); animation-timing-function: ease-in; }
+      26%  { transform: rotate3d(1, 1, 0, 70deg);  animation-timing-function: ease-in; }
       48%  { transform: rotate3d(1, 1, 0, 0deg); }
       100% { transform: rotate3d(1, 1, 0, 0deg); }
     }
