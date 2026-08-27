@@ -740,6 +740,26 @@
       100% { opacity: 0; }
     }
 
+    /* 앞면 곡률 눈속임 셰인 — js/portrait-flip.js의 sheen 레이어(front의 자식). 이동
+       하이라이트가 회전하는 페이지 표면을 스파인 쪽에서 바깥으로 쓸고 지나가게 해서
+       "평면 카드"가 아니라 "휜 종이"로 보이게 하는 게 목적이다(평면은 고정 광원에서
+       이동 하이라이트가 안 생기지만 곡면은 생긴다). front의 자식이라 카드가 90도를
+       넘으면 backface로 같이 사라진다 — 그래서 0→50% 구간만 실제로 보이고 이후는
+       무의미하다. leaf/그림자 키프레임과 같은 방식(0%: ease-in, 50%: ease-out)으로
+       50% 지점에서 속도가 안 끊기게 맞췄다. background-position과 opacity만 움직인다
+       — clip-path도 JS 프레임 갱신도 없음. 하이라이트 세기(0.22)·밴드 폭(38~62%)·
+       스윕 거리는 실기기 피드백으로 조정하는 튜닝 노브다. */
+    @keyframes portrait-flip-sheen-next {
+      0%   { background-position: 100% 0; opacity: 0; animation-timing-function: ease-in; }
+      50%  { background-position: 15% 0;  opacity: 1; animation-timing-function: ease-out; }
+      100% { background-position: 0% 0;   opacity: 0; }
+    }
+    @keyframes portrait-flip-sheen-prev {
+      0%   { background-position: 0% 0;   opacity: 0; animation-timing-function: ease-in; }
+      50%  { background-position: 85% 0;  opacity: 1; animation-timing-function: ease-out; }
+      100% { background-position: 100% 0; opacity: 0; }
+    }
+
     /* 밝기 오버레이 — 브라우저는 실제 기기 화면 밝기를 제어할 수 없어서, 읽기
        영역(book-stage) 위에 반투명 검은 막을 씌워 어둡게 보이도록 흉내낸다.
        #main-content가 position:relative라 여기 기준으로 book-stage 영역만 덮는다.

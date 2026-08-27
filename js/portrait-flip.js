@@ -216,6 +216,31 @@ function buildPanelAnimation({
   front.style.backfaceVisibility = 'hidden';
   front.style.webkitBackfaceVisibility = 'hidden';
 
+  // 앞면 위에 얹는 "곡률 눈속임" 셰인 — 회전하는 종이 표면을 빛이 쓸고 지나가는 것처럼
+  // 보이게 하는 이동 하이라이트 한 겹. 평면은 고정 광원 아래서 이동 하이라이트가 안
+  // 생기지만 휜 표면은 생긴다 — 그래서 이 한 겹만으로도 "빳빳한 카드"가 아니라 "휘는
+  // 종이"라는 인상을 준다. clip-path도 JS 매 프레임 갱신도 없다: background-position과
+  // opacity만 styles.css의 @keyframes(portrait-flip-sheen-*)가 움직인다. front의
+  // 자식이라 카드가 90도를 넘어 front가 backface-visibility로 사라지면 이 셰인도 같이
+  // 사라진다(도착면 back은 이미 평평하게 앉은 상태라 셰인이 없어야 자연스럽다).
+  // 하이라이트 밴드는 스파인(회전축) 쪽에서 시작해 바깥 가장자리로 쓸려나간다.
+  const sheen = document.createElement('div');
+  sheen.className = 'portrait-flip-sheen';
+  sheen.style.position = 'absolute';
+  sheen.style.top = '0';
+  sheen.style.left = '0';
+  sheen.style.width = '100%';
+  sheen.style.height = '100%';
+  sheen.style.pointerEvents = 'none';
+  sheen.style.zIndex = '1';
+  sheen.style.background = sign < 0
+    ? 'linear-gradient(100deg, rgba(255,255,255,0) 38%, rgba(255,255,255,0.22) 50%, rgba(255,255,255,0) 62%)'
+    : 'linear-gradient(260deg, rgba(255,255,255,0) 38%, rgba(255,255,255,0.22) 50%, rgba(255,255,255,0) 62%)';
+  sheen.style.backgroundSize = '260% 100%';
+  sheen.style.backgroundRepeat = 'no-repeat';
+  sheen.style.animation = `portrait-flip-sheen-${direction} ${duration}ms linear`;
+  front.appendChild(sheen);
+
   // 뒷면 — 실제 도착 페이지 내용(landingText/landingFooter)을 담는다. 로컬
   // rotateY(180deg)를 이미 걸어뒀으므로, 카드 자신이 180도까지 다 돌면 180+180=360
   // (=0)이 되어 거울에 비친 것처럼 뒤집히지 않고 정상 방향 그대로 정면으로 보인다
