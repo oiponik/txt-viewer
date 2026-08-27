@@ -759,6 +759,29 @@
       100% { transform: translateZ(0) rotateY(180deg); }
     }
 
+    /* ⚠️ 2026-08-28 — "아래쪽이 먼저 곡선으로 들린다" 세그먼트 peel. leafCard는 여전히
+       순수 rotateY(위 키프레임) — 스파인축은 곧은 수직 직선 고정. 넘어가는 면을 가로로
+       N등분한 각 스트립(js/portrait-flip.js의 STRIP_PEEL)이 이 키프레임을 animation-delay만
+       다르게 해서 공유한다: 넘김 초반(0→22%)에 스파인(x=0)을 힌지로 16도쯤 더 앞서 돌았다가
+       55%까지 정확히 0으로 되돌아온 뒤, 나머지 구간은 leafCard 회전만 그대로 탄다(→ 착지
+       시 base와 완전히 평평하게 정렬). 아래 스트립이 delay 0으로 먼저 이 곡선을 그리고 위
+       스트립일수록 늦게 따라와 말림이 아래→위로 쓸려 올라간다. leafCard 키프레임과 완전히
+       독립적이라 이 중간 스톱(22%/55%)이 "90도 멈춤" 계열 문제를 안 만든다(스트립 자신의
+       각속도만 미세하게 건드림 — F안 주석과 같은 논리). 튜닝 노브: 여기 피크 각도,
+       js의 STRIP_PEEL.strips/stepMs. 되돌리기: STRIP_PEEL.enabled=false. */
+    @keyframes portrait-flip-strip-next {
+      0%   { transform: rotateY(0deg);   animation-timing-function: ease-out; }
+      22%  { transform: rotateY(-16deg); animation-timing-function: ease-in; }
+      55%  { transform: rotateY(0deg); }
+      100% { transform: rotateY(0deg); }
+    }
+    @keyframes portrait-flip-strip-prev {
+      0%   { transform: rotateY(0deg);  animation-timing-function: ease-out; }
+      22%  { transform: rotateY(16deg); animation-timing-function: ease-in; }
+      55%  { transform: rotateY(0deg); }
+      100% { transform: rotateY(0deg); }
+    }
+
     /* 페이지 넘김 그림자 — 위 leaf 카드와 완전히 분리된, 회전 안 하는 평평한 레이어
        (js/portrait-flip.js의 shadowLayer). 카드가 뭘 하든(90도에서 아무리 짜부라져도)
        이 그림자는 항상 평평한 표면 위에 얹힌 것처럼 opacity만 0→1→0으로 자연스럽게
