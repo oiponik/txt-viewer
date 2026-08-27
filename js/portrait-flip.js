@@ -144,7 +144,9 @@ function buildPanelAnimation({
   perspectiveStage.style.height = height + 'px';
   perspectiveStage.style.zIndex = '20';
   perspectiveStage.style.pointerEvents = 'none';
-  perspectiveStage.style.perspective = '1600px';
+  // 2026-08-27: 1600→2400px. 1600px는 너무 강해서 회전 중 넘어가는(스파인 반대) 쪽
+  // 가장자리가 카메라 쪽으로 부풀어 확대돼 보였다(사용자). 거리를 늘려 더 평평하게.
+  perspectiveStage.style.perspective = '2400px';
   // perspective-origin(소실점)을 지정 안 하면 기본값 50% 50% — 즉 패널 자기 자신의
   // 한가운데가 되는데, 이건 회전축(스파인 쪽 가장자리)에서 패널 폭의 절반만큼 떨어진,
   // 화면 전체 기준으로는 책의 진짜 가운데(스파인)와 거리가 먼 지점이다. 실제 책을 볼
