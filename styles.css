@@ -732,12 +732,11 @@
        기울어진다** — 사용자 피드백: "가운데 회전축은 원래대로 직선이어야 하는데 지금은
        회전축과 바깥쪽이 같이 휘네". 그래서 leafCard는 순수 rotateY로 되돌리고(스파인축
        = 곧은 수직 직선 고정), "바깥쪽만 휨"은 아래 F-plan(front에만 skewY)으로 옮겼다.
-       ⚠️ 2026-08-27, F-plan — 스파인 고정 + 바깥만 flex: leafCard는 순수 rotateY(축
-       직선). 대신 `front`(넘어가는 면)에만 별도로 `skewY`를 건다(transform-origin은
-       스파인 가장자리, js/portrait-flip.js). skewY는 origin 쪽 x=0 지점을 안 움직이므로
-       스파인 가장자리는 수직 직선 그대로 고정되고, 바깥 가장자리만 세로로 밀린다
-       (평행사변형). 회전 중간에만 살짝 휘었다 끝에서 정확히 0 복귀 — @keyframes
-       portrait-flip-flex-* 참고. 축은 절대 안 건드린다. */
+       ⚠️ 2026-08-27, F-plan(폐기) — leafCard 순수 rotateY 유지하고 `front`에만 skewY.
+       약하면 안 보이고, 키우면 평행사변형 삼각 틈, 3D로 돌리면 base와 어긋나 꺾임/잘림.
+       B안(3조각 중첩 커얼)도 잰크. → "곡률"은 포기하고 넘김 시작 순간 자유 가장자리
+       쪽 아래 모서리만 살짝 드는 dog-ear로 축소(@keyframes portrait-flip-corner-* +
+       js/portrait-flip.js의 flap). leafCard는 계속 순수 rotateY. */
     /* ⚠️ 2026-08-27 — "90도에서 멈췄다 넘어가는" 느낌 직격(오늘 작업 전부터 있던 것).
        원인: 52% 스톱의 scaleX(0.06)이 rotateY(-96deg)의 자연스러운 원근 축소 위에
        한 번 더 눌러서, 중간에 페이지가 실처럼(≈1~2px) 사라졌다 다시 나타났다 — 눈엔
@@ -759,30 +758,25 @@
       100% { transform: translateZ(0) rotateY(180deg); }
     }
 
-    /* F-plan — 스파인(회전축) 직선 고정, 바깥쪽만 flex. leafCard(순수 rotateY)와 별개로
-       `front`(js/portrait-flip.js)에만 건다. transform-origin이 스파인 가장자리라
-       skewY도 rotateY도 그 x=0(스파인) 선을 안 움직인다 → 스파인 가장자리는 수직 직선
-       그대로, 바깥 가장자리만 휜다. 회전 초반에 휘었다(0→34%) 되돌아온다(34→68%), 그
-       뒤엔 0 — 90도 넘어 front가 backface로 사라지는 구간엔 이미 0. next/prev는 방향
-       반대. 각도·피크 위치는 튜닝 노브.
-       ⚠️ 2026-08-27, 되돌린 시도: skewY 4deg가 "눈에 안 띈다"고 해서 skewY 6deg +
-       front 자기축 rotateY(±10deg)를 얹었더니 → front 면이 base/dogear와 각도가
-       어긋나 스파인에 "꺾인 선"이 생기고 그 밑 페이지가 삐져나와 잘려 보였다(사용자).
-       front만 3D로 돌리면 나머지 레이어와 반드시 어긋난다 — rotateY는 뺐다. 지금은
-       skewY만(5deg) — 평면 shear라 front가 leafCard 평면에 그대로 붙어있어 꺾임/잘림은
-       없지만, 강하게 주면 이번엔 평행사변형 삼각 틈이 보인다. "확실히 보이는 곡률"은
-       front 단독 변형으로는 한계 — 그건 B안(연속 지오메트리 세그먼트 커얼)의 영역. */
-    @keyframes portrait-flip-flex-next {
-      0%   { transform: skewY(0deg); animation-timing-function: ease-out; }
-      34%  { transform: skewY(5deg); animation-timing-function: ease-in; }
-      68%  { transform: skewY(0deg); }
-      100% { transform: skewY(0deg); }
+    /* 모서리 dog-ear (js/portrait-flip.js의 flap). "바깥 가장자리 전체 변형"(A~F안)은
+       전부 다른 레이어와 어긋나 잘림/꺾임이 났다 — 이건 **자유 가장자리 쪽 아래 모서리
+       하나 + 넘김 시작 순간만**. 모서리가 들릴 때 생기는 삼각형 틈은 실제 dog-ear에서
+       나야 정상인 모양이라 "어긋나 보이는" 문제 자체가 없고, 페이지가 아직 정면일 때
+       (0→22%) 일어났다 45%에 0으로 펴진다. flap은 모서리를 대각선으로 가로지르는
+       접힘선을 축으로 rotate3d — JS에서 transform-origin(대각선 끝점)/축 벡터를,
+       여기선 각도만. 0→22%(들림) ease-out, 22→45%(복귀) ease-in. 각도(52deg)·부호는
+       튜닝 노브(부호 = 모서리가 독자 쪽으로 들리는지 반대인지). */
+    @keyframes portrait-flip-corner-next {
+      0%   { transform: rotate3d(-1, 1, 0, 0deg);  animation-timing-function: ease-out; }
+      22%  { transform: rotate3d(-1, 1, 0, 52deg); animation-timing-function: ease-in; }
+      45%  { transform: rotate3d(-1, 1, 0, 0deg); }
+      100% { transform: rotate3d(-1, 1, 0, 0deg); }
     }
-    @keyframes portrait-flip-flex-prev {
-      0%   { transform: skewY(0deg);  animation-timing-function: ease-out; }
-      34%  { transform: skewY(-5deg); animation-timing-function: ease-in; }
-      68%  { transform: skewY(0deg); }
-      100% { transform: skewY(0deg); }
+    @keyframes portrait-flip-corner-prev {
+      0%   { transform: rotate3d(1, 1, 0, 0deg);  animation-timing-function: ease-out; }
+      22%  { transform: rotate3d(1, 1, 0, 52deg); animation-timing-function: ease-in; }
+      45%  { transform: rotate3d(1, 1, 0, 0deg); }
+      100% { transform: rotate3d(1, 1, 0, 0deg); }
     }
 
     /* 페이지 넘김 그림자 — 위 leaf 카드와 완전히 분리된, 회전 안 하는 평평한 레이어
@@ -798,51 +792,11 @@
       100% { opacity: 0; }
     }
 
-    /* 앞면 곡률 눈속임 명암 — js/portrait-flip.js의 curlShade 레이어(front의 자식).
-       v1(가는 흰 밴드 셰인)으로는 "평면 회전" 근본을 못 바꿔서(실기기 피드백), v2는
-       front 전체에 실린더형 명암을 깐다: 양 끝(스파인·자유 가장자리)이 어둡고 그
-       사이에 밝은 능선 — 굽은 종이에 빛이 닿는 모양. 회전이 진행되며 이 패턴이
-       background-position으로 굴러가듯 이동하고 opacity로 짙어졌다 사라진다. front의
-       자식이라 카드가 90도를 넘으면 backface로 같이 사라진다 — 0→52% 구간만 실제로
-       보인다. leaf/그림자 키프레임과 같은 방식(0%: ease-in, 52%: ease-out)으로 52%
-       지점에서 속도가 안 끊기게 맞췄다. clip-path도 JS 프레임 갱신도 없음. 방향별
-       그라디언트 좌우 반전은 JS에서 인라인으로 넣는다(next는 스파인 왼쪽, prev는
-       오른쪽) — 여기선 position/opacity만. 스윕 거리·피크 opacity는 튜닝 노브다. */
-    @keyframes portrait-flip-curl-shade-next {
-      0%   { background-position: 8% 0;  opacity: 0;    animation-timing-function: ease-in; }
-      45%  { background-position: 58% 0; opacity: 0.95; animation-timing-function: ease-out; }
-      100% { background-position: 74% 0; opacity: 0; }
-    }
-    @keyframes portrait-flip-curl-shade-prev {
-      0%   { background-position: 92% 0; opacity: 0;    animation-timing-function: ease-in; }
-      45%  { background-position: 42% 0; opacity: 0.95; animation-timing-function: ease-out; }
-      100% { background-position: 26% 0; opacity: 0; }
-    }
-
-    /* D안 — 바깥 가장자리 dog-ear 스트립(js/portrait-flip.js의 dogear). v2까지도
-       "판때기" 느낌이 남아서(실기기 피드백), 자유 가장자리 조각 하나가 넘김 초반에
-       살짝 말려 올라갔다(rotateY) 펴진다 — 실루엣이 실제로 변형되는 유일한 조각.
-       leafCard(preserve-3d)의 직계 자식이라 중첩 preserve-3d를 새로 만들지 않는다.
-       0→48% 구간만 실제로 움직이고 그 뒤엔 rotateY(0)이라 사실상 front의 일부.
-       힌지축은 방향별로 반대(next=스트립 왼쪽 가장자리, prev=오른쪽). 말림 각도(35deg)·
-       타이밍은 튜닝 노브. 0→22%(들림) ease-out, 22→48%(복귀) ease-in. */
-    @keyframes portrait-flip-dogear-next {
-      0%   { transform: rotateY(0deg);  animation-timing-function: ease-out; }
-      22%  { transform: rotateY(35deg); animation-timing-function: ease-in; }
-      48%  { transform: rotateY(0deg); }
-      100% { transform: rotateY(0deg); }
-    }
-    @keyframes portrait-flip-dogear-prev {
-      0%   { transform: rotateY(0deg);   animation-timing-function: ease-out; }
-      22%  { transform: rotateY(-35deg); animation-timing-function: ease-in; }
-      48%  { transform: rotateY(0deg); }
-      100% { transform: rotateY(0deg); }
-    }
-    /* dog-ear 힌지 쪽 그림자 — 말림과 같은 타이밍으로 짙어졌다 사라진다. */
-    @keyframes portrait-flip-dogear-shade {
+    /* 모서리 dog-ear 접힌 자리 그림자 — 들림과 같은 타이밍으로 짙어졌다 사라진다. */
+    @keyframes portrait-flip-corner-shade {
       0%   { opacity: 0;   animation-timing-function: ease-out; }
       22%  { opacity: 0.9; animation-timing-function: ease-in; }
-      48%  { opacity: 0; }
+      45%  { opacity: 0; }
       100% { opacity: 0; }
     }
 

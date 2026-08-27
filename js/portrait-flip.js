@@ -207,50 +207,13 @@ function buildPanelAnimation({
   // 50% 지점에서 감속→재가속이 겹치는 문제가 있었다).
   leafCard.style.animation = `portrait-flip-leaf-${direction} ${duration}ms linear`;
 
-  // 앞면 — 넘어가는 페이지 내용. 카드 자신의 rotateY(스파인축, 곧은 직선 고정)와
-  // 별개로, 이 면에만 skewY(중간 피크→끝 0)를 걸어 "스파인은 안 움직이고 바깥
-  // 가장자리만 살짝 휘는" 느낌을 준다(F-plan). transform-origin이 스파인 가장자리라
-  // skewY가 그 x=0 선을 안 건드린다 → 회전축은 절대 안 휘고 바깥쪽만 밀린다. skewY는
-  // 평면 shear라 front가 leafCard 평면에 그대로 붙어있어 꺾임/잘림이 없다(front를 3D로
-  // 더 돌리면 base/dogear와 어긋나 잘려 보였다 — 되돌림). leafCard 타이밍과 독립.
-  // styles.css의 @keyframes portrait-flip-flex-*.
+  // 앞면 — 넘어가는 페이지 내용. 그 자체는 아무 변형 없이 leafCard의 rotateY만 따른다.
   const front = buildPageElement(leavingText, leavingFooter, leavingWidth, leavingHeight);
   front.style.position = 'absolute';
   front.style.top = '0';
   front.style.left = '0';
   front.style.backfaceVisibility = 'hidden';
   front.style.webkitBackfaceVisibility = 'hidden';
-  front.style.transformOrigin = sign < 0 ? 'left center' : 'right center';
-  front.style.animation = `portrait-flip-flex-${direction} ${duration}ms linear`;
-
-  // 앞면 위에 얹는 "곡률 눈속임" 레이어 — v1의 가는 흰 밴드(셰인) 한 겹으로는 "평면이
-  // 통째로 회전한다"는 근본 인상을 못 바꿨다(사용자 실기기 피드백: "아직 판때기 느낌").
-  // v2에선 front 전체에 실린더형 명암을 깐다: 스파인 쪽과 자유 가장자리 쪽이 어둡고
-  // 그 사이에 밝은 능선 — 굽은 종이 표면에 빛이 닿는 모양이다. 회전이 진행되며 이
-  // 패턴이 페이지를 굴러가듯(background-position) 이동하고 동시에 짙어졌다(opacity)
-  // 사라진다. 게임의 2D page-curl 셰이더 페이크와 같은 접근 — 여전히 기하학은 순수
-  // 평면이고 clip-path도 JS 매 프레임 갱신도 없다(styles.css의 @keyframes
-  // portrait-flip-curl-shade-* 가 전부). front의 자식이라 카드가 90도를 넘어
-  // backface-visibility로 front가 사라지면 이 레이어도 같이 사라진다(도착면 back은
-  // 이미 평평하게 앉은 상태라 명암이 없어야 자연스럽다). 그라디언트는 방향별로 좌우
-  // 반전 — next는 스파인이 왼쪽, prev는 오른쪽. 명암 세기(0.30/0.36 어둠, 0.20 능선)·
-  // 능선 위치(35%)·스윕 거리는 실기기 피드백으로 조정하는 튜닝 노브다.
-  const curlShade = document.createElement('div');
-  curlShade.className = 'portrait-flip-curl-shade';
-  curlShade.style.position = 'absolute';
-  curlShade.style.top = '0';
-  curlShade.style.left = '0';
-  curlShade.style.width = '100%';
-  curlShade.style.height = '100%';
-  curlShade.style.pointerEvents = 'none';
-  curlShade.style.zIndex = '1';
-  curlShade.style.background = sign < 0
-    ? 'linear-gradient(to right, rgba(0,0,0,0.30) 0%, rgba(0,0,0,0.04) 16%, rgba(255,255,255,0.20) 35%, rgba(0,0,0,0.06) 58%, rgba(0,0,0,0.36) 100%)'
-    : 'linear-gradient(to left, rgba(0,0,0,0.30) 0%, rgba(0,0,0,0.04) 16%, rgba(255,255,255,0.20) 35%, rgba(0,0,0,0.06) 58%, rgba(0,0,0,0.36) 100%)';
-  curlShade.style.backgroundSize = '140% 100%';
-  curlShade.style.backgroundRepeat = 'no-repeat';
-  curlShade.style.animation = `portrait-flip-curl-shade-${direction} ${duration}ms linear`;
-  front.appendChild(curlShade);
 
   // 뒷면 — 실제 도착 페이지 내용(landingText/landingFooter)을 담는다. 로컬
   // rotateY(180deg)를 이미 걸어뒀으므로, 카드 자신이 180도까지 다 돌면 180+180=360
@@ -265,61 +228,65 @@ function buildPanelAnimation({
   back.style.webkitBackfaceVisibility = 'hidden';
   back.style.transform = 'rotateY(180deg)';
 
-  // === D안 — 바깥 가장자리 dog-ear 스트립 ======================================
-  // v2(전면 롤링 명암)까지도 "판때기" 느낌이 남아서(사용자 실기기 피드백), 자유
-  // 가장자리(스파인 반대쪽)에 얇은 조각 하나를 얹어 넘김 초반에 살짝 말려 올라갔다
-  // 되돌아오게 한다 — 페이지 모서리가 먼저 들리는, 실루엣이 실제로 변형되는 유일한
-  // "종이" 신호. **중첩 preserve-3d를 새로 만들지 않는다**: 이 스트립은 front/back과
-  // 같은 깊이(leafCard의 직계 자식)라 leafCard의 기존 preserve-3d 컨텍스트를 그대로
-  // 쓴다. 클립은 clip-path가 아니라 overflow:hidden. JS 매 프레임 갱신도 없다
-  // (styles.css의 @keyframes portrait-flip-dogear-*).
-  //   구조: [클립 컨테이너 overflow:hidden, 폭=stripW, 힌지축 = 안쪽 가장자리]
-  //           ├ [leavingText 담은 .page 통짜 복사본(폭=leavingWidth)을 좌우로 밀어
-  //           │  바깥 슬라이스만 보이게 — rotateY(0)에서 front의 그 슬라이스와 픽셀
-  //           │  일치, 불투명 배경이라 겹쳐도 깜빡임 없음]
-  //           └ [힌지 쪽이 짙은 그림자 그라디언트 — 접힌 안쪽 앰비언트 오클루전 흉내]
-  // 스트립은 회전 초반(0→48%)에만 말렸다 펴지고 그 뒤엔 rotateY(0)이라 사실상 front의
-  // 일부처럼 행동한다 — 카드가 90도를 넘으면 스트립 자신 + 안쪽 .page 복사본이 전부
-  // backface-visibility로 front와 함께 사라진다. 말림 각도·타이밍은 튜닝 노브.
-  const stripW = Math.max(36, Math.round(leavingWidth * 0.16));
-  const dogear = document.createElement('div');
-  dogear.className = 'portrait-flip-dogear';
-  dogear.style.position = 'absolute';
-  dogear.style.top = '0';
-  dogear.style.left = (sign < 0 ? (leavingWidth - stripW) : 0) + 'px';
-  dogear.style.width = stripW + 'px';
-  dogear.style.height = leavingHeight + 'px';
-  dogear.style.overflow = 'hidden';
-  dogear.style.pointerEvents = 'none';
-  // 힌지축 = 스파인 반대쪽(자유 가장자리)이 아니라 그 안쪽 — next는 스트립의 왼쪽
-  // 가장자리, prev는 오른쪽 가장자리에서 접힌다.
-  dogear.style.transformOrigin = sign < 0 ? 'left center' : 'right center';
-  dogear.style.backfaceVisibility = 'hidden';
-  dogear.style.webkitBackfaceVisibility = 'hidden';
-  dogear.style.animation = `portrait-flip-dogear-${direction} ${duration}ms linear`;
+  // === 모서리 dog-ear ======================================================
+  // "곡률을 최소화하되, 넘김이 시작될 때 자유 가장자리 쪽 아래 모서리가 살짝 휘면서
+  // 넘어가는" 형태(사용자 요청). 지금까지 시도한 "바깥 가장자리 전체 변형"은 전부
+  // 다른 레이어와 어긋나 잘림/꺾임이 났는데, 이건 **모서리 하나 + 시작 순간만**이라
+  // 훨씬 안전하다: (1) 모서리가 들릴 때 생기는 삼각형 틈은 실제 dog-ear에서 나야
+  // 정상인 모양이라 "어긋나 보이는" 문제 자체가 없다, (2) 페이지가 아직 정면일 때
+  // (0~22%) 일어났다 옆으로 돌기 전에 펴져서 잘 보이고 아티팩트 구간을 안 지난다,
+  // (3) 작은 요소 하나라 깨지면 `.portrait-flip-corner { display:none }`로 즉시 롤백.
+  //   구조: [flapSize 정사각 클립(overflow:hidden), 자유 가장자리 쪽 아래 모서리에 배치]
+  //           ├ [leavingText 담은 .page 통짜 복사본을 밀어 그 모서리 슬라이스만 보이게
+  //           │  — rotateY(0)에서 front의 그 모서리와 픽셀 일치]
+  //           └ [접힌 자리 그림자 그라디언트 — 들릴 때 짙어졌다 사라짐]
+  //   flap은 dog-ear 접힘선(모서리를 대각선으로 가로지르는 선)을 축으로 rotate3d 한다.
+  //   transform-origin이 그 대각선의 한 끝점, 축 벡터가 대각선 방향. 회전 초반
+  //   (0→22% 피크)에만 들렸다 45%에 0으로 복귀 — 그 뒤엔 front의 일부. 카드가 90도를
+  //   넘으면 backface-visibility로 front와 함께 사라진다.
+  //   flapSize(모서리 크기)·각도(styles.css @keyframes portrait-flip-corner-*)가 튜닝 노브.
+  //   rotate3d 각도 부호 = 모서리가 독자 쪽으로 들리는지 반대인지 — 실기기에서 뒤집어 조정.
+  const flapSize = Math.round(Math.min(leavingWidth, leavingHeight) * 0.30);
+  const flap = document.createElement('div');
+  flap.className = 'portrait-flip-corner';
+  flap.style.position = 'absolute';
+  flap.style.width = flapSize + 'px';
+  flap.style.height = flapSize + 'px';
+  flap.style.overflow = 'hidden';
+  flap.style.pointerEvents = 'none';
+  flap.style.backfaceVisibility = 'hidden';
+  flap.style.webkitBackfaceVisibility = 'hidden';
+  flap.style.top = (leavingHeight - flapSize) + 'px';
+  // next: 스파인이 왼쪽 → 자유 가장자리 오른쪽 → 오른쪽 아래 모서리. 접힘선은 flap의
+  //   오른쪽위(100% 0)↔왼쪽아래(0 100%) 대각선. origin=오른쪽위, 축 벡터=(-1,1,0).
+  // prev: 스파인 오른쪽 → 왼쪽 아래 모서리. 접힘선은 flap의 왼쪽위(0 0)↔오른쪽아래
+  //   (100% 100%) 대각선. origin=왼쪽위, 축 벡터=(1,1,0).
+  flap.style.left = (sign < 0 ? (leavingWidth - flapSize) : 0) + 'px';
+  flap.style.transformOrigin = sign < 0 ? '100% 0' : '0 0';
+  flap.style.animation = `portrait-flip-corner-${direction} ${duration}ms linear`;
 
-  const dogearCopy = buildPageElement(leavingText, '', leavingWidth, leavingHeight);
-  dogearCopy.style.position = 'absolute';
-  dogearCopy.style.top = '0';
-  dogearCopy.style.left = (sign < 0 ? -(leavingWidth - stripW) : 0) + 'px';
-  dogear.appendChild(dogearCopy);
+  const flapCopy = buildPageElement(leavingText, leavingFooter, leavingWidth, leavingHeight);
+  flapCopy.style.position = 'absolute';
+  flapCopy.style.top = -(leavingHeight - flapSize) + 'px';
+  flapCopy.style.left = (sign < 0 ? -(leavingWidth - flapSize) : 0) + 'px';
+  flap.appendChild(flapCopy);
 
-  const dogearShade = document.createElement('div');
-  dogearShade.className = 'portrait-flip-dogear-shade';
-  dogearShade.style.position = 'absolute';
-  dogearShade.style.top = '0';
-  dogearShade.style.left = '0';
-  dogearShade.style.width = '100%';
-  dogearShade.style.height = '100%';
-  dogearShade.style.pointerEvents = 'none';
-  dogearShade.style.background = sign < 0
-    ? 'linear-gradient(to right, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0) 55%)'
-    : 'linear-gradient(to left, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0) 55%)';
-  dogearShade.style.animation = `portrait-flip-dogear-shade ${duration}ms linear`;
-  dogear.appendChild(dogearShade);
+  const flapShade = document.createElement('div');
+  flapShade.className = 'portrait-flip-corner-shade';
+  flapShade.style.position = 'absolute';
+  flapShade.style.top = '0';
+  flapShade.style.left = '0';
+  flapShade.style.width = '100%';
+  flapShade.style.height = '100%';
+  flapShade.style.pointerEvents = 'none';
+  flapShade.style.background = sign < 0
+    ? 'linear-gradient(to bottom right, rgba(0,0,0,0) 42%, rgba(0,0,0,0.32))'
+    : 'linear-gradient(to bottom left, rgba(0,0,0,0) 42%, rgba(0,0,0,0.32))';
+  flapShade.style.animation = `portrait-flip-corner-shade ${duration}ms linear`;
+  flap.appendChild(flapShade);
 
   leafCard.appendChild(front);
-  leafCard.appendChild(dogear);
+  leafCard.appendChild(flap);
   leafCard.appendChild(back);
 
   perspectiveStage.appendChild(base);
