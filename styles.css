@@ -738,17 +738,25 @@
        스파인 가장자리는 수직 직선 그대로 고정되고, 바깥 가장자리만 세로로 밀린다
        (평행사변형). 회전 중간에만 살짝 휘었다 끝에서 정확히 0 복귀 — @keyframes
        portrait-flip-flex-* 참고. 축은 절대 안 건드린다. */
+    /* ⚠️ 2026-08-27 — "90도에서 멈췄다 넘어가는" 느낌 직격(오늘 작업 전부터 있던 것).
+       원인: 52% 스톱의 scaleX(0.06)이 rotateY(-96deg)의 자연스러운 원근 축소 위에
+       한 번 더 눌러서, 중간에 페이지가 실처럼(≈1~2px) 사라졌다 다시 나타났다 — 눈엔
+       "잠깐 멈춤"으로 읽힘. scaleX를 아예 뺐다: rotateY(-90deg) + perspective 1600px
+       만으로도 가장자리쪽 원근 축소가 충분(중간에 페이지 폭이 ~10%로 얇아지되 사라지진
+       않음)이라, 눈이 연속 모션으로 따라간다. 회전각도 -96→-90(정확히 옆면, front/back
+       교대 지점과도 일치). 52% 스톱 자체는 유지 — per-stop 타이밍 함수(0→52 ease-in,
+       52→100 ease-out, "90도 스터터" 방지)와 translateZ 들림 피크를 담는다. */
     @keyframes portrait-flip-leaf-next {
-      0%   { transform: translateZ(0) rotateY(0deg) scaleX(1);         animation-timing-function: ease-in; }
-      52%  { transform: translateZ(30px) rotateY(-96deg) scaleX(0.06); animation-timing-function: ease-out; }
-      90%  { transform: translateZ(0) rotateY(-182deg) scaleX(1);      animation-timing-function: ease-out; }
-      100% { transform: translateZ(0) rotateY(-180deg) scaleX(1); }
+      0%   { transform: translateZ(0) rotateY(0deg);      animation-timing-function: ease-in; }
+      52%  { transform: translateZ(30px) rotateY(-90deg); animation-timing-function: ease-out; }
+      90%  { transform: translateZ(0) rotateY(-182deg);   animation-timing-function: ease-out; }
+      100% { transform: translateZ(0) rotateY(-180deg); }
     }
     @keyframes portrait-flip-leaf-prev {
-      0%   { transform: translateZ(0) rotateY(0deg) scaleX(1);         animation-timing-function: ease-in; }
-      52%  { transform: translateZ(30px) rotateY(96deg) scaleX(0.06);  animation-timing-function: ease-out; }
-      90%  { transform: translateZ(0) rotateY(182deg) scaleX(1);       animation-timing-function: ease-out; }
-      100% { transform: translateZ(0) rotateY(180deg) scaleX(1); }
+      0%   { transform: translateZ(0) rotateY(0deg);      animation-timing-function: ease-in; }
+      52%  { transform: translateZ(30px) rotateY(90deg);  animation-timing-function: ease-out; }
+      90%  { transform: translateZ(0) rotateY(182deg);    animation-timing-function: ease-out; }
+      100% { transform: translateZ(0) rotateY(180deg); }
     }
 
     /* F-plan — 스파인(회전축) 직선 고정, 바깥쪽만 flex. leafCard(순수 rotateY)와 별개로
