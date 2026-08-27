@@ -756,24 +756,25 @@
        skewY도 rotateY도 그 x=0(스파인) 선을 안 움직인다 → 스파인 가장자리는 수직 직선
        그대로, 바깥 가장자리만 휜다. 회전 초반에 휘었다(0→34%) 되돌아온다(34→68%), 그
        뒤엔 0 — 90도 넘어 front가 backface로 사라지는 구간엔 이미 0. next/prev는 방향
-       반대. ⚠️ 2026-08-27: skewY 4deg만으론 "바깥 휘는 게 눈에 안 띈다"(사용자) →
-       skewY를 6deg로 키우고, front를 자기 스파인축으로 살짝 더 도는 rotateY(±10deg,
-       중간 피크→끝 0)를 더했다 — 평면 shear만으론 "페이지가 기울었다"로만 읽혀서,
-       바깥쪽이 3D로 앞서 나갔다 따라붙는 성분을 같이 줬다. 둘 다 끝에서 정확히 0이라
-       착지(leafCard 순수 rotateY ±180)는 그대로 완전 평평. leafCard 회전 타이밍과
-       독립이라 중간 스톱이 "90도 멈춤" 부류 문제 안 만든다(flex 자체 속도에만 미세
-       영향). 각도·피크 위치는 튜닝 노브. */
+       반대. 각도·피크 위치는 튜닝 노브.
+       ⚠️ 2026-08-27, 되돌린 시도: skewY 4deg가 "눈에 안 띈다"고 해서 skewY 6deg +
+       front 자기축 rotateY(±10deg)를 얹었더니 → front 면이 base/dogear와 각도가
+       어긋나 스파인에 "꺾인 선"이 생기고 그 밑 페이지가 삐져나와 잘려 보였다(사용자).
+       front만 3D로 돌리면 나머지 레이어와 반드시 어긋난다 — rotateY는 뺐다. 지금은
+       skewY만(5deg) — 평면 shear라 front가 leafCard 평면에 그대로 붙어있어 꺾임/잘림은
+       없지만, 강하게 주면 이번엔 평행사변형 삼각 틈이 보인다. "확실히 보이는 곡률"은
+       front 단독 변형으로는 한계 — 그건 B안(연속 지오메트리 세그먼트 커얼)의 영역. */
     @keyframes portrait-flip-flex-next {
-      0%   { transform: rotateY(0deg) skewY(0deg);    animation-timing-function: ease-out; }
-      34%  { transform: rotateY(10deg) skewY(6deg);   animation-timing-function: ease-in; }
-      68%  { transform: rotateY(0deg) skewY(0deg); }
-      100% { transform: rotateY(0deg) skewY(0deg); }
+      0%   { transform: skewY(0deg); animation-timing-function: ease-out; }
+      34%  { transform: skewY(5deg); animation-timing-function: ease-in; }
+      68%  { transform: skewY(0deg); }
+      100% { transform: skewY(0deg); }
     }
     @keyframes portrait-flip-flex-prev {
-      0%   { transform: rotateY(0deg) skewY(0deg);    animation-timing-function: ease-out; }
-      34%  { transform: rotateY(-10deg) skewY(-6deg); animation-timing-function: ease-in; }
-      68%  { transform: rotateY(0deg) skewY(0deg); }
-      100% { transform: rotateY(0deg) skewY(0deg); }
+      0%   { transform: skewY(0deg);  animation-timing-function: ease-out; }
+      34%  { transform: skewY(-5deg); animation-timing-function: ease-in; }
+      68%  { transform: skewY(0deg); }
+      100% { transform: skewY(0deg); }
     }
 
     /* 페이지 넘김 그림자 — 위 leaf 카드와 완전히 분리된, 회전 안 하는 평평한 레이어
