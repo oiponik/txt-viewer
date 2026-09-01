@@ -1206,6 +1206,9 @@
       background: transparent; cursor: pointer; font-size: 13px; color: var(--text-color);
     }
     .font-chip.active { background: var(--accent-color); color: var(--sidebar-bg); border-color: var(--accent-color); }
+    /* "기기" 행 아래 자동감지/수동 안내 한 줄 */
+    .settings-sub-hint { font-size: 12px; opacity: 0.6; margin-top: -4px; }
+    .settings-sub-hint:empty { display: none; }
     .stepper { display: flex; align-items: center; gap: 16px; }
     .stepper-btn {
       width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;

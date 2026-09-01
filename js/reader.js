@@ -1203,23 +1203,79 @@ function jumpToGlobalPage(targetPage, opts) {
 // 나눠서 저장하고, 개발자(dev) 세션은 실제 계정이 없으니 localStorage로 대신한다.
 const READER_PREFS_LOCAL_KEY = 'txtViewerReaderPrefs';
 
-// 지금 이 화면이 "모바일 프로필"인지 "PC 프로필"인지 — 새 기준을 만들지 않고
-// 한 페이지/두 페이지 스프레드를 가르는 기존 900px 기준을 그대로 재사용한다.
+// 뷰어 설정(테마/글꼴/글자크기/문단너비)은 이 기기의 분류별로 따로 저장한다.
+// 예전엔 뷰포트 900px로 mobile/pc만 갈랐는데, 사용자가 PC/태블릿/폰을 실제 기기로
+// 구분하길 원해서 바꿨다. 웹에서 기기 종류를 100% 아는 API는 없어서(형태 팩터
+// formFactor는 Chromium 전용에 최신 빌드에서도 자주 빠져있음) 여러 신호를 투표한다.
+// ⚠️ 스프레드(1/2페이지)와 문단너비 계산은 여전히 폭(900px, renderWidth) 기준이다 —
+// 그건 "지금 화면이 얼마나 넓은가"가 맞는 축이라 여기서 바꾸지 않는다.
+const DEVICE_CLASS_KEY = 'txtViewerDeviceClass';
+const DEVICE_CLASSES = ['pc', 'tablet', 'phone'];
+const DEVICE_CLASS_LABELS = { pc: 'PC', tablet: '태블릿', phone: '폰' };
+
+function detectDeviceClass() {
+  const ua = navigator.userAgent || '';
+  const uad = navigator.userAgentData;
+  const maxTouch = navigator.maxTouchPoints || 0;
+  const platform = (uad && uad.platform) || navigator.platform || '';
+  const anyFine = window.matchMedia('(any-pointer: fine)').matches;
+  const anyCoarse = window.matchMedia('(any-pointer: coarse)').matches || maxTouch > 0;
+  const shortSide = Math.min(window.screen.width || 0, window.screen.height || 0)
+    || Math.min(window.innerWidth || 0, window.innerHeight || 0);
+
+  // iPad은 Safari가 기본으로 데스크톱 macOS로 위장한다 — 터치되는 Mac은 없으므로 확정.
+  if (/mac/i.test(platform) && maxTouch > 1) return 'tablet';
+  // iOS·안드로이드 "폰"은 UA에 항상 "Mobile"이 들어간다(안드 태블릿 Chrome은 대개 없음).
+  if (/\bMobi/i.test(ua)) return 'phone';
+  if (uad && uad.mobile) return 'phone';
+  // "Mobile" 없는 Android = 안드로이드 태블릿.
+  if (/Android/i.test(ua)) return 'tablet';
+  // 마우스류(정밀) 포인터가 하나도 없고 터치만 → 태블릿(폰은 위에서 이미 걸러짐).
+  if (anyCoarse && !anyFine) return (shortSide && shortSide < 500) ? 'phone' : 'tablet';
+  // 정밀 포인터 존재(터치 노트북 포함) → PC.
+  return 'pc';
+}
+
+function readStoredDeviceClass() {
+  try {
+    const v = JSON.parse(localStorage.getItem(DEVICE_CLASS_KEY) || 'null');
+    return (v && DEVICE_CLASSES.includes(v.class)) ? v : null;
+  } catch (e) { return null; }
+}
+
+// 현재 기기 분류. 저장값(수동 지정이든 예전 자동감지 캐시든)이 있으면 그대로 쓰고,
+// 없으면 지금 한 번 감지해서 캐시한다 — 브라우저 업데이트로 UA가 바뀌어도 판정이
+// 흔들려 설정이 유실되지 않도록.
 function getDeviceCategory() {
-  return window.innerWidth < 900 ? 'mobile' : 'pc';
+  const stored = readStoredDeviceClass();
+  if (stored) return stored.class;
+  const detected = detectDeviceClass();
+  try { localStorage.setItem(DEVICE_CLASS_KEY, JSON.stringify({ class: detected, manual: false })); } catch (e) {}
+  return detected;
+}
+
+function setDeviceCategory(cls) {
+  if (!DEVICE_CLASSES.includes(cls)) return;
+  try { localStorage.setItem(DEVICE_CLASS_KEY, JSON.stringify({ class: cls, manual: true })); } catch (e) {}
+}
+
+function deviceCategoryIsManual() {
+  const s = readStoredDeviceClass();
+  return !!(s && s.manual);
 }
 
 export async function loadReaderPrefs() {
   const category = getDeviceCategory();
+  // 예전엔 mobile/pc 둘뿐이었다 — tablet/phone 프로필이 아직 없으면 옛 mobile 값에서 시드한다.
+  const seedFrom = (all) => (all && (all[category] || (category !== 'pc' ? all.mobile : null))) || null;
   let profile = null;
   try {
     if (isDevUser()) {
       const raw = localStorage.getItem(READER_PREFS_LOCAL_KEY);
-      const all = raw ? JSON.parse(raw) : null;
-      profile = all && all[category];
+      profile = seedFrom(raw ? JSON.parse(raw) : null);
     } else if (currentUser) {
       const snap = await getDoc(doc(db, "users", currentUser.uid, "settings", "readerPrefs"));
-      profile = snap.exists() ? snap.data()[category] : null;
+      profile = seedFrom(snap.exists() ? snap.data() : null);
     }
   } catch (err) {
     // 여기서 실패하면 조용히 기본값으로 넘어가버려서 "설정이 저장 안 된다"는
@@ -1397,6 +1453,42 @@ function renderFontOptions() {
   });
 }
 
+// "기기" 행 — PC/태블릿/폰 칩. 다른 칩(테마/글꼴)과 달리 draft가 아니라 즉시 적용된다:
+// 이건 읽기 취향이 아니라 "이 기기가 뭔지"라서, 고르는 순간 그 분류의 프로필로 갈아탄다.
+function renderDeviceClassOptions() {
+  const container = document.getElementById('device-class-options');
+  if (!container) return;
+  container.innerHTML = '';
+  const current = getDeviceCategory();
+  DEVICE_CLASSES.forEach((cls) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'font-chip' + (cls === current ? ' active' : '');
+    btn.dataset.deviceClass = cls;
+    btn.textContent = DEVICE_CLASS_LABELS[cls];
+    btn.addEventListener('click', () => onDeviceClassPick(cls));
+    container.appendChild(btn);
+  });
+  const hint = document.getElementById('device-class-hint');
+  if (hint) {
+    hint.textContent = deviceCategoryIsManual()
+      ? '수동 지정됨'
+      : '자동 감지됨: ' + DEVICE_CLASS_LABELS[detectDeviceClass()];
+  }
+}
+
+async function onDeviceClassPick(cls) {
+  if (cls === getDeviceCategory()) return;
+  setDeviceCategory(cls);
+  await loadReaderPrefs();               // 새 분류의 프로필을 다시 읽어 바로 적용
+  draftReaderPrefs = { ...readerPrefs }; // 시트가 열려있으면 초안도 새 프로필로 리셋
+  updateSettingsPanelUI();
+  updateSettingsPreview();
+  renderDeviceClassOptions();
+  requestRepaginationForReaderPrefsChange(); // 새 프로필의 글꼴/크기/너비가 다르면 다시 나눔
+  setStatus('기기 종류를 "' + DEVICE_CLASS_LABELS[cls] + '"로 바꿨어요');
+}
+
 // 글꼴/글자크기/문단너비는 줄바꿈 위치를 바꾸므로 다시 나눠야 한다(테마색은 그럴 필요
 // 없음 — applyReaderPrefs가 CSS 변수만 바꿔서 이미 그려진 페이지에도 바로 반영되기 때문).
 // "적용" 버튼을 눌렀을 때 딱 한 번만 호출된다 — 예전엔 스테퍼를 누를 때마다 매번
@@ -1464,6 +1556,7 @@ document.getElementById('open-viewer-settings-btn').addEventListener('click', ()
   draftReaderPrefs = { ...readerPrefs };
   updateSettingsPanelUI();
   updateSettingsPreview();
+  renderDeviceClassOptions();
   openSheet('viewer-settings-panel');
 });
 document.getElementById('open-search-btn').addEventListener('click', () => {
