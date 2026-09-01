@@ -870,11 +870,7 @@
         transparent 100%);
       pointer-events: none;
       z-index: 21;
-      transition: opacity 0.25s ease;
     }
-    /* 로딩/재분할 진행률 토스트가 떠 있는 동안엔 하단 중앙에서 토스트와 겹쳐 보이므로
-       가운데 책등 그림자를 잠깐 숨긴다 (ui-shared.js의 setStatus가 body에 이 클래스를 토글). */
-    body.loading-toast #book-spine { opacity: 0; }
 
     /* 페이지 스타일 — 배경색을 화면(screen) 배경색과 동일하게 맞춰서
        "책이 스크린 위에 떠 있다"는 느낌 없이 페이지가 곧 화면이 되도록 한다.

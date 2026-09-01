@@ -1890,6 +1890,10 @@ async function buildFlipBook() {
 
   cancelPortraitFlip();
   bookMounted = false;
+  // 재빌드가 시작되면 이전 빌드의 책등 그림자(#book-spine)를 즉시 치운다 — 아래에서
+  // 실제 페이지(글자)가 다시 그려진 뒤에만 새로 만든다. 안 그러면 페이지 분할이 도는
+  // 동안(내용 없는 상태) 스파인만 남아 하단 "불러오는 중" 토스트와 겹쳐 보인다.
+  document.getElementById('book-spine')?.remove();
 
   // #book-stage에 더 이상 여백(padding)이 없으므로 책이 화면 전체를 그대로 채운다
   const stageRect = stageContainer.getBoundingClientRect();
@@ -2081,6 +2085,10 @@ function scheduleFlipbookRebuild() {
   }
 
   setStatus("화면 맞춤 조절 중...");
+  // 재빌드가 확정된 순간 바로 스파인을 치운다 — 400ms 디바운스 + 재분할이 도는 동안
+  // 옛 스파인이 "화면 맞춤 중" 토스트와 겹쳐 보이지 않도록. buildFlipBook이 새 페이지를
+  // 그린 뒤 다시 만든다.
+  document.getElementById('book-spine')?.remove();
 
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(async () => {
