@@ -76,9 +76,10 @@
       --reading-text: #3a2512;
       --reading-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Malgun Gothic", sans-serif;
       --reading-font-scale: 1;
-      /* 문단 너비(좌우 여백) 기본값 — 예전 clamp(12px, 2vw, 20px)보다 여백을 더 넉넉하게 뒀다.
-         "뷰어 설정 → 문단 너비" 스테퍼로 조절하면 applyReaderPrefs()가 이 값을 바꾼다. */
-      --reading-padding-x: clamp(20px, 5vw, 56px);
+      /* 문단 너비(좌우 여백) — JS 로드 전 깜빡임 방지용 폴백값일 뿐이다. 실제 값은
+         reader.js가 읽기 패널 폭의 비율(PARAGRAPH_WIDTH_FRACTIONS)로 px 계산해서
+         buildFlipBook()/applyReaderPrefs()에서 :root에 덮어쓴다("뷰어 설정 → 문단 너비"). */
+      --reading-padding-x: 8vw;
     }
 
     * { box-sizing: border-box; }

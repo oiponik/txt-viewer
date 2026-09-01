@@ -69,17 +69,34 @@ const FONT_SIZE_SCALES = [0.8, 0.9, 1.0, 1.15, 1.3, 1.5];
 const FONT_SIZE_LABELS = ['아주 작게', '작게', '보통', '크게', '더 크게', '아주 크게'];
 const DEFAULT_FONT_SIZE_STEP = 2;
 
-// 문단 너비 — 값이 클수록(오른쪽으로 갈수록) 좌우 여백이 줄어들어 한 줄에 글자가
-// 더 많이 들어간다(=문단이 "넓어짐"). .page의 좌우 padding(--reading-padding-x)에 쓰인다.
-// 기본값(인덱스 1)은 예전 고정값(clamp(12px,2vw,20px))보다 여백을 넓게 잡았다.
-const PARAGRAPH_WIDTH_PADDINGS = [
-  'clamp(28px, 8vw, 84px)',   // 0: 좁게 (여백 많음)
-  'clamp(20px, 5vw, 56px)',   // 1: 보통 (기본값)
-  'clamp(15px, 3.2vw, 34px)', // 2: 넓게
-  'clamp(12px, 2vw, 20px)',   // 3: 아주 넓게 (예전 기본값과 동일)
-];
+// 문단 너비 — 각 단계는 "읽기 패널 폭의 몇 %를 한쪽 여백으로 쓸지"다. 값이 클수록
+// 여백이 넓고 글자 열이 좁다. .page의 좌우 padding(--reading-padding-x)에 px로 계산돼
+// 들어간다.
+// ⚠️ 2026-08-28: 예전엔 뷰포트 기준 `clamp(px, vw, px)` 문자열이었는데 — 스프레드
+// (2페이지) 모드에선 패널이 뷰포트 절반이라 `vw`가 안 맞고, PC 넓은 화면에선 네
+// 단계가 전부 `clamp`의 max에 붙어 차이가 사라졌다. 이제 실제 패널 폭(renderWidth =
+// 세로는 stage폭, 스프레드는 stage폭/2) 비율로 계산해서 세로·스프레드 동일하게 벌어진다.
+// resolveReadingPaddingPx()가 유일한 계산 지점 — buildFlipBook(레이아웃 바뀔 때마다)과
+// applyReaderPrefs(즉시 적용), updateSettingsPreview(미리보기 카드)에서 부른다.
+const PARAGRAPH_WIDTH_FRACTIONS = [0.24, 0.13, 0.05, 0.01]; // 한쪽 여백 = 패널폭 × 이 값
+const PARAGRAPH_WIDTH_MIN_PX = 4;   // "아주 넓게"라도 가장자리에 딱 붙지는 않게
 const PARAGRAPH_WIDTH_LABELS = ['좁게', '보통', '넓게', '아주 넓게'];
 const DEFAULT_PARAGRAPH_WIDTH_STEP = 1;
+
+function resolveReadingPaddingPx(panelWidthPx, step) {
+  const frac = PARAGRAPH_WIDTH_FRACTIONS[step] ?? PARAGRAPH_WIDTH_FRACTIONS[DEFAULT_PARAGRAPH_WIDTH_STEP];
+  const w = Math.max(panelWidthPx || 0, 100);
+  return Math.round(Math.max(frac * w, PARAGRAPH_WIDTH_MIN_PX)) + 'px';
+}
+
+// 뷰어가 지금 그리는 읽기 패널 하나의 폭(px). buildFlipBook의 renderWidth와 같은 계산 —
+// 스프레드(≥900px)면 stage 폭의 절반. applyReaderPrefs / updateSettingsPreview처럼
+// buildFlipBook 바깥에서 문단 여백을 계산해야 할 때 쓴다.
+function currentReadingPanelWidth() {
+  const rect = stageContainer.getBoundingClientRect();
+  const w = Math.max(rect.width, 100);
+  return w < 900 ? w : w / 2;
+}
 
 let readerPrefs = {
   themeId: 'default',
@@ -1266,7 +1283,10 @@ function applyReaderPrefs() {
   const theme = READING_THEMES.find(t => t.id === readerPrefs.themeId) || READING_THEMES[0];
   const font = READING_FONTS.find(f => f.id === readerPrefs.fontId) || READING_FONTS[0];
   const scale = FONT_SIZE_SCALES[readerPrefs.fontSizeStep] ?? 1;
-  const paddingX = PARAGRAPH_WIDTH_PADDINGS[readerPrefs.paragraphWidthStep] ?? PARAGRAPH_WIDTH_PADDINGS[DEFAULT_PARAGRAPH_WIDTH_STEP];
+  // 문단 여백은 실제 읽기 패널 폭의 비율로 계산 — buildFlipBook도 renderWidth로 같은
+  // 계산을 하지만(리사이즈/재빌드 때), "적용" 직후처럼 재빌드 전에도 바로 반영되게
+  // 여기서도 현재 패널 폭 기준으로 세팅한다.
+  const paddingX = resolveReadingPaddingPx(currentReadingPanelWidth(), readerPrefs.paragraphWidthStep);
 
   const root = document.documentElement.style;
   root.setProperty('--reading-bg', theme.bg);
@@ -1308,7 +1328,7 @@ function updateSettingsPanelUI() {
   const widthMinusBtn = document.getElementById('paragraph-width-minus');
   const widthPlusBtn = document.getElementById('paragraph-width-plus');
   if (widthMinusBtn) widthMinusBtn.disabled = prefs.paragraphWidthStep <= 0;
-  if (widthPlusBtn) widthPlusBtn.disabled = prefs.paragraphWidthStep >= PARAGRAPH_WIDTH_PADDINGS.length - 1;
+  if (widthPlusBtn) widthPlusBtn.disabled = prefs.paragraphWidthStep >= PARAGRAPH_WIDTH_FRACTIONS.length - 1;
 }
 
 // 미리보기 카드를 draftReaderPrefs 기준으로 다시 칠한다 — 실제 책(.page)에는 손대지 않는다.
@@ -1317,12 +1337,12 @@ function updateSettingsPreview() {
   const theme = READING_THEMES.find(t => t.id === draftReaderPrefs.themeId) || READING_THEMES[0];
   const font = READING_FONTS.find(f => f.id === draftReaderPrefs.fontId) || READING_FONTS[0];
   const scale = FONT_SIZE_SCALES[draftReaderPrefs.fontSizeStep] ?? 1;
-  // 실제 책과 똑같이 PARAGRAPH_WIDTH_PADDINGS(vw 기반 clamp)를 그대로 재사용한다 —
-  // 뷰포트 기준 단위라 미리보기 카드 안에서도 실제 페이지와 같은 px로 계산된다.
-  const paddingX = PARAGRAPH_WIDTH_PADDINGS[draftReaderPrefs.paragraphWidthStep] ?? PARAGRAPH_WIDTH_PADDINGS[DEFAULT_PARAGRAPH_WIDTH_STEP];
 
   const preview = document.getElementById('settings-preview-page');
   if (!preview) return;
+  // 미리보기 카드 자기 폭 기준으로 같은 비율(PARAGRAPH_WIDTH_FRACTIONS)을 적용 —
+  // 카드 폭은 실제 패널과 다르지만 여백 비율이 같아서 "좁게/넓게"가 비례대로 보인다.
+  const paddingX = resolveReadingPaddingPx(preview.clientWidth || 320, draftReaderPrefs.paragraphWidthStep);
   preview.style.backgroundColor = theme.bg;
   preview.style.color = theme.text;
   preview.style.fontFamily = font.stack;
@@ -1406,7 +1426,7 @@ document.getElementById('paragraph-width-minus').addEventListener('click', () =>
   updateSettingsPanelUI();
 });
 document.getElementById('paragraph-width-plus').addEventListener('click', () => {
-  if (draftReaderPrefs.paragraphWidthStep >= PARAGRAPH_WIDTH_PADDINGS.length - 1) return;
+  if (draftReaderPrefs.paragraphWidthStep >= PARAGRAPH_WIDTH_FRACTIONS.length - 1) return;
   draftReaderPrefs.paragraphWidthStep += 1;
   updateSettingsPreview();
   updateSettingsPanelUI();
@@ -1820,12 +1840,23 @@ async function buildFlipBook() {
   currentRenderWidth = renderWidth;
   currentRenderHeight = renderHeight;
 
+  // 문단 여백 — 실제 그리는 패널 폭(renderWidth) 비율로 계산해 :root에 세팅한다. 여기가
+  // 리사이즈/회전/스프레드 전환/글꼴 변경 등 레이아웃이 바뀌는 모든 지점을 거치므로,
+  // applyReaderPrefs가 미리 잡아둔 값(재빌드 전 stage 기준)을 여기서 최종 확정한다.
+  // 이 값이 measurement DOM에도 상속돼 페이지 분할에 그대로 반영된다.
+  document.documentElement.style.setProperty(
+    '--reading-padding-x',
+    resolveReadingPaddingPx(renderWidth, readerPrefs.paragraphWidthStep)
+  );
+
   // 💡 같은 파일을 같은 창 크기로 다시 열면(책 재방문, 창 크기 원복 등) 페이지 분할을
   // 다시 계산하지 않고 캐시에서 즉시 가져온다. 순서: 메모리 캐시 → localStorage(다른
   // 세션에서 이미 계산해둔 값) → 그래도 없으면 DOM 실측.
   // fontKey: 글꼴/글자크기/문단너비 모두 줄바꿈 위치(=페이지 경계)에 영향을 주므로
   // 캐시 키에 포함한다 — 이름은 예전 그대로 두지만 셋 다 여기 들어간다.
-  const fontKey = readerPrefs.fontId + ':' + readerPrefs.fontSizeStep + ':' + readerPrefs.paragraphWidthStep;
+  // ⚠️ 'v2:' 접두사 — 2026-08-28에 문단너비 단계의 실제 여백 뜻이 바뀌었다(vw clamp →
+  // 패널폭 비율). 단계 번호는 그대로라 접두사 없이는 옛 분할 캐시가 잘못 재사용된다.
+  const fontKey = 'v2:' + readerPrefs.fontId + ':' + readerPrefs.fontSizeStep + ':' + readerPrefs.paragraphWidthStep;
   const cacheKey = currentFileName + '::' + bookWidth + '::' + bookHeight + '::' + fontKey;
   let paginationResult = paginationCache.get(cacheKey)
     || loadPersistedPagination(currentFileName, bookWidth, bookHeight, rawTextData, fontKey);
