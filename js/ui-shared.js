@@ -30,10 +30,17 @@ export function setStatus(text, progress) {
     statusPercentEl.textContent = pct + '%';
   }
 
+  // 진행률 토스트(다운로드/페이지 나누기 = "로딩 중")가 떠 있는 동안엔 하단 중앙의
+  // 책등(#book-spine) 그림자를 숨긴다 — 둘 다 하단 중앙이라 반투명 토스트 뒤로
+  // 스파인 어두운 띠가 비쳐 겹쳐 보인다는 지적. 평범한 텍스트 토스트는 짧게 떴다
+  // 사라지므로 건드리지 않는다(로딩 종료 "완료" 텍스트에서 자연히 풀린다).
+  document.body.classList.toggle('loading-toast', hasProgress);
+
   statusEl.classList.add('visible');
   clearTimeout(statusHideTimer);
   statusHideTimer = setTimeout(() => {
     statusEl.classList.remove('visible');
+    document.body.classList.remove('loading-toast');
   }, 2200);
 }
 
