@@ -713,19 +713,38 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
     return;
   }
 
-  setStatus(files.length > 1 ? `${files.length}개 파일 업로드 중...` : "Storage 업로드 중...");
-
   // 폴더 구조는 관리자만 바꿀 수 있어서, 관리자가 아니면 지금 어느 폴더를 보고
   // 있었든 업로드된 파일은 항상 루트("내 서재")에 놓인다 — 정리는 관리자 몫.
   const assignFolder = isAdminUser() && currentFolderId;
-  const results = await Promise.allSettled(files.map(async (file) => {
-    await uploadBytes(ref(storage, 'books/' + file.name), file);
-    if (assignFolder) fileFolderMap[file.name] = currentFolderId;
-  }));
 
-  const failCount = results.filter((r) => r.status === 'rejected').length;
+  // 낙관적 반영 — 목록에 먼저 넣고 그린다. 실제 업로드는 뒤에서 돌고, 실패한 것만 뺀다.
+  // (fetchFileList로 전체 재조회 → "서재 불러오는 중..." 로 목록이 깜빡이던 걸 없앤다)
+  const addedNames = files.map((f) => f.name).filter((n) => !allStorageFileNames.includes(n));
+  addedNames.forEach((n) => allStorageFileNames.push(n));
+  if (assignFolder) files.forEach((f) => { fileFolderMap[f.name] = currentFolderId; });
+  renderLibraryView();
+  setStatus(files.length > 1 ? `${files.length}개 파일 업로드 중...` : "Storage 업로드 중...");
+
+  const results = await Promise.allSettled(
+    files.map((file) => uploadBytes(ref(storage, 'books/' + file.name), file))
+  );
+  const failedNames = files.filter((_, i) => results[i].status === 'rejected').map((f) => f.name);
+  const failCount = failedNames.length;
+
+  if (failCount > 0) {
+    // 새로 추가했다가 업로드가 실패한 것만 목록에서 도로 뺀다(덮어쓰기 실패는 원본이 남으므로 유지).
+    failedNames.forEach((n) => {
+      if (!addedNames.includes(n)) return;
+      const i = allStorageFileNames.indexOf(n);
+      if (i !== -1) allStorageFileNames.splice(i, 1);
+      delete fileFolderMap[n];
+    });
+    renderLibraryView();
+  }
+
   let folderSaveOk = true;
   if (assignFolder && failCount < results.length) folderSaveOk = await saveLibraryState();
+  saveOfflineLibrarySnapshot();
 
   if (failCount > 0) {
     setStatus(`${files.length - failCount}개 성공, ${failCount}개 실패`);
@@ -736,7 +755,6 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
   } else {
     setStatus(files.length > 1 ? `${files.length}개 파일 업로드 완료!` : "업로드 완료!");
   }
-  await fetchFileList();
 });
 
 // ── 서재 시트 공통: 텍스트 입력(이름/새 폴더) ──────────────────────────
@@ -848,9 +866,9 @@ document.getElementById('new-folder-btn').addEventListener('click', () => {
   promptTextInput('새 폴더 이름', '', async (name) => {
     if (blockedWhileOffline()) return;
     libraryFolders.push({ id: newFolderId(), name, parentId: currentFolderId });
-    const ok = await saveLibraryState();
-    renderLibraryView();
-    if (ok) setStatus('폴더를 만들었어요');
+    renderLibraryView(); // 즉시 반영 — 저장(setDoc 왕복)은 뒤에서
+    setStatus('폴더를 만들었어요');
+    if (!(await saveLibraryState())) setStatus('폴더는 만들었지만 저장에 실패했어요');
   });
 });
 
@@ -860,8 +878,8 @@ function renameFolderPrompt(folderId) {
   promptTextInput('폴더 이름 변경', folder.name, async (name) => {
     if (blockedWhileOffline()) return;
     folder.name = name;
+    renderLibraryView(); // 즉시 반영
     await saveLibraryState();
-    renderLibraryView();
   });
 }
 
@@ -879,9 +897,9 @@ async function moveFolderTo(folderId, targetFolderId) {
   if ((folder.parentId || null) === (targetFolderId || null)) return; // 이미 그 자리
   folder.parentId = targetFolderId;
   removeFromItemOrder(folderItemKey(folderId));
-  const ok = await saveLibraryState();
-  renderLibraryView();
-  if (ok) setStatus('폴더를 이동했어요');
+  renderLibraryView(); // 즉시 반영
+  setStatus('폴더를 이동했어요');
+  if (!(await saveLibraryState())) setStatus('폴더는 이동했지만 저장에 실패했어요');
 }
 
 // 폴더를 지우면 그 안의 파일/하위 폴더는 사라지지 않고 상위 폴더로 올라간다 —
@@ -905,9 +923,9 @@ async function deleteFolderConfirm(folderId) {
   delete itemOrder[folderId]; // 이 폴더 "안"에서의 순서 기록도 같이 정리(안의 항목들은 상위로 옮겨지며 순서가 새로 매겨짐)
 
   if (currentFolderId === folderId) currentFolderId = parentId;
-  const ok = await saveLibraryState();
-  renderLibraryView();
-  if (ok) setStatus('폴더를 삭제했어요');
+  renderLibraryView(); // 즉시 반영
+  setStatus('폴더를 삭제했어요');
+  if (!(await saveLibraryState())) setStatus('폴더는 삭제했지만 저장에 실패했어요');
 }
 
 // ── 파일: 이름변경 / 이동(저장 경로 변경) ────────────────────────────
@@ -916,9 +934,9 @@ function moveFilePrompt(fileName) {
     if (blockedWhileOffline()) return;
     if (targetFolderId) fileFolderMap[fileName] = targetFolderId; else delete fileFolderMap[fileName];
     removeFromItemOrder(fileItemKey(fileName));
-    const ok = await saveLibraryState();
-    renderLibraryView();
-    if (ok) setStatus('파일을 이동했어요');
+    renderLibraryView(); // 즉시 반영
+    setStatus('파일을 이동했어요');
+    if (!(await saveLibraryState())) setStatus('파일은 이동했지만 저장에 실패했어요');
   });
 }
 
@@ -942,7 +960,30 @@ async function renameFile(oldName, newName) {
     return;
   }
 
+  // 낙관적 반영 — 목록/폴더맵/순서/최근목록/열린 파일 제목에서 이름을 먼저 갈아끼우고
+  // 그린다. Storage 작업(다운로드→업로드→삭제)은 뒤에서 돌고, 실패하면 통째로 되돌린다.
+  const nameIdx = allStorageFileNames.indexOf(oldName);
+  if (nameIdx !== -1) allStorageFileNames[nameIdx] = newName;
+  const hadFolder = Object.prototype.hasOwnProperty.call(fileFolderMap, oldName);
+  const prevFolder = fileFolderMap[oldName];
+  if (hadFolder) { fileFolderMap[newName] = prevFolder; delete fileFolderMap[oldName]; }
+  const touchedOrderParents = [];
+  Object.keys(itemOrder).forEach((parent) => {
+    if (!itemOrder[parent].includes(fileItemKey(oldName))) return;
+    itemOrder[parent] = itemOrder[parent].map((k) => (k === fileItemKey(oldName) ? fileItemKey(newName) : k));
+    touchedOrderParents.push(parent);
+  });
+  const wasRecent = recentFileNames.includes(oldName);
+  if (wasRecent) recentFileNames = recentFileNames.map((n) => (n === oldName ? newName : n));
+  const wasCurrent = currentFileName === oldName;
+  if (wasCurrent) {
+    setCurrentFileName(newName);
+    document.getElementById('current-title').textContent = newName;
+    localStorage.setItem(lastOpenedFileKey(), newName);
+  }
+  renderLibraryView();
   setStatus('이름 변경 중...');
+
   try {
     const oldRef = ref(storage, 'books/' + oldName);
     const newRef = ref(storage, 'books/' + newName);
@@ -956,26 +997,25 @@ async function renameFile(oldName, newName) {
     // 최악의 경우 이어보기 위치/책갈피만 리셋되는 정도라 파일을 잃는 것보단 낫다.
     await migrateFileDocs(oldName, newName).catch((err) => console.error('문서 이전 실패:', err));
 
-    if (fileFolderMap[oldName]) {
-      fileFolderMap[newName] = fileFolderMap[oldName];
-      delete fileFolderMap[oldName];
-    }
-    // 순서를 직접 정해뒀던 자리가 있다면(어느 폴더 소속이었든) 새 이름으로 키만 갈아끼운다
-    Object.keys(itemOrder).forEach((parent) => {
-      itemOrder[parent] = itemOrder[parent].map((k) => (k === fileItemKey(oldName) ? fileItemKey(newName) : k));
-    });
     const folderStateSaved = await saveLibraryState();
-
-    if (currentFileName === oldName) {
-      setCurrentFileName(newName);
-      document.getElementById('current-title').textContent = newName;
-      localStorage.setItem(lastOpenedFileKey(), newName);
-    }
-
+    saveOfflineLibrarySnapshot();
     setStatus(folderStateSaved ? '이름을 변경했어요' : '이름은 변경했지만 폴더 정보 저장에 실패했어요');
-    await fetchFileList();
   } catch (err) {
     console.error(err);
+    // 되돌리기
+    const i2 = allStorageFileNames.indexOf(newName);
+    if (i2 !== -1) allStorageFileNames[i2] = oldName;
+    if (hadFolder) { fileFolderMap[oldName] = prevFolder; delete fileFolderMap[newName]; }
+    touchedOrderParents.forEach((parent) => {
+      itemOrder[parent] = itemOrder[parent].map((k) => (k === fileItemKey(newName) ? fileItemKey(oldName) : k));
+    });
+    if (wasRecent) recentFileNames = recentFileNames.map((n) => (n === newName ? oldName : n));
+    if (wasCurrent) {
+      setCurrentFileName(oldName);
+      document.getElementById('current-title').textContent = oldName;
+      localStorage.setItem(lastOpenedFileKey(), oldName);
+    }
+    renderLibraryView();
     setStatus('이름 변경 실패');
   }
 }
@@ -1006,7 +1046,16 @@ async function deleteFileConfirm(fileName) {
   const confirmed = confirm(`"${fileName}" 파일을 완전히 삭제할까요?\n이 동작은 되돌릴 수 없습니다.`);
   if (!confirmed) return;
 
+  // 낙관적 반영 — 목록/최근목록에서 먼저 빼고 그린다. 실패 시 도로 넣는다.
+  const nameIdx = allStorageFileNames.indexOf(fileName);
+  if (nameIdx !== -1) allStorageFileNames.splice(nameIdx, 1);
+  const wasRecent = recentFileNames.includes(fileName);
+  if (wasRecent) recentFileNames = recentFileNames.filter((n) => n !== fileName);
+  const wasCurrent = currentFileName === fileName;
+  if (wasCurrent) setCurrentFileName("");
+  renderLibraryView();
   setStatus('삭제 중...');
+
   try {
     await deleteObject(ref(storage, 'books/' + fileName));
     // 지운 파일의 오프라인 캐시(원문·진행상황·책갈피 로컬 캐시)도 같이 정리한다.
@@ -1016,17 +1065,22 @@ async function deleteFileConfirm(fileName) {
     if (fileFolderMap[fileName]) delete fileFolderMap[fileName];
     removeFromItemOrder(fileItemKey(fileName));
     const folderStateSaved = await saveLibraryState();
+    saveOfflineLibrarySnapshot();
 
     const fid = fileDocId(fileName);
     await deleteDoc(doc(db, "users", currentUser.uid, "reading_progress", fid)).catch(() => {});
     await deleteDoc(doc(db, "users", currentUser.uid, "bookmarks", fid)).catch(() => {});
 
-    if (currentFileName === fileName) setCurrentFileName("");
-
     setStatus(folderStateSaved ? '삭제했어요' : '파일은 지웠지만 폴더 정보 저장에 실패했어요');
-    await fetchFileList();
   } catch (err) {
     console.error(err);
+    // 되돌리기 — 목록에 다시 넣는다(커스텀 순서는 잃을 수 있으나 기본 정렬로 다시 나타남).
+    if (!allStorageFileNames.includes(fileName)) {
+      allStorageFileNames.splice(Math.min(nameIdx < 0 ? allStorageFileNames.length : nameIdx, allStorageFileNames.length), 0, fileName);
+    }
+    if (wasRecent && !recentFileNames.includes(fileName)) recentFileNames.unshift(fileName);
+    if (wasCurrent) setCurrentFileName(fileName);
+    renderLibraryView();
     setStatus('삭제 실패');
   }
 }
@@ -1171,9 +1225,9 @@ async function performLibraryMove(kind, id, targetFolderId) {
     folder.parentId = targetFolderId;
     removeFromItemOrder(folderItemKey(id));
   }
-  const ok = await saveLibraryState();
-  renderLibraryView();
-  if (ok) setStatus('이동했어요');
+  renderLibraryView(); // 즉시 반영
+  setStatus('이동했어요');
+  if (!(await saveLibraryState())) setStatus('이동했지만 저장에 실패했어요');
 }
 
 // itemKey를 (있다면) 어느 부모의 순서 배열에서든 지운다 — 파일/폴더를 다른 폴더로
@@ -1303,7 +1357,7 @@ async function applyReorder(draggedLi, insertBeforeLi) {
   keys.splice(insertIndex, 0, draggedKey);
 
   itemOrder[orderParentKey(currentFolderId)] = keys;
+  renderLibraryView(); // 즉시 반영
   await saveLibraryState();
-  renderLibraryView();
 }
 
