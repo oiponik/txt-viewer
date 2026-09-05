@@ -241,3 +241,9 @@ Bookify — 로그인한 사용자가 `.txt` 파일을 업로드해서 페이지
   - `CACHE_VERSION` `v118`→`v119`.
   - **검증**: `awaitSheetResult` 미니 복제본으로 실제 `openItemActionSheet`/텍스트입력 시트 구동 — 액션 클릭 → 그 값 resolve, 배경/✕ 탭 → `undefined`(=건너뛰기) resolve, 폼 제출(값 있음) → 값 resolve 확인. dev 드롭은 여전히 dev 차단 토스트(중복 체크는 dev 차단 *뒤*라 dev에선 안 탐). `library.js` import 깨끗, 콘솔 에러 0. ⚠️ 실제 중복 업로드 → 시트 → 덮어쓰기/이름변경 → `uploadBytes`까지는 dev 차단이라 미확인 — **실계정에서 사용자 최종 확인 필요**.
   - 한 번에 여러 개 중복 시 파일별로 순차 질문(await 루프). "모두 적용" 옵션은 안 넣음(원래 선택사항).
+- ✅ **완료·커밋됨 (2026-08-28 — 뷰어에서 Esc: UI 닫기 / 내 서재로)**: 사용자 요청 — 책 뷰어 화면에서 Esc를 누르면, 열린 UI(시트)가 있으면 그것부터 닫고, 없으면 내 서재로 나간다.
+  - **`js/reader.js`**: 뷰어 `keydown` 리스너(이미 방향키/Space/Enter 처리)에 `Escape` 분기 추가. `document.querySelectorAll('.sheet-panel:not(.screen-hidden)')`가 있으면 **맨 뒤(가장 최근에 연 = 맨 위) 것만** `closeSheet` — Esc는 한 겹씩 벗긴다. 없으면 `showLibraryScreen()` + `refreshRecentFiles()`(back-to-library 버튼과 동일). `e.preventDefault()`. 리스너 최상단 가드(`!bookMounted || viewerScreen이 screen-hidden`)가 그대로 있어서 **서재 화면에선 Esc 무동작**.
+  - 몰입 모드는 Esc로 먼저 해제하지 않음(탭 한 번에 UI 다시 뜨는데 "Esc 1번=몰입해제, 2번=나가기"는 헷갈림 — 사용자 동의). 폰엔 Esc 없으니 PC/키보드 태블릿 전용, 순수 추가.
+  - **`index.html`**: `#shortcuts-help-view`(도움말)에 "창 닫기 · 내 서재로 — Esc" 행 추가.
+  - `CACHE_VERSION` `v119`→`v120`.
+  - **검증**: dev 세션 — (1) 시트 열고 Esc → 시트만 닫히고 뷰어 유지, (2) 아무것도 안 열린 상태 Esc → 내 서재로 이동, (3) 시트 2개 겹쳐 열고 Esc → 맨 위 것만 닫히고 아래는 유지·뷰어 유지, (4) 서재 화면에서 Esc → 무동작. 콘솔 에러 0.

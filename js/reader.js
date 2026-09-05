@@ -2538,6 +2538,19 @@ window.addEventListener('pagehide', () => {
 // 단축키 안내(index.html의 #shortcuts-help-view)와 반드시 같이 맞춰서 고칠 것.
 window.addEventListener('keydown', (e) => {
   if (!bookMounted || viewerScreen.classList.contains('screen-hidden')) return;
+  if (e.key === "Escape") {
+    e.preventDefault();
+    // ESC는 한 겹씩 벗긴다 — 열린 시트(검색/책갈피/뷰어 설정 등)가 있으면 맨 위 것만
+    // 닫고, 아무것도 안 열려 있으면 그때 내 서재로 나간다(back-to-library 버튼과 동일).
+    const openSheets = [...document.querySelectorAll('.sheet-panel:not(.screen-hidden)')];
+    if (openSheets.length > 0) {
+      closeSheet(openSheets[openSheets.length - 1].id);
+    } else {
+      showLibraryScreen();
+      refreshRecentFiles();
+    }
+    return;
+  }
   if (e.key === "ArrowRight") goToNextPage();
   if (e.key === "ArrowDown" || e.key === "PageDown") {
     e.preventDefault(); // 기본 스크롤 동작 방지(Space와 동일한 이유)
