@@ -686,17 +686,18 @@ function renderLibraryBreadcrumb() {
   });
 }
 
-// 2. 파일 업로드 — 여러 개를 한 번에 선택할 수 있고(멀티 업로드), 지금 보고 있는
-// 폴더 안으로 바로 들어간다. 업로드가 끝나도 그 책을 바로 열지 않고 목록 화면에
-// 그대로 머문다 — 여러 권을 올렸을 때 "그중 뭘 열지"를 사용자가 직접 고르게 한다.
-document.getElementById('file-input').addEventListener('change', async (e) => {
-  const selectedFiles = Array.from(e.target.files || []);
-  e.target.value = ''; // 같은 파일(들)을 다시 선택해도 change가 또 발생하도록 초기화
+// 2. 파일 업로드 — 여러 개를 한 번에 올릴 수 있고(멀티), 지금 보고 있는 폴더 안으로
+// 바로 들어간다. 업로드가 끝나도 그 책을 바로 열지 않고 목록 화면에 그대로 머문다
+// — 여러 권을 올렸을 때 "그중 뭘 열지"를 사용자가 직접 고르게 한다.
+// 파일 선택창(#file-input)과 윈도우에서 끌어다 놓기(아래 setupOsFileDrop) 둘 다
+// 이 함수로 들어온다.
+async function uploadFiles(fileList) {
+  const selectedFiles = Array.from(fileList || []);
   if (selectedFiles.length === 0) return;
 
-  // <input accept=".txt">는 OS 파일 선택창의 필터일 뿐이라("모든 파일"로 바꾸면
-  // 뭐든 고를 수 있다) 실제로 올리기 전에 확장자를 한 번 더 검사해야 진짜로
-  // .txt만 들어온다. 대소문자 구분 없이 .txt로 끝나는 것만 통과시킨다.
+  // <input accept=".txt">는 OS 파일 선택창의 필터일 뿐이고("모든 파일"로 바꾸면
+  // 뭐든 고를 수 있다), 드래그 앤 드롭엔 그런 필터조차 없다 — 올리기 전에 확장자를
+  // 검사해서 대소문자 구분 없이 .txt로 끝나는 것만 통과시킨다.
   const files = selectedFiles.filter((f) => /\.txt$/i.test(f.name));
   const rejectedCount = selectedFiles.length - files.length;
   if (files.length === 0) {
@@ -755,7 +756,59 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
   } else {
     setStatus(files.length > 1 ? `${files.length}개 파일 업로드 완료!` : "업로드 완료!");
   }
+}
+
+document.getElementById('file-input').addEventListener('change', (e) => {
+  const list = e.target.files;
+  e.target.value = ''; // 같은 파일(들)을 다시 선택해도 change가 또 발생하도록 초기화
+  uploadFiles(list);
 });
+
+// 윈도우 파일 탐색기 등에서 .txt를 "내 서재" 화면 위로 끌어다 놓으면 업로드한다.
+// ⚠️ 내부 항목 순서변경 드래그(setupLibraryDragAndDrop, pointer* 이벤트)와는 이벤트
+// 계열이 달라(drag*) 서로 간섭하지 않는다.
+(function setupOsFileDrop() {
+  const screen = document.getElementById('library-screen');
+  if (!screen) return;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'library-drop-overlay';
+  overlay.innerHTML = '<div class="library-drop-inner">여기에 놓으면 업로드<br><small>.txt 파일</small></div>';
+  screen.appendChild(overlay);
+
+  const hasFiles = (e) => Array.from((e.dataTransfer && e.dataTransfer.types) || []).includes('Files');
+  let dragDepth = 0; // dragenter/leave가 자식 요소마다 튀므로 깊이로 센다
+  const clearActive = () => { dragDepth = 0; screen.classList.remove('drop-active'); };
+
+  screen.addEventListener('dragenter', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth++;
+    screen.classList.add('drop-active');
+  });
+  screen.addEventListener('dragover', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  screen.addEventListener('dragleave', (e) => {
+    if (!hasFiles(e)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) screen.classList.remove('drop-active');
+  });
+  screen.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    clearActive();
+    uploadFiles(e.dataTransfer.files);
+  });
+
+  // 파일을 화면 아무 데나(또는 드롭 존 밖에) 떨어뜨렸을 때 브라우저가 그 파일로
+  // 이동해버리는(=앱이 통째로 사라지는) 기본 동작을 전역에서 막는다.
+  window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+  window.addEventListener('drop', (e) => { if (hasFiles(e)) e.preventDefault(); });
+  window.addEventListener('dragend', clearActive);
+})();
 
 // ── 서재 시트 공통: 텍스트 입력(이름/새 폴더) ──────────────────────────
 let textInputResolver = null;

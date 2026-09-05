@@ -104,6 +104,25 @@
       padding: 24px; z-index: 5;
     }
 
+    /* 윈도우에서 .txt를 화면 위로 끌고 오는 동안만 보이는 드롭 안내 오버레이
+       (js/library.js의 setupOsFileDrop이 #library-screen에 .drop-active를 토글). */
+    #library-drop-overlay {
+      position: absolute; inset: 0; z-index: 50;
+      display: none; align-items: center; justify-content: center;
+      background: rgba(58, 42, 24, 0.30);
+      backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+      pointer-events: none; /* 드래그 이벤트가 그 아래 #library-screen으로 그대로 가게 */
+    }
+    #library-screen.drop-active #library-drop-overlay { display: flex; }
+    .library-drop-inner {
+      border: 2px dashed rgba(242, 238, 228, 0.9);
+      border-radius: 16px; padding: 28px 44px;
+      color: #F2EEE4; font-weight: 700; font-size: 15px;
+      text-align: center; line-height: 1.7;
+      background: rgba(58, 42, 24, 0.65);
+    }
+    .library-drop-inner small { font-weight: 500; opacity: 0.75; font-size: 12px; }
+
     .library-panel {
       width: min(480px, 92vw);
       /* "이어보기" 카드가 화면 아래에 고정으로 떠 있을 때, 그 카드 높이만큼을
