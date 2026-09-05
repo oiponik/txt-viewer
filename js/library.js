@@ -686,6 +686,72 @@ function renderLibraryBreadcrumb() {
   });
 }
 
+// 이미 books/에 있는 이름이 이 폴더 경로에 있다고 보여줄 문자열("내 서재 › A › B").
+function fileLocationLabel(name) {
+  const fid = fileFolderMap[name];
+  const path = fid ? folderBreadcrumbPath(fid) : [];
+  return path.length ? '내 서재 › ' + path.map((f) => f.name).join(' › ') : '내 서재';
+}
+
+// "파일.txt" → 아직 안 쓰는 "파일 (2).txt" / "파일 (3).txt" ...
+function suggestFreeName(name) {
+  const dot = name.lastIndexOf('.');
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : '';
+  for (let i = 2; i < 1000; i++) {
+    const cand = `${base} (${i})${ext}`;
+    if (!allStorageFileNames.includes(cand)) return cand;
+  }
+  return `${base} (${Date.now()})${ext}`;
+}
+
+// 시트류(openItemActionSheet / promptTextInput)는 콜백 기반이고 "그냥 닫기"(✕/배경 탭)
+// 나 빈 값 제출에는 콜백이 없어서, 그대로 await하면 영영 안 풀린다. 대신 패널이
+// screen-hidden으로 닫히는 걸(어떤 경로로든) 지켜본다 — run(setResult)에서 결과를
+// 담아뒀으면 그 값으로, 아무것도 없이 닫히면 undefined로 resolve.
+// (closeSheet는 클래스만 동기적으로 바꾸고, MutationObserver 콜백은 마이크로태스크라
+//  "closeSheet → 버튼 onClick(setResult)" 순서로 실행된 뒤에 값을 읽는다.)
+function awaitSheetResult(panelId, run) {
+  return new Promise((resolve) => {
+    const panel = document.getElementById(panelId);
+    let result;
+    let done = false;
+    const mo = new MutationObserver(() => {
+      if (done || !panel.classList.contains('screen-hidden')) return;
+      done = true;
+      mo.disconnect();
+      resolve(result);
+    });
+    mo.observe(panel, { attributes: true, attributeFilter: ['class'] });
+    run((v) => { result = v; });
+  });
+}
+
+// 중복 이름 하나에 대해 사용자에게 물어본다 → { action: 'overwrite' | 'skip', newName? }
+async function askDuplicateAction(name) {
+  const action = await awaitSheetResult('item-action-panel', (setResult) => {
+    openItemActionSheet(`'${name}' — ${fileLocationLabel(name)}에 이미 있어요`, [
+      { label: '덮어쓰기', onClick: () => setResult('overwrite') },
+      { label: '다른 이름으로 등록', onClick: () => setResult('rename') },
+      { label: '건너뛰기', onClick: () => setResult('skip') },
+    ]);
+  });
+  if (action !== 'rename') return { action: action || 'skip' };
+
+  // "다른 이름으로 등록" → 이름 입력(취소/빈 값이면 건너뛰기, 그 이름도 이미 있으면 안내 후 건너뛰기)
+  const typed = await awaitSheetResult('text-input-panel', (setResult) => {
+    promptTextInput('다른 이름으로 등록', suggestFreeName(name), (v) => setResult(v));
+  });
+  const trimmed = (typed || '').trim();
+  if (!trimmed) return { action: 'skip' };
+  const finalName = /\.txt$/i.test(trimmed) ? trimmed : trimmed + '.txt';
+  if (allStorageFileNames.includes(finalName)) {
+    setStatus('그 이름도 이미 있어요 — 이 파일은 건너뛸게요');
+    return { action: 'skip' };
+  }
+  return { action: 'rename', newName: finalName };
+}
+
 // 2. 파일 업로드 — 여러 개를 한 번에 올릴 수 있고(멀티), 지금 보고 있는 폴더 안으로
 // 바로 들어간다. 업로드가 끝나도 그 책을 바로 열지 않고 목록 화면에 그대로 머문다
 // — 여러 권을 올렸을 때 "그중 뭘 열지"를 사용자가 직접 고르게 한다.
@@ -698,9 +764,9 @@ async function uploadFiles(fileList) {
   // <input accept=".txt">는 OS 파일 선택창의 필터일 뿐이고("모든 파일"로 바꾸면
   // 뭐든 고를 수 있다), 드래그 앤 드롭엔 그런 필터조차 없다 — 올리기 전에 확장자를
   // 검사해서 대소문자 구분 없이 .txt로 끝나는 것만 통과시킨다.
-  const files = selectedFiles.filter((f) => /\.txt$/i.test(f.name));
-  const rejectedCount = selectedFiles.length - files.length;
-  if (files.length === 0) {
+  const txtFiles = selectedFiles.filter((f) => /\.txt$/i.test(f.name));
+  const rejectedCount = selectedFiles.length - txtFiles.length;
+  if (txtFiles.length === 0) {
     setStatus('.txt 파일만 업로드할 수 있어요');
     return;
   }
@@ -714,22 +780,43 @@ async function uploadFiles(fileList) {
     return;
   }
 
+  // 이미 있는 이름은 조용히 덮어쓰지 않고 파일별로 물어본다 → 올릴 목록을
+  // { file, uploadName }으로 확정한다(건너뛴 건 제외).
+  const plan = [];
+  let skipped = 0;
+  for (const file of txtFiles) {
+    if (!allStorageFileNames.includes(file.name)) {
+      plan.push({ file, uploadName: file.name });
+      continue;
+    }
+    const choice = await askDuplicateAction(file.name);
+    if (choice.action === 'overwrite') plan.push({ file, uploadName: file.name });
+    else if (choice.action === 'rename') plan.push({ file, uploadName: choice.newName });
+    else skipped++;
+  }
+  if (plan.length === 0) {
+    setStatus(skipped > 0 ? '전부 건너뛰었어요' : '업로드할 파일이 없어요');
+    return;
+  }
+
   // 폴더 구조는 관리자만 바꿀 수 있어서, 관리자가 아니면 지금 어느 폴더를 보고
   // 있었든 업로드된 파일은 항상 루트("내 서재")에 놓인다 — 정리는 관리자 몫.
   const assignFolder = isAdminUser() && currentFolderId;
 
   // 낙관적 반영 — 목록에 먼저 넣고 그린다. 실제 업로드는 뒤에서 돌고, 실패한 것만 뺀다.
   // (fetchFileList로 전체 재조회 → "서재 불러오는 중..." 로 목록이 깜빡이던 걸 없앤다)
-  const addedNames = files.map((f) => f.name).filter((n) => !allStorageFileNames.includes(n));
+  // ⚠️ 덮어쓰기는 이름이 이미 목록에 있으니 addedNames에 안 들어가고 폴더도 안 옮긴다
+  //    (그 파일은 원래 있던 자리에 그대로). 새 이름(신규/다른 이름 등록)만 이 폴더로.
+  const addedNames = plan.map((p) => p.uploadName).filter((n) => !allStorageFileNames.includes(n));
   addedNames.forEach((n) => allStorageFileNames.push(n));
-  if (assignFolder) files.forEach((f) => { fileFolderMap[f.name] = currentFolderId; });
+  if (assignFolder) addedNames.forEach((n) => { fileFolderMap[n] = currentFolderId; });
   renderLibraryView();
-  setStatus(files.length > 1 ? `${files.length}개 파일 업로드 중...` : "Storage 업로드 중...");
+  setStatus(plan.length > 1 ? `${plan.length}개 파일 업로드 중...` : "Storage 업로드 중...");
 
   const results = await Promise.allSettled(
-    files.map((file) => uploadBytes(ref(storage, 'books/' + file.name), file))
+    plan.map((p) => uploadBytes(ref(storage, 'books/' + p.uploadName), p.file))
   );
-  const failedNames = files.filter((_, i) => results[i].status === 'rejected').map((f) => f.name);
+  const failedNames = plan.filter((_, i) => results[i].status === 'rejected').map((p) => p.uploadName);
   const failCount = failedNames.length;
 
   if (failCount > 0) {
@@ -744,17 +831,21 @@ async function uploadFiles(fileList) {
   }
 
   let folderSaveOk = true;
-  if (assignFolder && failCount < results.length) folderSaveOk = await saveLibraryState();
+  if (assignFolder && failCount < results.length && addedNames.length > 0) folderSaveOk = await saveLibraryState();
   saveOfflineLibrarySnapshot();
 
+  const okCount = plan.length - failCount;
+  const extras = [];
+  if (rejectedCount > 0) extras.push(`.txt 아닌 ${rejectedCount}개 제외`);
+  if (skipped > 0) extras.push(`${skipped}개 건너뜀`);
+  const tail = extras.length ? ` (${extras.join(', ')})` : '';
+
   if (failCount > 0) {
-    setStatus(`${files.length - failCount}개 성공, ${failCount}개 실패`);
+    setStatus(`${okCount}개 완료, ${failCount}개 실패${tail}`);
   } else if (!folderSaveOk) {
     setStatus('업로드는 됐지만 폴더 지정에 실패했어요');
-  } else if (rejectedCount > 0) {
-    setStatus(`${files.length}개 업로드 완료 (.txt 아닌 ${rejectedCount}개 제외)`);
   } else {
-    setStatus(files.length > 1 ? `${files.length}개 파일 업로드 완료!` : "업로드 완료!");
+    setStatus((plan.length > 1 ? `${plan.length}개 파일 업로드 완료!` : "업로드 완료!") + tail);
   }
 }
 
