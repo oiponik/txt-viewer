@@ -243,7 +243,7 @@ Bookify — 로그인한 사용자가 `.txt` 파일을 업로드해서 페이지
   - 한 번에 여러 개 중복 시 파일별로 순차 질문(await 루프). "모두 적용" 옵션은 안 넣음(원래 선택사항).
 - ✅ **완료·커밋됨 (2026-08-28 — 뷰어에서 Esc: UI 닫기 / 내 서재로)**: 사용자 요청 — 책 뷰어 화면에서 Esc를 누르면, 열린 UI(시트)가 있으면 그것부터 닫고, 없으면 내 서재로 나간다.
   - **`js/reader.js`**: 뷰어 `keydown` 리스너(이미 방향키/Space/Enter 처리)에 `Escape` 분기 추가. `document.querySelectorAll('.sheet-panel:not(.screen-hidden)')`가 있으면 **맨 뒤(가장 최근에 연 = 맨 위) 것만** `closeSheet` — Esc는 한 겹씩 벗긴다. 없으면 `showLibraryScreen()` + `refreshRecentFiles()`(back-to-library 버튼과 동일). `e.preventDefault()`. 리스너 최상단 가드(`!bookMounted || viewerScreen이 screen-hidden`)가 그대로 있어서 **서재 화면에선 Esc 무동작**.
-  - 몰입 모드는 Esc로 먼저 해제하지 않음(탭 한 번에 UI 다시 뜨는데 "Esc 1번=몰입해제, 2번=나가기"는 헷갈림 — 사용자 동의). 폰엔 Esc 없으니 PC/키보드 태블릿 전용, 순수 추가.
-  - **`index.html`**: `#shortcuts-help-view`(도움말)에 "창 닫기 · 내 서재로 — Esc" 행 추가.
-  - `CACHE_VERSION` `v119`→`v120`.
-  - **검증**: dev 세션 — (1) 시트 열고 Esc → 시트만 닫히고 뷰어 유지, (2) 아무것도 안 열린 상태 Esc → 내 서재로 이동, (3) 시트 2개 겹쳐 열고 Esc → 맨 위 것만 닫히고 아래는 유지·뷰어 유지, (4) 서재 화면에서 Esc → 무동작. 콘솔 에러 0.
+  - **v121 추가(사용자 재요청)**: "화면 가운데를 눌러 뜨는 UI(사이드바/헤더)"도 Esc가 닫게. 이제 3단계: (1) 열린 시트 → 맨 위 것만 닫기, (2) 시트 없고 chrome(사이드바/헤더)이 떠 있으면(`!body.immersive`) → `hideChrome()`(몰입 모드로), (3) 그것도 아니면 내 서재로. (앞서 "몰입은 Esc로 안 건드림"이라 합의했었지만, 가운데 탭 UI를 "닫아야 할 UI"로 보는 게 맞다는 재요청으로 변경.) 도움말 행도 "UI 닫기 · 내 서재로 — Esc"로.
+  - 폰엔 Esc 없으니 PC/키보드 태블릿 전용, 순수 추가.
+  - `CACHE_VERSION` `v119`→`v120`→`v121`.
+  - **검증**: dev 세션 — (1) 시트 열고 Esc → 시트만 닫힘·뷰어 유지, (2) chrome 떠 있을 때 Esc → 몰입 모드로 숨김·뷰어 유지, (3) 몰입 + 아무것도 안 열림 Esc → 내 서재로, (4) 시트+chrome 둘 다 떠 있을 때 Esc → 시트만 닫힘(chrome 유지), (5) 시트 2개 겹침 Esc → 맨 위만, (6) 서재 화면 Esc → 무동작. 콘솔 에러 0.

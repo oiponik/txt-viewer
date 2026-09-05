@@ -2540,11 +2540,15 @@ window.addEventListener('keydown', (e) => {
   if (!bookMounted || viewerScreen.classList.contains('screen-hidden')) return;
   if (e.key === "Escape") {
     e.preventDefault();
-    // ESC는 한 겹씩 벗긴다 — 열린 시트(검색/책갈피/뷰어 설정 등)가 있으면 맨 위 것만
-    // 닫고, 아무것도 안 열려 있으면 그때 내 서재로 나간다(back-to-library 버튼과 동일).
+    // ESC는 한 겹씩 벗긴다:
+    //  1) 열린 시트(검색/책갈피/뷰어 설정 등)가 있으면 맨 위 것만 닫기
+    //  2) 화면 가운데를 눌러 떠 있는 UI(사이드바/헤더)가 있으면 그걸 숨기기(몰입 모드로)
+    //  3) 아무것도 없으면 그때 내 서재로 나간다(back-to-library 버튼과 동일)
     const openSheets = [...document.querySelectorAll('.sheet-panel:not(.screen-hidden)')];
     if (openSheets.length > 0) {
       closeSheet(openSheets[openSheets.length - 1].id);
+    } else if (!document.body.classList.contains('immersive')) {
+      hideChrome();
     } else {
       showLibraryScreen();
       refreshRecentFiles();
