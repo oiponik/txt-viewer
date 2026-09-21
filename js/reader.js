@@ -18,6 +18,7 @@ import { markActiveFileRow, refreshRecentFiles } from "./library.js";
 import { isBookCached, isBookStale, getCachedBookText, cacheBookText } from "./offline-cache.js";
 import { playPortraitPageTurn, playSpreadPageTurn, isPortraitFlipAnimating, cancelPortraitFlip, coverPanelWithLeavingContent } from "./portrait-flip.js";
 import { mountWindow, clearWindow, showPage, showSpread } from "./page-window.js";
+import { reflowHardWrappedText } from "./text-reflow.js";
 
 export let currentFileName = "";
 export function setCurrentFileName(name) {
@@ -413,7 +414,8 @@ export async function loadFileFromStorage(fileName) {
       cacheBookText(fileName, text, meta ? { updated: meta.updated, size: meta.size } : null);
     }
 
-    rawTextData = text;
+    // 오프라인 캐시엔 원본이 저장되고, 하드랩(고정폭 줄바꿈) 재조립은 열 때마다 적용한다
+    rawTextData = reflowHardWrappedText(text);
     document.getElementById('current-title').textContent = fileName;
 
     // 다른 책(파일)의 기록 기준 시각이 남아있지 않도록 새로 여는 책마다 초기화
