@@ -69,6 +69,9 @@ const READING_FONTS = [
 const FONT_SIZE_SCALES = [0.8, 0.9, 1.0, 1.15, 1.3, 1.5];
 const FONT_SIZE_LABELS = ['아주 작게', '작게', '보통', '크게', '더 크게', '아주 크게'];
 const DEFAULT_FONT_SIZE_STEP = 2;
+const LINE_HEIGHTS = [1.4, 1.55, 1.65, 1.8, 2.0, 2.2]; // 줄 간격(line-height) 단계
+const LINE_HEIGHT_LABELS = ['아주 좁게', '좁게', '보통', '넓게', '더 넓게', '아주 넓게'];
+const DEFAULT_LINE_HEIGHT_STEP = 2; // 1.65 = 예전 고정값
 
 // 문단 너비 — 각 단계는 "읽기 패널 폭의 몇 %를 한쪽 여백으로 쓸지"다. 값이 클수록
 // 여백이 넓고 글자 열이 좁다. .page의 좌우 padding(--reading-padding-x)에 px로 계산돼
@@ -104,6 +107,7 @@ let readerPrefs = {
   fontId: 'system',
   fontSizeStep: DEFAULT_FONT_SIZE_STEP,
   paragraphWidthStep: DEFAULT_PARAGRAPH_WIDTH_STEP,
+  lineHeightStep: DEFAULT_LINE_HEIGHT_STEP,
   brightness: 100, // 100 = 정상 밝기, 낮을수록 화면 위에 어두운 막을 씌운다. 설정 시트에는
   // 더 이상 슬라이더가 없다 — 읽기 화면에서 위/아래로 스와이프해서 바로 조절한다.
 };
@@ -1291,6 +1295,7 @@ export async function loadReaderPrefs() {
     fontId: (profile && profile.fontId) || 'system',
     fontSizeStep: (profile && typeof profile.fontSizeStep === 'number') ? profile.fontSizeStep : DEFAULT_FONT_SIZE_STEP,
     paragraphWidthStep: (profile && typeof profile.paragraphWidthStep === 'number') ? profile.paragraphWidthStep : DEFAULT_PARAGRAPH_WIDTH_STEP,
+    lineHeightStep: (profile && typeof profile.lineHeightStep === 'number' && LINE_HEIGHTS[profile.lineHeightStep]) ? profile.lineHeightStep : DEFAULT_LINE_HEIGHT_STEP,
     brightness: (profile && typeof profile.brightness === 'number') ? profile.brightness : 100,
   };
   readerPrefsLoaded = true;
@@ -1352,6 +1357,7 @@ function applyReaderPrefs() {
   root.setProperty('--reading-font-family', font.stack);
   root.setProperty('--reading-font-scale', String(scale));
   root.setProperty('--reading-padding-x', paddingX);
+  root.setProperty('--reading-line-height', String(LINE_HEIGHTS[readerPrefs.lineHeightStep] ?? LINE_HEIGHTS[DEFAULT_LINE_HEIGHT_STEP]));
 
   const overlay = document.getElementById('brightness-overlay');
   if (overlay) {
@@ -1387,6 +1393,13 @@ function updateSettingsPanelUI() {
   const widthPlusBtn = document.getElementById('paragraph-width-plus');
   if (widthMinusBtn) widthMinusBtn.disabled = prefs.paragraphWidthStep <= 0;
   if (widthPlusBtn) widthPlusBtn.disabled = prefs.paragraphWidthStep >= PARAGRAPH_WIDTH_FRACTIONS.length - 1;
+
+  const lhLabel = document.getElementById('line-height-label');
+  if (lhLabel) lhLabel.textContent = LINE_HEIGHT_LABELS[prefs.lineHeightStep] || '보통';
+  const lhMinusBtn = document.getElementById('line-height-minus');
+  const lhPlusBtn = document.getElementById('line-height-plus');
+  if (lhMinusBtn) lhMinusBtn.disabled = prefs.lineHeightStep <= 0;
+  if (lhPlusBtn) lhPlusBtn.disabled = prefs.lineHeightStep >= LINE_HEIGHTS.length - 1;
 }
 
 // 미리보기 카드를 draftReaderPrefs 기준으로 다시 칠한다 — 실제 책(.page)에는 손대지 않는다.
@@ -1408,6 +1421,7 @@ function updateSettingsPreview() {
   // 전용 변수만 채운다 — "적용" 전까지 실제 화면에 새어나가지 않게 하기 위함.
   preview.style.setProperty('--preview-font-scale', String(scale));
   preview.style.setProperty('--preview-padding-x', paddingX);
+  preview.style.setProperty('--preview-line-height', String(LINE_HEIGHTS[draftReaderPrefs.lineHeightStep] ?? LINE_HEIGHTS[DEFAULT_LINE_HEIGHT_STEP]));
 }
 
 // 테마 스와치/글꼴 칩을 (한 번만) 그린다 — 위 배열이 그대로 UI가 된다.
@@ -1526,6 +1540,19 @@ document.getElementById('paragraph-width-plus').addEventListener('click', () => 
   updateSettingsPanelUI();
 });
 
+document.getElementById('line-height-minus').addEventListener('click', () => {
+  if (draftReaderPrefs.lineHeightStep <= 0) return;
+  draftReaderPrefs.lineHeightStep -= 1;
+  updateSettingsPreview();
+  updateSettingsPanelUI();
+});
+document.getElementById('line-height-plus').addEventListener('click', () => {
+  if (draftReaderPrefs.lineHeightStep >= LINE_HEIGHTS.length - 1) return;
+  draftReaderPrefs.lineHeightStep += 1;
+  updateSettingsPreview();
+  updateSettingsPanelUI();
+});
+
 // "적용" — draft를 실제 readerPrefs에 옮기고, 그때만 화면/저장/재분할을 실행한다.
 // brightness는 draft에 손대지 않는다 — 읽기 화면 스와이프로 언제든 별도로 바뀔 수 있는
 // 값이라, 여기서 그대로 덮어쓰면 시트가 열려있는 동안 스와이프로 바꾼 밝기가 "적용" 클릭
@@ -1535,12 +1562,14 @@ document.getElementById('apply-reader-prefs-btn').addEventListener('click', () =
   const layoutChanged =
     draftReaderPrefs.fontId !== readerPrefs.fontId ||
     draftReaderPrefs.fontSizeStep !== readerPrefs.fontSizeStep ||
-    draftReaderPrefs.paragraphWidthStep !== readerPrefs.paragraphWidthStep;
+    draftReaderPrefs.paragraphWidthStep !== readerPrefs.paragraphWidthStep ||
+    draftReaderPrefs.lineHeightStep !== readerPrefs.lineHeightStep;
 
   readerPrefs.themeId = draftReaderPrefs.themeId;
   readerPrefs.fontId = draftReaderPrefs.fontId;
   readerPrefs.fontSizeStep = draftReaderPrefs.fontSizeStep;
   readerPrefs.paragraphWidthStep = draftReaderPrefs.paragraphWidthStep;
+  readerPrefs.lineHeightStep = draftReaderPrefs.lineHeightStep;
 
   applyReaderPrefs();
   flushReaderPrefsSave(); // "적용"은 1회성 클릭이라 디바운스가 필요 없다 — 바로 저장
@@ -1955,7 +1984,9 @@ async function buildFlipBook() {
   // 캐시 키에 포함한다 — 이름은 예전 그대로 두지만 셋 다 여기 들어간다.
   // ⚠️ 'v2:' 접두사 — 2026-08-28에 문단너비 단계의 실제 여백 뜻이 바뀌었다(vw clamp →
   // 패널폭 비율). 단계 번호는 그대로라 접두사 없이는 옛 분할 캐시가 잘못 재사용된다.
-  const fontKey = 'v2:' + readerPrefs.fontId + ':' + readerPrefs.fontSizeStep + ':' + readerPrefs.paragraphWidthStep;
+  const fontKey = 'v2:' + readerPrefs.fontId + ':' + readerPrefs.fontSizeStep + ':' + readerPrefs.paragraphWidthStep +
+    // 기본값일 땐 안 붙여서, 이 옵션이 생기기 전에 저장된 분할 캐시가 그대로 유효하다
+    (readerPrefs.lineHeightStep !== DEFAULT_LINE_HEIGHT_STEP ? ':lh' + readerPrefs.lineHeightStep : '');
   const cacheKey = currentFileName + '::' + bookWidth + '::' + bookHeight + '::' + fontKey;
   let paginationResult = paginationCache.get(cacheKey)
     || loadPersistedPagination(currentFileName, bookWidth, bookHeight, rawTextData, fontKey);

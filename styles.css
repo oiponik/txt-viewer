@@ -80,6 +80,7 @@
          reader.js가 읽기 패널 폭의 비율(PARAGRAPH_WIDTH_FRACTIONS)로 px 계산해서
          buildFlipBook()/applyReaderPrefs()에서 :root에 덮어쓴다("뷰어 설정 → 문단 너비"). */
       --reading-padding-x: 8vw;
+      --reading-line-height: 1.65; /* "줄 간격" 설정 — reader.js가 덮어쓴다 */
     }
 
     * { box-sizing: border-box; }
@@ -924,7 +925,7 @@
       /* 뷰어 설정의 "글자 크기"는 이 반응형 기준 크기에 배율(--reading-font-scale)을
          곱하는 방식이라, 화면 크기별 반응형 스케일링은 그대로 유지된다 */
       font-size: calc(var(--reading-font-scale) * clamp(13px, 1.1vw + 0.6rem, 16px));
-      line-height: 1.65;
+      line-height: var(--reading-line-height);
       /* ⚠️ 2026-08-25: 예전엔 여기서 `display:flex; flex-direction:column;
          justify-content:space-between;`로 .page-footer를 바닥에 고정했는데, 실기기
          콘솔로 확인해보니 PageFlip 라이브러리가 실제 페이지를 그릴 때
@@ -1249,7 +1250,7 @@
     }
     .settings-preview-page {
       height: 130px; overflow: hidden;
-      line-height: 1.6;
+      line-height: var(--preview-line-height, 1.65);
       padding-top: 16px; padding-bottom: 16px;
       transition: background-color 0.15s ease, color 0.15s ease;
       /* 글자 크기/문단 너비는 실제 책(.page)과 정확히 같은 계산식을 그대로 재사용한다 —
